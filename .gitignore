@@ -4,6 +4,7 @@
 *.class
 *.log
 *.jks
+*.jar
 
 *.iml
 .gradle/
