@@ -20,8 +20,6 @@ public abstract class OS {
     public static final int O_WRONLY = 1;    // 0b0000000000000000000001;
     public static final int O_RDWR = 1 << 1;
 
-    public abstract void closeDir(@Fd int fd);
-
     public abstract Directory list(@Fd int fd);
 
     public abstract @Fd int open(String path, @OpenFlag int flags, int mode) throws IOException;
@@ -29,6 +27,8 @@ public abstract class OS {
     public abstract @DirFd int opendir(String path, @OpenFlag int flags, int mode) throws IOException;
 
     public abstract void close(@Fd int fd) throws IOException;
+
+    public abstract void closeDir(@Fd int fd);
 
     public static OS getInstance() throws IOException {
         return new Android();

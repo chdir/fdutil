@@ -72,7 +72,7 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_DirectoryImpl_rewind(JNIEnv *env, jclas
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_net_sf_fdlib_DirectoryImpl_seekTo(JNIEnv *env, jclass type, jint dirFd, jlong cookie) {
+JNIEXPORT jlong JNICALL Java_net_sf_fdlib_DirectoryImpl_seekTo(JNIEnv *env, jclass type, jint dirFd, jlong cookie) {
     loff_t result = 0;
 
     if (result == cookie) {
@@ -83,14 +83,10 @@ JNIEXPORT jboolean JNICALL Java_net_sf_fdlib_DirectoryImpl_seekTo(JNIEnv *env, j
     unsigned long off_lo = static_cast<unsigned long>(cookie);
     if (sys__llseek((uint) dirFd, off_hi, off_lo, &result, SEEK_SET) < 0) {
         handleError(env);
-        return JNI_FALSE;
+        return -1;
     }
 
-    if (result != cookie) {
-        return JNI_FALSE;
-    }
-
-    return JNI_TRUE;
+    return result;
 }
 
 JNIEXPORT jint JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeReadNext(JNIEnv *env, jclass type, jint dirFd, jlong nativeBufferPtr, jint capacity) {

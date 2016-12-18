@@ -13,8 +13,6 @@ android {
         versionCode appVersionCode
         versionName '1.0'
 
-        testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
-
         buildConfigField 'int', 'NATIVE_VER', "$nativeVersionCode"
 
         externalNativeBuild {
@@ -44,6 +42,7 @@ dependencies {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
     compile 'com.carrotsearch:hppc:0.7.1'
+    //compile 'it.unimi.dsi:fastutil:7.0.13'
     compile 'com.android.support:appcompat-v7:24.2.1'
     testCompile 'junit:junit:4.12'
 }

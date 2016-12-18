@@ -1,11 +1,14 @@
 package net.sf.fakenames.fddemo;
 
 import android.content.Context;
+import android.os.Parcel;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
+import android.support.test.runner.MonitoringInstrumentation;
 
-import com.google.common.truth.Truth;
+import com.carrotsearch.hppc.IntArrayList;
 
+import net.sf.fdlib.DebugUtil;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
 import net.sf.fdlib.OS;
@@ -23,16 +26,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Formatter;
 import java.util.Random;
 import java.util.UUID;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
-
-/**
- * <a href="http://d.android.com/tools/testing/testing_android.html">Testing Fundamentals</a>
- */
 
 @RunWith(AndroidJUnit4.class)
 public class ApplicationTest {
@@ -56,7 +54,7 @@ public class ApplicationTest {
 
         final Random r = new Random();
 
-        fCount = 75 * 2 + r.nextInt(30) * 75;
+        fCount = 75 * 2 + r.nextInt(10) * 75;
 
         for (int i = 0; i < fCount; ++i) {
             final File randomFile = new File(dir, UUID.randomUUID().toString());
@@ -90,19 +88,48 @@ public class ApplicationTest {
 
         Collections.addAll(normalIterationResult, dir.list());
 
-        Directory dir = os.list(descriptor);
+        try (Directory dir = os.list(descriptor)) {
+            for (Directory.Entry file : dir) {
+                if ("..".equals(file.name) || ".".equals(file.name)) {
+                    continue;
+                }
 
-        for (Directory.Entry file : dir) {
-            if ("..".equals(file.name) || ".".equals(file.name)) {
-                continue;
+                cursorIterationResult.add(file.name);
             }
 
-            cursorIterationResult.add(file.name);
+            assertThat(cursorIterationResult)
+                    .containsExactlyElementsIn(normalIterationResult)
+                    .inOrder();
         }
+    }
 
-        assertThat(cursorIterationResult)
-                .containsExactlyElementsIn(normalIterationResult)
-                .inOrder();
+    @Test
+    public void testStraightIteration2() throws IOException {
+        final ArrayList<String> normalIterationResult = new ArrayList<>();
+
+        final ArrayList<String> cursorIterationResult = new ArrayList<>();
+
+        Collections.addAll(normalIterationResult, dir.list());
+
+        try (Directory dir = os.list(descriptor)) {
+            final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
+
+            Directory.Entry file = new Directory.Entry();
+
+            while (iterator.moveToNext()) {
+                iterator.get(file);
+
+                if ("..".equals(file.name) || ".".equals(file.name)) {
+                    continue;
+                }
+
+                cursorIterationResult.add(file.name);
+            }
+
+            assertThat(cursorIterationResult)
+                    .containsExactlyElementsIn(normalIterationResult)
+                    .inOrder();
+        }
     }
 
     @Test
@@ -115,32 +142,34 @@ public class ApplicationTest {
 
         Collections.reverse(normalIterationResult);
 
-        Directory dir = os.list(descriptor);
+        try (Directory dir = os.list(descriptor)) {
+            final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
 
-        final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
-
-        iterator.moveToPosition(Integer.MAX_VALUE);
-
-        Directory.Entry file = new Directory.Entry();
-
-        do {
-            if (iterator.getPosition() == -1) {
-                break;
+            if (iterator.moveToPosition(Integer.MAX_VALUE)) {
+                throw new AssertionError("Moving to " + Integer.MAX_VALUE + " wasn't supposed to succeed!!");
             }
 
-            iterator.get(file);
+            Directory.Entry file = new Directory.Entry();
 
-            if ("..".equals(file.name) || ".".equals(file.name)) {
-                continue;
+            do {
+                if (iterator.getPosition() == -1) {
+                    break;
+                }
+
+                iterator.get(file);
+
+                if ("..".equals(file.name) || ".".equals(file.name)) {
+                    continue;
+                }
+
+                cursorIterationResult.add(file.name);
             }
+            while (iterator.moveToPrevious());
 
-            cursorIterationResult.add(file.name);
+            assertThat(cursorIterationResult)
+                    .containsExactlyElementsIn(normalIterationResult)
+                    .inOrder();
         }
-        while (iterator.moveToPrevious());
-
-        assertThat(cursorIterationResult)
-                .containsExactlyElementsIn(normalIterationResult)
-                .inOrder();
     }
 
     @Test
@@ -148,53 +177,64 @@ public class ApplicationTest {
         final ArrayList<String> normalIterationResult = new ArrayList<>();
         Collections.addAll(normalIterationResult, dir.list());
 
-        Directory dir = os.list(descriptor);
+        IntArrayList jumps = new IntArrayList();
 
-        final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
+        try (Directory dir = os.list(descriptor)) {
+            final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
 
-        final Random r = new Random();
+            final Random r = new Random();
 
-        int jumpCount = 100 + r.nextInt(500);
+            int jumpCount = 1000 + r.nextInt(2000);
 
-        if (!iterator.moveToPosition(2)) {
-            throw new AssertionError("Failed to move to 2 within " + fCount);
-        }
-
-        int pos;
-
-        final Directory.Entry file = new Directory.Entry();
-
-        for (int i = 0; i < jumpCount; ++i) {
-            pos = iterator.getPosition();
-
-            int jumpLength = 5 + r.nextInt(20);
-            boolean backward = r.nextBoolean();
-            int newPos = backward
-                    ? Math.max(0, pos - jumpLength)
-                    : Math.min(fCount - 1, pos + jumpLength);
-
-            final String expected = normalIterationResult.get(newPos);
-
-            if (!iterator.moveToPosition(newPos + 2)) {
-                throw new AssertionError("Failed to move to " + newPos + " within " + fCount);
+            if (!iterator.moveToPosition(2)) {
+                throw new AssertionError("Failed to move to 2 from -1 within " + fCount);
             }
 
-            iterator.get(file);
+            int pos;
 
-            final String got = file.name;
+            final Directory.Entry file = new Directory.Entry();
 
-            if (!expected.equals(got)) {
-                final ArrayList<String> linearView = new ArrayList<>();
-                try (Directory copy = dir.clone()) {
-                    for (Directory.Entry e : copy) {
-                        linearView.add(e.name);
-                    }
+            for (int i = 0; i < jumpCount; ++i) {
+                pos = iterator.getPosition();
+
+                int jumpLength = 5 + r.nextInt(20);
+                boolean backward = r.nextBoolean();
+                int newPos = backward
+                        ? Math.max(0, pos - jumpLength)
+                        : Math.min(fCount - 1, pos + jumpLength);
+
+                jumps.add(newPos);
+
+                final String expected = normalIterationResult.get(newPos);
+
+                final int cursorTarget = newPos + 2;
+
+                if (!iterator.moveToPosition(cursorTarget)) {
+                    throw new AssertionError("Failed to move to " + cursorTarget + " (" +  dir.getOpaqueIndex(newPos) + ")" +
+                            " from " + pos + " (" + dir.getOpaqueIndex(pos) + ")" +
+                            " reached " + iterator.getPosition() + " (" + dir.getOpaqueIndex(iterator.getPosition()) + ")" +
+                            " within " + fCount +
+                            " cookie list: " + DebugUtil.getCookieList(dir) +
+                            " jumps: " + jumps);
                 }
 
-                final String allItems = Arrays.toString(linearView.toArray(new String[linearView.size()]));
+                iterator.get(file);
 
-                assertWithMessage("moving from %s to %s yielded unexpected results, complete list: %s", pos, newPos + 2, allItems)
-                        .that(expected).isEqualTo(got);
+                final String got = file.name;
+
+                if (!expected.equals(got)) {
+                    final ArrayList<String> linearView = new ArrayList<>();
+                    try (Directory copy = dir.clone()) {
+                        for (Directory.Entry e : copy) {
+                            linearView.add(e.name);
+                        }
+                    }
+
+                    final String allItems = Arrays.toString(linearView.toArray(new String[linearView.size()]));
+
+                    assertWithMessage("moving from %s to %s yielded unexpected results, complete list: %s", pos, newPos + 2, allItems)
+                            .that(expected).isEqualTo(got);
+                }
             }
         }
     }

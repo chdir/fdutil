@@ -2,15 +2,17 @@ apply plugin: 'com.android.application'
 
 android {
     compileSdkVersion 24
-    buildToolsVersion "25.0.1"
+    buildToolsVersion '25.0.1'
     defaultConfig {
-        applicationId "net.sf.fakenames.fddemo"
+        applicationId 'net.sf.fakenames.fddemo'
         minSdkVersion 19
         targetSdkVersion 24
         versionCode 1
         versionName "1.0"
 
-        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
+
+        testInstrumentationRunnerArguments [['disableAnalytics' : 'true']]
     }
     buildTypes {
         release {

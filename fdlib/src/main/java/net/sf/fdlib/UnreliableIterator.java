@@ -52,7 +52,8 @@ public interface UnreliableIterator<E> extends Iterator<E> {
     boolean hasNext();
 
     /**
-     * Advances the iterator and returns the item at new position.
+     * Returns the item at the <strong>current</strong> position and advances the iterator.
+     * If the iterator is before 0 position (e.g. at -1), it will make an additional step first.
      *
      * @throws NoSuchElementException if advancement fails due to absence of next element
      * @throws RuntimeException if the advancement attempt fails for any other reason.
@@ -65,7 +66,9 @@ public interface UnreliableIterator<E> extends Iterator<E> {
      * directory descriptor does not automatically imply being able to delete contained files:
      * you still have to pass a security check and/or obtain the descriptor of each file in
      * question. This is inherently racy and may to result in {@link IOException},
-     * which violates both implicit and explicit contracts of {@link Iterator}.
+     * which violates both implicit and explicit contracts of {@link Iterator}. As such, the method
+     * is not implemented: when you want to delete a file use {@code unlink} system call with
+     * proper error handling.
      *
      * @deprecated always throws UnsupportedOperationException
      */

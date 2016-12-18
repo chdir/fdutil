@@ -11,6 +11,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.NoSuchElementException;
 
+import static net.sf.fdlib.DebugAsserts.failIf;
+
 final class DirectoryImpl implements Directory {
     // "Maximum" length of filename
     // As of 2016 ext3/ext4 limit name lengths to 256 bytes
@@ -79,8 +81,8 @@ final class DirectoryImpl implements Directory {
     }
 
     // seek to specified opaque "position"
-    // returns true on success
-    private static native boolean seekTo(int dirFd, long cookie) throws IOException;
+    // returns new position on success
+    private static native long seekTo(int dirFd, long cookie) throws IOException;
 
     // seek to the start of directory (zeroth item)
     // should never fail because Linux directories have two items at minimal
@@ -146,7 +148,7 @@ final class DirectoryImpl implements Directory {
         }
     }
 
-    private final class DirectoryIterator implements UnreliableIterator<Entry> {
+    final class DirectoryIterator implements UnreliableIterator<Entry> {
         // Global position within directory contents.
         // It is not guaranteed to be stable across directory content changes,
         // because filesystems like ext4 order files by filename hash.
@@ -264,6 +266,23 @@ final class DirectoryImpl implements Directory {
             bufferStart = -1;
         }
 
+        private boolean seek(long cookie) throws IOException {
+            // check if this is our placeholder for removed elements
+            if (cookie == -1L) {
+                return false;
+            }
+
+            final long newPosition = seekTo(fd, cookie);
+
+            if (newPosition == cookie) {
+                reset();
+
+                return true;
+            }
+
+            return false;
+        }
+
         // Position the buffer at specified logical position by seeking the file descriptor,
         // given that it was previously encountered in directory "stream"
 
@@ -283,30 +302,32 @@ final class DirectoryImpl implements Directory {
 
                 position = advanceForward(target);
 
-                return true;
-            } else {
-                final long opaqueTargetIdx = cookieCache.get(target);
-
-                if (!seekTo(fd, opaqueTargetIdx)) {
-                    return false;
-                }
-
-                reset();
+                return position == target;
             }
 
-            if (readNext()) {
+            final int lastCached = cookieCache.size() - 1;
+
+            failIf(target > lastCached, "cursor state desynchronized");
+
+            final long targetPosCookie = cookieCache.get(target);
+
+            if (seek(targetPosCookie) && readNext()) {
                 position = bufferStart = target;
 
                 return true;
             }
 
-            // should never normally happen as long as directory contents do not change
-            // between calls seekTo and advanceForward
             throw new IOException("Directory contents changed");
         }
 
         // Position a buffer at specified logical position by repeatedly moving forward,
         // given that it is behind that position right now
+
+        // Implementation note: if the current entry is last in directory, the pointer to next
+        // entry will contain some garbage (for example, ext4 fills it with same cookie as for
+        // current position), furthermore, if the entry is the last in buffer and advancement races
+        // with file deletion/creation, the contents may be incorrect anyway (but that's of little
+        // concern, because
 
         // target > position, position != -1
         private int advanceForward(long target) throws IOException {
@@ -315,26 +336,73 @@ final class DirectoryImpl implements Directory {
 
             int entryLength;
             int currentPosition;
+            long nextCookie;
 
             for (currentPosition = position; currentPosition < target; ++currentPosition) {
-                if (currentPosition == cookieCache.size() - 1) {
-                    // next entry have never been encountered before
-                    final long nextCookie = byteBuffer.getLong(curBufPosBytes + GETDENTS_OFF_NEXT);
-
-                    cookieCache.add(nextCookie);
-                }
-
+                nextCookie = byteBuffer.getLong(curBufPosBytes + GETDENTS_OFF_NEXT);
                 entryLength = byteBuffer.getChar(curBufPosBytes + GETDENTS_OFF_LENGTH);
                 curBufPosBytes = curBufPosBytes + entryLength;
 
+                final int lastCached = cookieCache.size() - 1;
+                final boolean reachedHead = currentPosition == lastCached;
+
                 if (curBufPosBytes == curBufferLimit) {
-                    if (!readNext()) {
+                    if (nextCookie == 0 || nextCookie == -1) {
+                        // invalid cookie, likely end of the stream
+
+                        lastPosition = currentPosition;
+
                         return currentPosition;
                     }
+
+                    if (reachedHead && nextCookie == cookieCache.get(lastCached)) {
+                        // We are at the end of the stream and next cookie is a duplicate (!).
+                        // Bail without changing position to avoid adding the duplicate to list.
+
+                        lastPosition = currentPosition;
+
+                        return currentPosition;
+                    }
+
+                    if (!readNext()) {
+                        lastPosition = currentPosition;
+
+                        return currentPosition;
+                    }
+
+                    if (reachedHead) {
+                        cookieCache.add(nextCookie);
+                    }
+
                     curBufPosBytes = 0;
                     bufferStart = currentPosition + 1;
                     curBufferLimit = byteBuffer.limit();
                 } else {
+                    // Check if the next entry have never been encountered before.
+                    if (reachedHead) {
+                        // it wasn't, cache it
+                        cookieCache.add(nextCookie);
+                    } else {
+                        failIf(currentPosition > lastCached, "overrun detected");
+
+                        // it was, check if cached value matches the one reported by getdents
+                        final long cached = cookieCache.get(currentPosition + 1);
+
+                        if (cached != nextCookie) {
+                            // does this position still exist in underlying directory?
+                            if (seek(cached) && readNext()) {
+                                curBufPosBytes = 0;
+                                bufferStart = currentPosition + 1;
+                                curBufferLimit = byteBuffer.limit();
+
+                                continue;
+                            }
+
+                            // toto: recover if seeking does not change position
+                            throw new IOException("Directory contents changed");
+                        }
+                    }
+
                     byteBuffer.position(curBufPosBytes);
                 }
             }
@@ -367,7 +435,7 @@ final class DirectoryImpl implements Directory {
         @Override
         public boolean moveToPrevious() throws IOException {
             if (position == -1) {
-                throw new IllegalArgumentException("position must be > -1");
+                return false;
             }
 
             if (position == 0) {
@@ -446,9 +514,7 @@ final class DirectoryImpl implements Directory {
 
                 get(newEntry);
 
-                if (!moveToNext()) {
-                    lastPosition = position;
-                }
+                moveToNext();
 
                 return newEntry;
             } catch (IOException e) {
@@ -458,7 +524,7 @@ final class DirectoryImpl implements Directory {
 
         @Override
         public void remove() {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException("getdents does not support removal, use unlink()");
         }
 
         @Override
@@ -467,6 +533,18 @@ final class DirectoryImpl implements Directory {
                     "buffer at " + bufferStart + ":" + byteBuffer + "; " +
                     "overall position:" + position +
                     "]";
+        }
+
+        int getFd() {
+            return fd;
+        }
+
+        int bufferPosition() {
+            return byteBuffer.position();
+        }
+
+        long address() {
+            return nativePtr;
         }
     }
 }
