@@ -52,6 +52,8 @@ public class ApplicationTest {
     public static void init() throws IOException {
         dir = InstrumentationRegistry.getTargetContext().getDir("testDir", Context.MODE_PRIVATE);
 
+        cleanup();
+
         final Random r = new Random();
 
         fCount = 75 * 2 + r.nextInt(10) * 75;

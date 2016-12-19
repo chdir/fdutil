@@ -524,7 +524,7 @@ final class DirectoryImpl implements Directory {
 
         @Override
         public void remove() {
-            throw new UnsupportedOperationException("getdents does not support removal, use unlink()");
+            throw new UnsupportedOperationException("getdents does not support removal, use unlink");
         }
 
         @Override

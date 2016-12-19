@@ -55,6 +55,8 @@ public class InteractiveChanges {
     public static void init() throws IOException {
         dir = InstrumentationRegistry.getTargetContext().getDir("testDir2", Context.MODE_PRIVATE);
 
+        cleanup();
+
         final Random r = new Random();
 
         fCount = 75 * 2 + r.nextInt(4) * 75;
