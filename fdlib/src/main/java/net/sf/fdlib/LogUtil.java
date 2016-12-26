@@ -1,4 +1,4 @@
-package net.sf.fakenames.fddemo;
+package net.sf.fdlib;
 
 import android.support.annotation.NonNull;
 import android.util.Log;
@@ -8,7 +8,15 @@ import com.carrotsearch.hppc.CharArrayList;
 import java.io.PrintWriter;
 import java.io.Writer;
 
+@SuppressWarnings("WeakerAccess")
 public class LogUtil {
+    private static final boolean VERBOSE;
+    static {
+        VERBOSE = Boolean.valueOf(System.getProperty("net.sf.fdlib.VERBOSE"));
+    }
+
+    public static final String TAG = "fdlib";
+
     private static final class LogWriter extends Writer {
         private static final int CHUNK_SIZE = 2048;
 
@@ -17,9 +25,11 @@ public class LogUtil {
         CharArrayList charList = new CharArrayList(CHUNK_SIZE);
 
         private final String tag;
+        private final int priority;
 
-        LogWriter(String tag) {
+        LogWriter(String tag, int priority) {
             this.tag = tag;
+            this.priority = priority;
         }
 
         @Override
@@ -45,13 +55,13 @@ public class LogUtil {
         }
 
         private void flushAll() {
-            Log.println(Log.ERROR, tag, String.valueOf(charList.buffer, 0, charList.elementsCount));
+            Log.println(priority, tag, String.valueOf(charList.buffer, 0, charList.elementsCount));
             charList.elementsCount = 0;
         }
 
         private void flushExceptNewline() {
             // log contents of buffer except last newline (since println will add it's own)
-            Log.println(Log.ERROR, tag, String.valueOf(charList.buffer, 0, charList.elementsCount - 1));
+            Log.println(priority, tag, String.valueOf(charList.buffer, 0, charList.elementsCount - 1));
             charList.elementsCount = 0;
         }
 
@@ -85,27 +95,38 @@ public class LogUtil {
         }
     }
 
-    // TODO do something about StackOverflowError
-    @SuppressWarnings("WeakerAccess")
-    public static void printTraceCautiously(Throwable t) {
-        try (PrintWriter writer = new PrintWriter(new LogWriter("error"))) {
-            t.printStackTrace(writer);
+    public static void logCautiously(String message, Throwable t) {
+        final int priority = VERBOSE ? Log.ERROR : Log.VERBOSE;
+
+        try (PrintWriter writer = new PrintWriter(new LogWriter(TAG, priority))) {
+            writer.println(message);
+
+            if (VERBOSE) {
+                t.printStackTrace(writer);
+            } else {
+                writer.println(t.getClass().toString() + ' ' + t.getMessage());
+            }
 
             writer.flush();
 
-            Thread.sleep(80);
+            Thread.sleep(10);
         } catch (Throwable ignore) {
         }
     }
 
-    @SuppressWarnings("WeakerAccess")
-    public static void printStringCautiously(String t) {
-        try (PrintWriter writer = new PrintWriter(new LogWriter("error"))) {
-            writer.append(t);
+    public static void logCautiously(String message, String heavyContents) {
+        final int priority = VERBOSE ? Log.ERROR : Log.VERBOSE;
+
+        try (PrintWriter writer = new PrintWriter(new LogWriter(TAG, priority))) {
+            writer.println(message);
+
+            if (VERBOSE) {
+                writer.append(heavyContents);
+            }
 
             writer.flush();
 
-            Thread.sleep(80);
+            Thread.sleep(10);
         } catch (Throwable ignore) {
         }
     }

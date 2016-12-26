@@ -2,6 +2,7 @@ package net.sf.fakenames.fddemo;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.support.v7.widget.RecyclerView;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {

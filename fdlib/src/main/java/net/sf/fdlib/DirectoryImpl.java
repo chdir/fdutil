@@ -49,7 +49,7 @@ final class DirectoryImpl implements Directory {
     // cache references etc.
     private static native void nativeInit();
 
-    // allocate/release the initial direct buffer
+    // allocate/release the direct buffer
     private native ByteBuffer nativeCreate(int fd);
     private static native void nativeRelease(long bufferPointer);
 
@@ -82,15 +82,15 @@ final class DirectoryImpl implements Directory {
 
     // seek to specified opaque "position"
     // returns new position on success
-    private static native long seekTo(int dirFd, long cookie) throws IOException;
+    private static native long seekTo(int dirFd, long cookie) throws ErrnoException;
 
     // seek to the start of directory (zeroth item)
     // should never fail because Linux directories have two items at minimal
-    private static native void rewind(int dirFd) throws IOException;
+    private static native void rewind(int dirFd) throws ErrnoException;
 
     // read next dirent value into the buffer
     // returns count of bytes read (e.g. total size of all dirent structures read) or 0 on reaching end
-    private static native int nativeReadNext(int dirFd, long nativeBufferPtr, int capacity) throws IOException;
+    private static native int nativeReadNext(int dirFd, long nativeBufferPtr, int capacity) throws ErrnoException;
 
     // retrieve string bytes from byte buffer
     // returns number of bytes written (terminator byte is not written/counted)
@@ -136,16 +136,6 @@ final class DirectoryImpl implements Directory {
     @Override
     public void close() {
         nativeRelease(nativePtr);
-    }
-
-    @Override
-    @SuppressWarnings("CloneDoesntCallSuperClone")
-    public Directory clone() {
-        try {
-            return OS.getInstance().list(fd);
-        } catch (IOException e) {
-            throw new AssertionError(e);
-        }
     }
 
     final class DirectoryIterator implements UnreliableIterator<Entry> {

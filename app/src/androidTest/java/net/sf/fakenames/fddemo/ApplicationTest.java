@@ -1,10 +1,8 @@
 package net.sf.fakenames.fddemo;
 
 import android.content.Context;
-import android.os.Parcel;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.test.runner.MonitoringInstrumentation;
 
 import com.carrotsearch.hppc.IntArrayList;
 
@@ -226,10 +224,8 @@ public class ApplicationTest {
 
                 if (!expected.equals(got)) {
                     final ArrayList<String> linearView = new ArrayList<>();
-                    try (Directory copy = dir.clone()) {
-                        for (Directory.Entry e : copy) {
-                            linearView.add(e.name);
-                        }
+                    for (Directory.Entry e : dir) {
+                        linearView.add(e.name);
                     }
 
                     final String allItems = Arrays.toString(linearView.toArray(new String[linearView.size()]));
@@ -243,7 +239,7 @@ public class ApplicationTest {
 
     @After
     public void closeDir() {
-        os.closeDir(descriptor);
+        os.dispose(descriptor);
     }
 
     @AfterClass

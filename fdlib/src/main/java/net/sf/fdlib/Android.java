@@ -1,14 +1,19 @@
 package net.sf.fdlib;
 
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.telecom.Call;
 
 import net.sf.fakenames.fdlib.BuildConfig;
 
 import java.io.IOException;
+import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Callable;
 
 final class Android extends OS {
-    Android() throws IOException {
+    public Android() throws IOException {
         try {
             System.loadLibrary("coreio-" + BuildConfig.NATIVE_VER);
         } catch (UnsatisfiedLinkError loadLibraryFailed) {
@@ -27,6 +32,22 @@ final class Android extends OS {
     }
 
     @Override
+    public native void dup2(int source, int dest) throws IOException;
+
+    @Override
+    public native int inotify_init() throws IOException;
+
+    @Override
+    public Inotify observe(@InotifyFd int inotifyDescriptor) throws IOException {
+        return new InotifyImpl(inotifyDescriptor, Looper.myLooper());
+    }
+
+    @Override
+    public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) throws IOException {
+        return new InotifyImpl(inotifyDescriptor, looper);
+    }
+
+    @Override
     public Directory list(@Fd int fd) {
         return new DirectoryImpl(fd);
     }
@@ -36,7 +57,7 @@ final class Android extends OS {
     }
 
     @Override
-    public void closeDir(@DirFd int fd) {
+    public void dispose(@Fd int fd) {
         try {
             nativeClose(fd);
         } catch (IOException e) {

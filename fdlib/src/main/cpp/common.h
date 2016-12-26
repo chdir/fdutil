@@ -20,7 +20,8 @@ extern jmethodID errnoExceptionConstructor;
 
 extern size_t pageSize;
 
-extern jfieldID nativePointerField;
+extern jfieldID directoryImplPointerField;
+extern jfieldID inotifyImplPointerField;
 
 extern void handleError(JNIEnv *env);
 extern void handleError(JNIEnv *env, int lastError);

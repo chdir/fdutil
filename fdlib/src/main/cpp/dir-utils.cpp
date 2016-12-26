@@ -7,7 +7,7 @@
 extern "C" {
 
 JNIEXPORT void JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeInit(JNIEnv *env, jclass type) {
-    if ((nativePointerField = env -> GetFieldID(type, "nativePtr", "J")) == NULL) {
+    if ((directoryImplPointerField = env -> GetFieldID(type, "nativePtr", "J")) == NULL) {
         return;
     }
 }
@@ -54,7 +54,7 @@ JNIEXPORT jobject JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeCreate(JNIEnv *e
         return NULL;
     }
 
-    env ->SetLongField(self, nativePointerField, reinterpret_cast<jlong>(bufferAddress));
+    env ->SetLongField(self, directoryImplPointerField, reinterpret_cast<jlong>(bufferAddress));
 
     return bufferObj;
 }

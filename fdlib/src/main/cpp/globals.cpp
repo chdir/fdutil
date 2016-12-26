@@ -14,10 +14,16 @@ jmethodID errnoExceptionConstructor;
 
 size_t pageSize;
 
-jfieldID nativePointerField;
+jfieldID directoryImplPointerField;
+jfieldID inotifyImplPointerField;
 
-inline static void throwErrnoError(JNIEnv* env, int errCode, const char* message) {
-    jthrowable exception = reinterpret_cast<jthrowable>(env->NewObject(errnoException, errnoExceptionConstructor, errCode, message));
+inline static void throwErrnoError(JNIEnv* env, jint errCode, const char* message) {
+    jstring errorString = env -> NewStringUTF(message);
+    if (errorString == NULL) {
+        return;
+    }
+
+    jthrowable exception = reinterpret_cast<jthrowable>(env->NewObject(errnoException, errnoExceptionConstructor, errCode, errorString));
 
     if (exception == NULL) {
         return;

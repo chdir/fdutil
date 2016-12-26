@@ -20,6 +20,7 @@ add_library( # Sets the name of the library.
              # file are automatically included.
              globals.cpp
              dir-utils.cpp
+             inotify.cpp
              native-lib.cpp )
 
 # Searches for a specified prebuilt library and stores the path as a

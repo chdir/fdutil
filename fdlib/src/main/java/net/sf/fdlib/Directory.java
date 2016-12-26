@@ -1,12 +1,49 @@
 package net.sf.fdlib;
 
+import android.support.annotation.AnyThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import java.io.Closeable;
 import java.io.File;
 
-public interface Directory extends Iterable<Directory.Entry>, Closeable, Cloneable {
+/**
+ * A semi-living window into filesystem directory. This class offers a way to perform bidirectional
+ * iteration over directory contents without fully storing them in memory.
+ *
+ * <p/>
+ *
+ * Linux/Posix directories do have concept of "position", made available by {@code telldir} and
+ * {@code seekdir} C library functions. Unfortunately, that "position" is not required to be
+ * a sequential index, and some filesystems (such as ext4) use filename hashes or other opaque
+ * values to uniquely identify a file within directory. This class exposes a mapping between those
+ * values (to avoid further confusion let's call them "opaque indexes") and logical positions,
+ * perceived by user. This mapping is not guaranteed to be stable, so caller should take their own
+ * measures to handle any inconsistencies. Same goes for number of directory children.
+ *
+ * <p/>
+ *
+ * Total count of files within directory is not known at the time of calling {@code open} on
+ * directory descriptor and generally is not stored in filesystem at all. The only way to learn
+ * it is manually counting files by iterating over directory contents:
+ *
+ * <pre>
+ *     Directory dir = ...
+ *     UnreliableIterator iterator = dir.iterator();
+ *     iterator.moveToPosition(Integer.MAX_VALUE);
+ *     int filesTotal = iterator.getPosition() + 1;
+ * </pre>
+ *
+ * Doing so may take a substantial amount of time for very large directories. If you use this class
+ * to present a list of files in UI, consider not counting files in advance, but instead returning
+ * {@link Integer#MAX_VALUE} as "count" and refreshing the list contents as soon as the count is
+ * known.
+ *
+ * <p/>
+ *
+ * This class is not thread-safe.
+ */
+public interface Directory extends Iterable<Directory.Entry>, Closeable {
     /**
      * Iterators over Linux directories are weakly consistent. That is — they can usually
      * preserve their current position during failed advancement attempts, but aren't guaranteed to
@@ -24,6 +61,10 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable, Cloneab
      *
      * Note, that the inconsistencies in iterators contents do not apply to results of
      * {@link #getOpaqueIndex} — those are expected to be consistent at all times.
+     *
+     * <b/>
+     *
+     * <strong>Calling this method resets current directory offset.</strong>
      *
      * @return the iterator over directory entries
      *
@@ -100,8 +141,14 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable, Cloneab
         }
     }
 
+    /**
+     * Release resources, associated with this wrapper. The underlying directory descriptor
+     * is unaffected by this call and must be closed separately.
+     *
+     * <p/>
+     *
+     * This method is idempotent, second and following calls have no effect.
+     */
     @Override
     void close();
-
-    Directory clone();
 }

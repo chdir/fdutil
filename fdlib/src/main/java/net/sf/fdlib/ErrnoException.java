@@ -2,7 +2,7 @@ package net.sf.fdlib;
 
 import java.io.IOException;
 
-public class ErrnoException extends IOException {
+public final class ErrnoException extends IOException {
     private final int errno;
 
     public ErrnoException(int errno, String explanation) {
@@ -11,8 +11,12 @@ public class ErrnoException extends IOException {
         this.errno = errno;
     }
 
+    public int code() {
+        return errno;
+    }
+
     @Override
     public String toString() {
-        return super.toString() + " errno " + errno;
+        return super.toString() + " (errno " + errno + ')';
     }
 }

@@ -1,5 +1,7 @@
 package net.sf.fdlib;
 
+import android.os.Looper;
+import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 
 import java.io.IOException;
@@ -20,17 +22,37 @@ public abstract class OS {
     public static final int O_WRONLY = 1;    // 0b0000000000000000000001;
     public static final int O_RDWR = 1 << 1;
 
-    public abstract Directory list(@Fd int fd);
-
+    @CheckResult
     public abstract @Fd int open(String path, @OpenFlag int flags, int mode) throws IOException;
 
+    @CheckResult
     public abstract @DirFd int opendir(String path, @OpenFlag int flags, int mode) throws IOException;
+
+    @CheckResult
+    public abstract @InotifyFd int inotify_init() throws IOException;
+
+    @CheckResult
+    public abstract Directory list(@Fd int fd);
+
+    @CheckResult
+    public abstract Inotify observe(@InotifyFd int inotifyDescriptor) throws IOException;
+
+    @CheckResult
+    public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) throws IOException;
+
+    public abstract void dup2(@Fd int source, int dest) throws IOException;
 
     public abstract void close(@Fd int fd) throws IOException;
 
-    public abstract void closeDir(@Fd int fd);
+    public abstract void dispose(int fd);
+
+    private static OS defaultOs;
 
     public static OS getInstance() throws IOException {
-        return new Android();
+        if (defaultOs == null) {
+            defaultOs = new Android();
+        }
+
+        return defaultOs;
     }
 }

@@ -3,10 +3,8 @@ package net.sf.fakenames.fddemo;
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
-import android.util.Log;
 
 import com.carrotsearch.hppc.LongArrayList;
-import com.carrotsearch.hppc.LongHashSet;
 
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
@@ -22,10 +20,6 @@ import org.junit.runner.RunWith;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Random;
-import java.util.UUID;
 
 import static com.google.common.truth.Truth.assertThat;
 
@@ -131,7 +125,7 @@ public class IncrementalIteration {
 
     @After
     public void closeDir() {
-        os.closeDir(descriptor);
+        os.dispose(descriptor);
     }
 
     @AfterClass

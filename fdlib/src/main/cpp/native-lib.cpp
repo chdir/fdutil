@@ -2,6 +2,8 @@
 
 #include "linux_syscall_support.h"
 
+#include <sys/inotify.h>
+
 inline static jclass saveClassRef(const char* name, JNIEnv *env) {
     jclass found = env -> FindClass(name);
 
@@ -98,6 +100,30 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeClose(JNIEnv *env, jclass
     if (close(fd) == -1) {
         handleError(env);
     }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_dup2(JNIEnv *env, jobject instance, jint source, jint dest) {
+    if (sys_dup2(source, dest) == dest) {
+        return;
+    }
+
+    handleError(env);
+}
+
+JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_inotify_1init(JNIEnv *env, jobject instance) {
+    int fd = inotify_init();
+
+    if (fd == -1) {
+        handleError(env);
+        return -1;
+    }
+
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
+        handleError(env);
+        return -1;
+    }
+
+    return fd;
 }
 
 }

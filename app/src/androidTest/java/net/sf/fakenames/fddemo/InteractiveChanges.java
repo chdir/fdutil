@@ -1,15 +1,10 @@
 package net.sf.fakenames.fddemo;
 
-import android.app.Instrumentation;
 import android.content.Context;
-import android.os.Process;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 import android.util.Log;
 
-import com.carrotsearch.hppc.IntArrayList;
-import com.carrotsearch.hppc.LongArrayDeque;
-import com.carrotsearch.hppc.LongArrayList;
 import com.carrotsearch.hppc.LongHashSet;
 
 import net.sf.fdlib.DirFd;
@@ -21,9 +16,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 
 import java.io.File;
@@ -264,7 +257,7 @@ public class InteractiveChanges {
 
     @After
     public void closeDir() {
-        os.closeDir(descriptor);
+        os.dispose(descriptor);
     }
 
     @AfterClass
