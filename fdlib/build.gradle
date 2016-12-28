@@ -43,7 +43,6 @@ dependencies {
     })
     compile 'com.carrotsearch:hppc:0.7.1'
     //compile 'it.unimi.dsi:fastutil:7.0.13'
-    compile 'com.android.support:appcompat-v7:24.2.1'
     compile 'com.android.support:support-annotations:25.0.1'
     testCompile 'junit:junit:4.12'
 }

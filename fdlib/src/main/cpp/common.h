@@ -27,7 +27,7 @@ extern void handleError(JNIEnv *env);
 extern void handleError(JNIEnv *env, int lastError);
 
 extern const char* getUtf8(JNIEnv* env, jworkaroundstr string);
-
 extern void freeUtf8(JNIEnv *env, jworkaroundstr string, const char* str);
+extern jworkaroundstr toString(JNIEnv *env, char* linuxString, int bufferSize, jsize stringByteCount);
 
 #endif

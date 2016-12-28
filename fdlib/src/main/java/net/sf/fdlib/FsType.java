@@ -30,9 +30,20 @@ public enum FsType {
         }
     }
 
+    public boolean isNotDir() {
+        switch (this) {
+            case DIRECTORY:
+            case LINK:
+            case MYSTERY:
+                return false;
+            default:
+                return true;
+        }
+    }
+
     private static final FsType[] VALUES = values();
 
-    static FsType forDirentType(short nativeType) {
+    static FsType forDirentType(int nativeType) {
         // the type can not be retrieved at this time because the filesystem either does not
         // support getting file types, or simply not return them during directory iteration
         // for efficiency reasons

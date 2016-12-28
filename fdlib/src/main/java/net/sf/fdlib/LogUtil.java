@@ -69,7 +69,7 @@ public class LogUtil {
         public void write(@NonNull char[] buf, int offset, int count) {
             int prevAt = -1;
 
-            for (int i = 0; i < buf.length; ++i) {
+            for (int i = offset; i < offset + count; ++i) {
                 if (buf[i] == '\n') {
                     int startIdx = prevAt + 1;
 
@@ -85,8 +85,8 @@ public class LogUtil {
                 }
             }
 
-            if (prevAt != buf.length - 1) {
-                charList.add(buf, prevAt + 1, buf.length - prevAt - 1);
+            if (prevAt != count - 1) {
+                charList.add(buf, prevAt + 1, count - prevAt - 1);
 
                 if (charList.elementsCount >= MAX_BUFFER) {
                     flush();

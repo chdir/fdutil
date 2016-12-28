@@ -41,7 +41,19 @@ import java.io.File;
  *
  * <p/>
  *
+ * Not all filesystems properly support readdir/getdents API. Many poorly-written FUSE/unionfs
+ * plugins, including infamous Android FUSE Daemon (aka "sdcard"), return garbage {@code telldir}
+ * values or randomly fail during directory seeking, making backward iteration impossible. If the
+ * underlying filesystem supportes rewinddir, it may still be possible to iterate over it without
+ * string all of it in memory by using a sliding buffer of contents.
+ *
+ * <p/>
+ *
  * This class is not thread-safe.
+ *
+ * <p/>
+ *
+ * See also https://android.googlesource.com/platform/system/core/+/75e17a8908d52e32f5de85b90b74e156265c60c6^!/
  */
 public interface Directory extends Iterable<Directory.Entry>, Closeable {
     /**

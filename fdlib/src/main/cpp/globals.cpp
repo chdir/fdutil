@@ -76,3 +76,42 @@ void freeUtf8(JNIEnv *env, jworkaroundstr string, const char* str) {
         free((void*) str);
     }
 }
+
+// convert linux UTF-8 string (not necessarily null-terminated) to Java String (or UTF-8 byte[], depending on Android version)
+// return value of NULL guarantees, that exception was already thrown by JVM
+jworkaroundstr toString(JNIEnv *env, char* linuxString, int bufferSize, jsize stringByteCount) {
+    if (API_VERSION >= MARSHMALLOW) {
+        bool needToFree = false;
+        const char* inputString;
+
+        if (stringByteCount == 0) {
+            inputString = "";
+        } else if (stringByteCount < bufferSize) {
+            // slap on the terminating byte
+            if (linuxString[stringByteCount] != '\0') {
+                linuxString[stringByteCount] = '\0';
+            }
+
+            inputString = linuxString;
+        } else {
+            // oops...
+            inputString = (const char*) malloc((size_t) (stringByteCount + 1));
+            needToFree = true;
+        }
+
+        jstring resultString = env->NewStringUTF(inputString);
+
+        if (needToFree) {
+            free((void *) inputString);
+        }
+
+        return resultString;
+    } else {
+        jbyteArray arr = env->NewByteArray(stringByteCount);
+        if (arr == NULL) {
+            return NULL;
+        }
+        env->SetByteArrayRegion(arr, 0, stringByteCount, (const jbyte *) linuxString);
+        return arr;
+    }
+}

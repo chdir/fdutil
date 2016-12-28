@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="AbsRecyclerViewFastScroller">
+        <attr name="rfs_fast_scroller_layout" format="reference" />
+        <attr name="rfs_barStyle" format="reference" />
+        <attr name="rfs_handleStyle" format="reference" />
+    </declare-styleable>
+</resources>

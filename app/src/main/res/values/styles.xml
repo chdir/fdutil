@@ -1,8 +1,23 @@
 <resources>
 
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="android:Theme.Holo.Light.DarkActionBar">
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
         <!-- Customize your theme here. -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
     </style>
 
+    <style name="FastScrollerDefault">
+        <item name="rfs_fast_scroller_layout">@layout/include_fast_scroller</item>
+        <item name="rfs_barStyle">@style/FastScrollerDefaultTrack</item>
+        <item name="rfs_handleStyle">@style/FastScrollerDefaultThumb</item>
+    </style>
+
+    <style name="FastScrollerDefaultTrack">
+        <item name="android:background">@drawable/bg_track</item>
+    </style>
+
+    <style name="FastScrollerDefaultThumb">
+        <item name="android:background">@drawable/bg_thumb</item>
+    </style>
 </resources>

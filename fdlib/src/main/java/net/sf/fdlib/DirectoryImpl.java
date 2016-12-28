@@ -49,9 +49,8 @@ final class DirectoryImpl implements Directory {
     // cache references etc.
     private static native void nativeInit();
 
-    // allocate/release the direct buffer
+    // allocate the direct buffer
     private native ByteBuffer nativeCreate(int fd);
-    private static native void nativeRelease(long bufferPointer);
 
     static {
         nativeInit();
@@ -62,12 +61,13 @@ final class DirectoryImpl implements Directory {
     private int fd;
     private ByteBuffer byteBuffer;
     private byte[] nameBytes;
+    private Guard guard;
 
     @Keep
     @SuppressWarnings({"UnusedDeclaration"})
     private long nativePtr;
 
-    DirectoryImpl(int fd) {
+    DirectoryImpl(int fd, GuardFactory factory) {
         this.fd = fd;
 
         nameBytes = new byte[FILENAME_MAX * 2 + 1];
@@ -75,9 +75,11 @@ final class DirectoryImpl implements Directory {
         byteBuffer = nativeCreate(fd)
                 .order(ByteOrder.nativeOrder());
 
-        byteBuffer.limit(0);
+        guard = factory.forMemory(this, nativePtr);
 
         cookieCache.add(0L);
+
+        byteBuffer.limit(0);
     }
 
     // seek to specified opaque "position"
@@ -135,7 +137,13 @@ final class DirectoryImpl implements Directory {
 
     @Override
     public void close() {
-        nativeRelease(nativePtr);
+        if (nativePtr == 0L) {
+            return;
+        }
+
+        guard.close();
+
+        nativePtr = 0L;
     }
 
     final class DirectoryIterator implements UnreliableIterator<Entry> {

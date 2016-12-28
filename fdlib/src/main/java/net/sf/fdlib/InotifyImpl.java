@@ -46,7 +46,7 @@ public class InotifyImpl implements Inotify {
     private native ByteBuffer nativeCreate();
     private static native void nativeRelease(long bufferPointer);
 
-    private final OS os = OS.getInstance();
+    private final OS os;
 
     private volatile boolean done;
 
@@ -55,6 +55,7 @@ public class InotifyImpl implements Inotify {
     private final @InotifyFd int fd;
     private final ByteBuffer readBuffer;
     private final Looper looper;
+    private final Guard guard;
 
     @Keep
     private long nativePtr;
@@ -66,13 +67,17 @@ public class InotifyImpl implements Inotify {
 
     private SelectionKey selectionKey;
 
-    InotifyImpl(@InotifyFd int fd, @Nullable Looper looper) throws IOException {
+    InotifyImpl(@InotifyFd int fd, @Nullable Looper looper, OS os, GuardFactory factory) {
         this.fd = fd;
 
         this.looper = looper != null ? looper : Looper.getMainLooper();
 
+        this.os = os;
+
         readBuffer = nativeCreate()
                 .order(ByteOrder.nativeOrder());
+
+        guard = factory.forMemory(this, nativePtr);
     }
 
     // bindings for inotify_add_watch/inotify_rm_watch
@@ -241,8 +246,6 @@ public class InotifyImpl implements Inotify {
                 selectionKey.cancel();
             }
 
-            nativeRelease(nativePtr);
-
             if (fake != null) {
                 try {
                     fake.close();
@@ -300,22 +303,7 @@ public class InotifyImpl implements Inotify {
                 if (!done) {
                     done = true;
 
-                    // this must be done here (instead of letting run() do the cleanup), because
-                    // otherwise a stale watch descriptor may fall victim of reuse
-                    // (see also https://bugzilla.kernel.org/show_bug.cgi?id=77111)
-                    subscriptions.remove(watchDescriptor);
-
-                    // make sure that it is always called for consistency sake
-                    Message.obtain(h, CANCEL).sendToTarget();
-
-                    try {
-                        removeSubscription(fd, watchDescriptor);
-                    } catch (ErrnoException err) {
-                        // this can mean one of two things: 1) inotify descriptor is closed
-                        // 2) the watch was already removed implicitly. Either way, the fault is not
-                        // with us and the cleanup is complete
-                        LogUtil.logCautiously("Failed to close inotify watch", err);
-                    }
+                    dispose();
                 }
             }
         }
@@ -324,8 +312,33 @@ public class InotifyImpl implements Inotify {
             Message.obtain(h, NEXT).sendToTarget();
         }
 
+        private void dispose() {
+            // this must be done here (instead of letting run() do the cleanup), because
+            // otherwise a stale watch descriptor may fall victim of reuse
+            // (see also https://bugzilla.kernel.org/show_bug.cgi?id=77111)
+            subscriptions.remove(watchDescriptor);
+
+            try {
+                removeSubscription(fd, watchDescriptor);
+            } catch (ErrnoException err) {
+                // this can mean one of two things: 1) inotify descriptor is closed
+                // 2) the watch was already removed implicitly. Either way, the fault is not
+                // with us and the cleanup is complete
+                LogUtil.logCautiously("Failed to close inotify watch", err);
+            }
+        }
+
         void onReset() {
-            close();
+            synchronized (InotifyImpl.this) {
+                if (!done) {
+                    done = true;
+
+                    dispose();
+
+                    // make sure that it is always called once
+                    Message.obtain(h, CANCEL).sendToTarget();
+                }
+            }
         }
 
         private final class EventHandler extends Handler {

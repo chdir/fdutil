@@ -3,6 +3,7 @@ package net.sf.fdlib;
 import android.os.Looper;
 import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
+import android.support.annotation.NonNull;
 
 import java.io.IOException;
 import java.lang.annotation.Documented;
@@ -29,16 +30,22 @@ public abstract class OS {
     public abstract @DirFd int opendir(String path, @OpenFlag int flags, int mode) throws IOException;
 
     @CheckResult
+    public abstract @DirFd int opendirat(@DirFd int fd, String name, int flags, int mode) throws IOException;
+
+    @CheckResult
+    public abstract @NonNull String readlink(String path) throws IOException;
+
+    @CheckResult
     public abstract @InotifyFd int inotify_init() throws IOException;
 
     @CheckResult
     public abstract Directory list(@Fd int fd);
 
     @CheckResult
-    public abstract Inotify observe(@InotifyFd int inotifyDescriptor) throws IOException;
+    public abstract Inotify observe(@InotifyFd int inotifyDescriptor);
 
     @CheckResult
-    public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) throws IOException;
+    public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper);
 
     public abstract void dup2(@Fd int source, int dest) throws IOException;
 
@@ -46,11 +53,15 @@ public abstract class OS {
 
     public abstract void dispose(int fd);
 
-    private static OS defaultOs;
+    private static volatile OS defaultOs;
 
     public static OS getInstance() throws IOException {
         if (defaultOs == null) {
-            defaultOs = new Android();
+            synchronized (OS.class) {
+                if (defaultOs == null) {
+                    defaultOs = new Android();
+                }
+            }
         }
 
         return defaultOs;

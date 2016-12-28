@@ -3,6 +3,7 @@ package net.sf.fdlib;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.support.annotation.NonNull;
 import android.telecom.Call;
 
 import net.sf.fakenames.fdlib.BuildConfig;
@@ -32,24 +33,35 @@ final class Android extends OS {
     }
 
     @Override
+    public @DirFd int opendirat(@DirFd int fd, String name, int flags, int mode) throws IOException {
+        return nativeOpenDirAt(fd, toNative(name), flags, mode);
+    }
+
+    @NonNull
+    @Override
+    public String readlink(String path) throws IOException {
+        return fromNative(nativeReadlink(toNative(path)));
+    }
+
+    @Override
     public native void dup2(int source, int dest) throws IOException;
 
     @Override
     public native int inotify_init() throws IOException;
 
     @Override
-    public Inotify observe(@InotifyFd int inotifyDescriptor) throws IOException {
-        return new InotifyImpl(inotifyDescriptor, Looper.myLooper());
+    public Inotify observe(@InotifyFd int inotifyDescriptor) {
+        return observe(inotifyDescriptor, Looper.myLooper());
     }
 
     @Override
-    public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) throws IOException {
-        return new InotifyImpl(inotifyDescriptor, looper);
+    public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) {
+        return new InotifyImpl(inotifyDescriptor, looper, this, GuardFactory.getInstance(this));
     }
 
     @Override
     public Directory list(@Fd int fd) {
-        return new DirectoryImpl(fd);
+        return new DirectoryImpl(fd, GuardFactory.getInstance(this));
     }
 
     public void close(@Fd int fd) throws IOException {
@@ -76,6 +88,10 @@ final class Android extends OS {
     private static native @Fd int nativeOpen(Object path, int flags, int mode) throws IOException;
 
     private static native @DirFd int nativeOpenDir(Object path, int flags, int mode) throws IOException;
+
+    private static native @DirFd int nativeOpenDirAt(@DirFd int fd, Object name, int flags, int mode);
+
+    private static native Object nativeReadlink(Object path) throws IOException;
 
     private static native void nativeClose(int fd) throws IOException;
 }

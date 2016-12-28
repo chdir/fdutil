@@ -1,4 +1,5 @@
 apply plugin: 'com.android.application'
+apply plugin: 'me.tatarka.retrolambda'
 
 android {
     compileSdkVersion 24
@@ -14,6 +15,12 @@ android {
 
         testInstrumentationRunnerArguments [['disableAnalytics' : 'true']]
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
     buildTypes {
         release {
             minifyEnabled false
@@ -25,7 +32,13 @@ android {
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
 
-    compile 'com.android.support:recyclerview-v7:23.3.0'
+    //noinspection GradleCompatible
+    compile 'com.android.support:recyclerview-v7:25.0.1'
+    //noinspection GradleCompatible
+    compile 'com.android.support:appcompat-v7:25.0.1'
+
+    compile 'com.jakewharton:butterknife:8.2.0'
+    annotationProcessor 'com.jakewharton:butterknife-compiler:8.2.0'
 
     androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
         exclude group: 'com.android.support', module: 'support-annotations'
