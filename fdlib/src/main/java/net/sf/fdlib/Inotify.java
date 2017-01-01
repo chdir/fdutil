@@ -17,6 +17,14 @@ import java.io.IOException;
  *
  * <p/>
  *
+ * An inotify API is provided by kernel on best-effort basis. It may misreport non-existing
+ * (from user's POV) change or omit an actual change. Many filesystems will silently ignore
+ * registered watches and simply report nothing. Some notifications may arrive after you have
+ * already unregistered a watch, some may never arrive. You should treat this API as a helpful hint
+ * and never rely on it as the primary driving force in your code.
+ *
+ * <p/>
+ *
  * Thus class can be used in two modes: 1) direct reading from inotify descriptor using thread of
  * your choice and 2) monitoring inotify events from shared {@link SelectorThread}. To implement
  * the first mode simply call {@link #run} in a loop (depending on properties of inotify descriptor,
@@ -37,6 +45,12 @@ import java.io.IOException;
  * both for deletion and changes of reference count (which happens when a file is "deleted" while
  * other hard links to it exist). More importantly, both files and directories should not be kept
  * perpetually open or else their reference count will never drop below 1.
+ *
+ * <p/>
+ *
+ * Note, that many filesystems do not support inotify. Network-based filesystems are incompatible
+ * with it by design. FUSE-based filesystems never generate inotify notifications due to technical
+ * limitations in the Linux kernel.
  *
  * <p/>
  *

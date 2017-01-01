@@ -12,8 +12,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-import net.sf.fakenames.fddemo.CrappyDirectory;
 import net.sf.fakenames.fddemo.R;
+import net.sf.fdlib.CrappyDirectory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
 import net.sf.fdlib.Inotify;

@@ -6,6 +6,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.FlakyTest;
+import android.support.test.filters.LargeTest;
+import android.support.test.filters.MediumTest;
 import android.support.test.runner.AndroidJUnit4;
 
 import net.sf.fdlib.DirFd;
@@ -19,6 +22,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -69,12 +73,13 @@ public class InotifyTests {
     }
 
     @Test
+    @MediumTest
     public void testPlain() throws IOException {
         final File dir = new File("/proc/self/fd/" + dirDescriptor).getCanonicalFile();
         final File aFile = new File(dir, "lalalalala");
 
         final class Listener implements Inotify.InotifyListener {
-            private int changesDetected = 0;
+            private volatile int changesDetected = 0;
 
             @Override
             public void onChanges() {
@@ -119,6 +124,7 @@ public class InotifyTests {
     }
 
     @Test
+    @MediumTest
     public void unregisterOnDelete() throws IOException {
         final File dir = new File("/proc/self/fd/" + dirDescriptor).getCanonicalFile();
 
@@ -128,8 +134,8 @@ public class InotifyTests {
         }
 
         final class Listener implements Inotify.InotifyListener {
-            private int resetsDetected = 0;
-            private int changesDetected = 0;
+            private volatile int resetsDetected = 0;
+            private volatile int changesDetected = 0;
 
             @Override
             public void onChanges() {
@@ -208,8 +214,8 @@ public class InotifyTests {
         aFile.createNewFile();
 
         final class Listener implements Inotify.InotifyListener {
-            private int resetsDetected = 0;
-            private int changesDetected = 0;
+            private volatile int resetsDetected = 0;
+            private volatile int changesDetected = 0;
 
             @Override
             public void onChanges() {
@@ -265,9 +271,11 @@ public class InotifyTests {
     }
 
     @Test
-    public void selectorUsage() throws IOException {
+    @LargeTest
+    @FlakyTest(detail = "using a SelectorThread, so results may be indeterminate")
+    public void selectorUsage() throws IOException, InterruptedException {
         final class Listener implements Inotify.InotifyListener {
-            private int changesDetected = 0;
+            private volatile int changesDetected = 0;
 
             @Override
             public void onChanges() {
@@ -307,6 +315,9 @@ public class InotifyTests {
 
                 sync(dirDescriptor);
 
+                // give the kernel & SelectorThread some time to process an entry
+                Thread.sleep(10);
+
                 instrumentation.waitForIdleSync();
             } finally {
                 //noinspection ResultOfMethodCallIgnored
@@ -318,7 +329,9 @@ public class InotifyTests {
     }
 
     @Test
-    public void heavySelectorLoad() throws IOException {
+    @LargeTest
+    @FlakyTest(detail = "using a SelectorThread, so results may be indeterminate")
+    public void heavySelectorLoad() throws IOException, InterruptedException {
         int queueMax;
 
         try (Scanner s = new Scanner(new FileInputStream("/proc/sys/fs/inotify/max_queued_events"))) {
@@ -334,8 +347,8 @@ public class InotifyTests {
         aFile.createNewFile();
 
         final class Listener implements Inotify.InotifyListener {
-            private int resetsDetected = 0;
-            private int changesDetected = 0;
+            private volatile int resetsDetected = 0;
+            private volatile int changesDetected = 0;
 
             @Override
             public void onChanges() {
@@ -375,6 +388,9 @@ public class InotifyTests {
 
                 sync(dirDescriptor);
 
+                // give the kernel & SelectorThread some time to process entries
+                Thread.sleep(10);
+
                 instrumentation.waitForIdleSync();
 
                 assertThat(listener.changesDetected).isAtLeast(1);
@@ -392,6 +408,8 @@ public class InotifyTests {
     }
 
     @Test
+    @LargeTest
+    @FlakyTest(detail = "using a SelectorThread, so results may be indeterminate")
     public void headCount() throws IOException, InterruptedException {
         int queueMax;
 
@@ -399,7 +417,7 @@ public class InotifyTests {
             queueMax = s.nextInt();
         }
 
-        int eventsTotal = Math.min(queueMax - 1, 999);
+        int eventsTotal = Math.min(queueMax - 1, 333);
 
         final File dir = new File("/proc/self/fd/" + dirDescriptor).getCanonicalFile();
 
@@ -408,8 +426,8 @@ public class InotifyTests {
         aFile.createNewFile();
 
         final class Listener implements Inotify.InotifyListener {
-            private int resetsDetected = 0;
-            private int changesDetected = 0;
+            private volatile int resetsDetected = 0;
+            private volatile int changesDetected = 0;
 
             @Override
             public void onChanges() {
@@ -467,7 +485,7 @@ public class InotifyTests {
                     }
 
                     // give the kernel & SelectorThread some time to process each entry
-                    Thread.sleep(6);
+                    Thread.sleep(10);
                 }
 
                 sync(dirDescriptor);

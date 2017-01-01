@@ -15,12 +15,15 @@ import com.carrotsearch.hppc.cursors.ObjectCursor;
 import com.carrotsearch.hppc.procedures.ObjectProcedure;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class InotifyImpl implements Inotify {
     private static final int INOTIFY_OFF_WATCH_DESC = 0;
@@ -92,35 +95,40 @@ public class InotifyImpl implements Inotify {
     public synchronized void setSelector(SelectorThread selector) throws IOException {
         DebugAsserts.thread(looper, "setSelector");
 
-        if (done) {
-            throw new ClosedChannelException();
-        }
-
-        if (fake == null) {
-            fake = DatagramChannel.open();
-            fakeHolder = ParcelFileDescriptor.fromDatagramSocket(fake.socket());
-        }
-
-        if (selectionKey != null) {
-            final SelectorThread oldSelector = this.selector.get();
-
-            if (oldSelector != null) {
-                oldSelector.unregister(selectionKey);
+        primaryLock.lock();
+        try {
+            if (done) {
+                throw new ClosedChannelException();
             }
 
-            selectionKey = null;
-        }
+            if (fake == null) {
+                fake = DatagramChannel.open();
+                fakeHolder = ParcelFileDescriptor.fromDatagramSocket(fake.socket());
+            }
 
-        if (selector != null) {
-            os.dup2(fd, fakeHolder.getFd());
+            if (selectionKey != null) {
+                final SelectorThread oldSelector = this.selector.get();
 
-            // DatagramChannel caches the flag, make sure that it is reset either way
-            fake.configureBlocking(true);
-            fake.configureBlocking(false);
+                if (oldSelector != null) {
+                    oldSelector.unregister(selectionKey);
+                }
 
-            selectionKey = selector.register(fake, SelectionKey.OP_READ, this);
+                selectionKey = null;
+            }
 
-            this.selector = new WeakReference<>(selector);
+            if (selector != null) {
+                os.dup2(fd, fakeHolder.getFd());
+
+                // DatagramChannel caches the flag, make sure that it is reset either way
+                fake.configureBlocking(true);
+                fake.configureBlocking(false);
+
+                selectionKey = selector.register(fake, SelectionKey.OP_READ, this);
+
+                this.selector = new WeakReference<>(selector);
+            }
+        } finally {
+            primaryLock.unlock();
         }
     }
 
@@ -143,71 +151,80 @@ public class InotifyImpl implements Inotify {
         }
     };
 
+    private final Lock primaryLock = new ReentrantLock();
+
     @Override
-    public synchronized void run() {
-        if (done) {
-            return;
-        }
-
+    public void run() {
         try {
-            int lastRead;
-
-            do {
-                lastRead = read(fd, nativePtr, readBuffer.capacity());
-
-                if (lastRead != -1) {
-                    readBuffer.limit(lastRead);
-                } else {
-                    break;
-                }
-
-                int currentBufferPosition = 0;
-
-                do {
-                    readBuffer.position(currentBufferPosition);
-
-                    final int watchId = readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_WATCH_DESC);
-
-                    if (watchId == -1) {
-                        // the event is IN_Q_OVERFLOW, time for everyone to restart their observers
-                        sayGoodBye();
-                        return;
-                    }
-
-                    Watch sub = subscriptions.get(watchId);
-                    if (sub != null) {
-                        if ((readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_MASK) & MASK_IGNORED) == MASK_IGNORED) {
-                            // the event is IN_IGNORED, basically the same as MASK_OVERFLOW, but only
-                            // specific watch descriptor is affected, so we keep going
-                            discarded.add(sub);
-                        } else {
-                            notified.add(sub);
-                        }
-                    }
-
-                    final int nameLength = readNameLength(currentBufferPosition + INOTIFY_OFF_NAME_LEN);
-
-                    currentBufferPosition = currentBufferPosition + INOTIFY_OFF_NAME + nameLength;
-                }
-                while (currentBufferPosition != readBuffer.limit());
-            }
-            while (true);
-
-            discarded.forEach(cleanup);
-            notified.forEach(notify);
-        } catch (IOException e) {
-            final WrappedIOException wrapped = new WrappedIOException(e);
+            primaryLock.lockInterruptibly();
 
             try {
-                close();
-            } catch (Throwable closeError) {
-                wrapped.addSuppressed(closeError);
-            }
+                if (done) {
+                    return;
+                }
 
-            throw wrapped;
-        } finally {
-            notified.clear();
-            discarded.clear();
+                int lastRead;
+
+                do {
+                    lastRead = read(fd, nativePtr, readBuffer.capacity());
+
+                    if (lastRead != -1) {
+                        readBuffer.limit(lastRead);
+                    } else {
+                        break;
+                    }
+
+                    int currentBufferPosition = 0;
+
+                    do {
+                        readBuffer.position(currentBufferPosition);
+
+                        final int watchId = readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_WATCH_DESC);
+
+                        if (watchId == -1) {
+                            // the event is IN_Q_OVERFLOW, time for everyone to restart their observers
+                            sayGoodBye();
+                            return;
+                        }
+
+                        Watch sub = subscriptions.get(watchId);
+                        if (sub != null) {
+                            if ((readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_MASK) & MASK_IGNORED) == MASK_IGNORED) {
+                                // the event is IN_IGNORED, basically the same as MASK_OVERFLOW, but only
+                                // specific watch descriptor is affected, so we keep going
+                                discarded.add(sub);
+                            } else {
+                                notified.add(sub);
+                            }
+                        }
+
+                        final int nameLength = readNameLength(currentBufferPosition + INOTIFY_OFF_NAME_LEN);
+
+                        currentBufferPosition = currentBufferPosition + INOTIFY_OFF_NAME + nameLength;
+                    }
+                    while (currentBufferPosition != readBuffer.limit());
+                }
+                while (true);
+
+                discarded.forEach(cleanup);
+                notified.forEach(notify);
+            } catch (IOException e) {
+                final WrappedIOException wrapped = new WrappedIOException(e);
+
+                try {
+                    close();
+                } catch (Throwable closeError) {
+                    wrapped.addSuppressed(closeError);
+                }
+
+                throw wrapped;
+            } finally {
+                primaryLock.unlock();
+                notified.clear();
+                discarded.clear();
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -234,50 +251,65 @@ public class InotifyImpl implements Inotify {
 
     @Override
     @SuppressWarnings("SynchronizeOnNonFinalField")
-    public synchronized void close() {
-        if (!done) {
-            done = true;
+    public void close() {
+        primaryLock.lock();
+        try {
+            if (!done) {
+                done = true;
 
-            for (ObjectCursor<Watch> observers : subscriptions.values()) {
-                observers.value.onReset();
-            }
+                guard.close();
 
-            if (selectionKey != null) {
-                selectionKey.cancel();
-            }
+                for (ObjectCursor<Watch> observers : subscriptions.values()) {
+                    observers.value.onReset();
+                }
 
-            if (fake != null) {
-                try {
-                    fake.close();
-                } catch (IOException e) {
-                    throw new WrappedIOException(e);
+                if (selectionKey != null && selector != null) {
+                    final SelectorThread thread = selector.get();
+                    if (thread != null) {
+                        thread.unregister(selectionKey);
+                    }
+                }
+
+                if (fake != null) {
+                    try {
+                        fake.close();
+                    } catch (IOException e) {
+                        throw new WrappedIOException(e);
+                    }
                 }
             }
+        } finally {
+            primaryLock.unlock();
         }
     }
 
-    public synchronized Watch subscribe(@DirFd int watched, InotifyListener callback) throws IOException {
+    public Watch subscribe(@DirFd int watched, InotifyListener callback) throws IOException {
         DebugAsserts.thread(looper, "subscribe");
 
-        final int watchDescriptor = addSubscription(fd, watched);
+        primaryLock.lock();
+        try {
+            final int watchDescriptor = addSubscription(fd, watched);
 
-        final Watch existing = subscriptions.get(watchDescriptor);
+            final Watch existing = subscriptions.get(watchDescriptor);
 
-        if (existing != null) {
-            final ObjectArrayList<InotifyListener> callbacks = existing.callbacks;
+            if (existing != null) {
+                final ObjectArrayList<InotifyListener> callbacks = existing.callbacks;
 
-            if (!callbacks.contains(callback)) {
-                callbacks.add(callback);
+                if (!callbacks.contains(callback)) {
+                    callbacks.add(callback);
+                }
+
+                return existing;
             }
 
-            return existing;
+            final Watch created = new Watch(watchDescriptor, callback);
+
+            subscriptions.put(watchDescriptor, created);
+
+            return created;
+        } finally {
+            primaryLock.unlock();
         }
-
-        final Watch created = new Watch(watchDescriptor, callback);
-
-        subscriptions.put(watchDescriptor, created);
-
-        return created;
     }
 
     private final class Watch implements InotifyWatch {
@@ -297,14 +329,23 @@ public class InotifyImpl implements Inotify {
             callbacks.add(callback);
         }
 
+        // The synchronization here must be done exactly as it is done below
+        // (instead of, say, letting run() do the cleanup), because otherwise a stale watch descriptor
+        // may fall victim of reuse (see also https://bugzilla.kernel.org/show_bug.cgi?id=77111)
+
         @Override
         public void close() {
-            synchronized (InotifyImpl.this) {
+            primaryLock.lock();
+            try {
                 if (!done) {
                     done = true;
 
+                    h.removeMessages(CANCEL);
+
                     dispose();
                 }
+            } finally {
+                primaryLock.unlock();
             }
         }
 
@@ -313,9 +354,6 @@ public class InotifyImpl implements Inotify {
         }
 
         private void dispose() {
-            // this must be done here (instead of letting run() do the cleanup), because
-            // otherwise a stale watch descriptor may fall victim of reuse
-            // (see also https://bugzilla.kernel.org/show_bug.cgi?id=77111)
             subscriptions.remove(watchDescriptor);
 
             try {
@@ -329,15 +367,18 @@ public class InotifyImpl implements Inotify {
         }
 
         void onReset() {
-            synchronized (InotifyImpl.this) {
+            primaryLock.lock();
+            try {
                 if (!done) {
                     done = true;
 
                     dispose();
 
-                    // make sure that it is always called once
+                    // make sure that it is called at most once
                     Message.obtain(h, CANCEL).sendToTarget();
                 }
+            } finally {
+                primaryLock.unlock();
             }
         }
 
@@ -349,7 +390,6 @@ public class InotifyImpl implements Inotify {
             @Override
             @SuppressWarnings("SuspiciousSystemArraycopy")
             public void handleMessage(Message msg) {
-                // poor man's CopyOnWriteArrayList
                 switch (msg.what) {
                     case NEXT:
                         for (int i = 0; i < callbacks.size(); ++i) {

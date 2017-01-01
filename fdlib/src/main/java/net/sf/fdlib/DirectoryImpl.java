@@ -2,6 +2,7 @@ package net.sf.fdlib;
 
 import android.support.annotation.Keep;
 import android.support.annotation.NonNull;
+import android.util.Log;
 
 import com.carrotsearch.hppc.LongArrayList;
 import com.carrotsearch.hppc.LongIndexedContainer;
@@ -13,7 +14,7 @@ import java.util.NoSuchElementException;
 
 import static net.sf.fdlib.DebugAsserts.failIf;
 
-final class DirectoryImpl implements Directory {
+public final class DirectoryImpl implements Directory {
     // "Maximum" length of filename
     // As of 2016 ext3/ext4 limit name lengths to 256 bytes
     // VFAT offers 255 2-byte UCS-2 units instead

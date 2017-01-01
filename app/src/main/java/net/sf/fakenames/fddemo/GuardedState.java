@@ -54,16 +54,12 @@ public final class GuardedState extends CloseableGuard {
 
     @Override
     public void close() {
-        try {
-            inotify.close();
-            os.close(inotifyFd);
+        inotify.close();
+        os.dispose(inotifyFd);
 
-            @DirFd int prev = adapter.swapDirectoryDescriptor(DirFd.NIL);
-            if (prev != DirFd.NIL) {
-                os.close(prev);
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        @DirFd int prev = adapter.swapDirectoryDescriptor(DirFd.NIL);
+        if (prev != DirFd.NIL) {
+            os.dispose(prev);
         }
     }
 }

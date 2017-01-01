@@ -2,6 +2,7 @@ package net.sf.fakenames.fddemo;
 
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.MediumTest;
 import android.support.test.runner.AndroidJUnit4;
 import android.util.Log;
 
@@ -18,6 +19,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,8 +30,22 @@ import java.util.UUID;
 
 import static com.google.common.truth.Truth.assertThat;
 
-@RunWith(AndroidJUnit4.class)
+@RunWith(Parameterized.class)
+@Parameterized.UseParametersRunnerFactory(ParametrizedRunner.class)
 public class InteractiveChanges {
+    private static final TestSetup[] setups = new TestSetup[] { TestSetup.internal(), TestSetup.external() };
+
+    @Parameterized.Parameters
+    public static TestSetup[] parameters() {
+        return setups;
+    }
+
+    private final TestSetup setup;
+
+    public InteractiveChanges(TestSetup setup) {
+        this.setup = setup;
+    }
+
     private static final OS os;
 
     static {
@@ -40,37 +56,12 @@ public class InteractiveChanges {
         }
     }
 
-    private static File dir;
-    private static int fCount;
-
-    @SuppressWarnings("ResultOfMethodCallIgnored")
-    @BeforeClass
-    public static void init() throws IOException {
-        dir = InstrumentationRegistry.getTargetContext().getDir("testDir2", Context.MODE_PRIVATE);
-
-        cleanup();
-
-        final Random r = new Random();
-
-        fCount = 75 * 2 + r.nextInt(4) * 75;
-
-        for (int i = 0; i < fCount; ++i) {
-            final File randomFile = new File(dir, UUID.randomUUID().toString());
-
-            if (r.nextBoolean()) {
-                randomFile.createNewFile();
-            } else {
-                randomFile.mkdir();
-            }
-        }
-    }
-
     private @DirFd
     int descriptor;
 
     @Before
     public void openDir() {
-        String path = dir.getPath();
+        String path = setup.dir.getPath();
 
         try {
             descriptor = os.opendir(path, OS.O_RDONLY, 0);
@@ -80,17 +71,18 @@ public class InteractiveChanges {
     }
 
     @Test
+    @MediumTest
     public void allPlusOne() throws IOException {
         final ArrayList<String> normalIterationResult = new ArrayList<>();
-        Collections.addAll(normalIterationResult, dir.list());
+        Collections.addAll(normalIterationResult, setup.dir.list());
 
         final ArrayList<String> cursorIterationResult = new ArrayList<>();
 
-        final File testFile = new File(dir, "abracadabra");
+        final File testFile = new File(setup.dir, "abracadabra");
 
         final Directory.Entry file = new Directory.Entry();
 
-        try (Directory d = os.list(descriptor)) {
+        try (Directory d = setup.forFd(descriptor)) {
             final UnreliableIterator<? super Directory.Entry> iterator = d.iterator();
 
             //noinspection StatementWithEmptyBody
@@ -125,16 +117,17 @@ public class InteractiveChanges {
     }
 
     @Test
+    @MediumTest
     public void allPlusOneAfterReset() throws IOException {
         final ArrayList<String> normalIterationResult = new ArrayList<>();
 
         final ArrayList<String> cursorIterationResult = new ArrayList<>();
 
-        final File testFile = new File(dir, "abracadabra");
+        final File testFile = new File(setup.dir, "abracadabra");
 
         final Directory.Entry file = new Directory.Entry();
 
-        try (Directory d = os.list(descriptor)) {
+        try (Directory d = setup.forFd(descriptor)) {
             final UnreliableIterator<? super Directory.Entry> iterator = d.iterator();
 
             //noinspection StatementWithEmptyBody
@@ -145,7 +138,7 @@ public class InteractiveChanges {
                 throw new AssertionError("Failed to create test file!");
             }
 
-            Collections.addAll(normalIterationResult, dir.list());
+            Collections.addAll(normalIterationResult, setup.dir.list());
 
             iterator.moveToPosition(-1);
             iterator.moveToFirst();
@@ -158,8 +151,6 @@ public class InteractiveChanges {
                 }
 
                 cursorIterationResult.add(file.name);
-
-                Log.d("test", file.toString() + ' ' + d.getOpaqueIndex(iterator.getPosition()));
             } while (iterator.moveToNext());
         } finally {
             //noinspection ResultOfMethodCallIgnored
@@ -172,6 +163,7 @@ public class InteractiveChanges {
     }
 
     @Test
+    @MediumTest
     @SuppressWarnings({"ThrowFromFinallyBlock", "ResultOfMethodCallIgnored"})
     public void allMinusOne() throws IOException {
         final ArrayList<String> initialIterationResult = new ArrayList<>();
@@ -179,7 +171,7 @@ public class InteractiveChanges {
         final ArrayList<String> cursorContentsIterationResult = new ArrayList<>();
         final LongHashSet cursorIterationResult = new LongHashSet();
 
-        Collections.addAll(initialIterationResult, dir.list());
+        Collections.addAll(initialIterationResult, setup.dir.list());
         Collections.reverse(initialIterationResult);
 
         File removed = null;
@@ -188,7 +180,7 @@ public class InteractiveChanges {
 
         int failedBacktracksCounter = 0;
 
-        try (Directory d = os.list(descriptor)) {
+        try (Directory d = setup.forFd(descriptor)) {
             final UnreliableIterator<? super Directory.Entry> iterator = d.iterator();
 
             final Random r = new Random();
@@ -199,7 +191,7 @@ public class InteractiveChanges {
                 if (iterator.getPosition() == positionToRemove) {
                     iterator.get(file);
 
-                    removed = new File(dir, file.name);
+                    removed = new File(setup.dir, file.name);
 
                     if (!removed.delete()) {
                         throw new AssertionError("Unable to remove " + file);
@@ -207,7 +199,7 @@ public class InteractiveChanges {
                 }
             }
 
-            Collections.addAll(postDeletionIterationResult, dir.list());
+            Collections.addAll(postDeletionIterationResult, setup.dir.list());
             Collections.reverse(postDeletionIterationResult);
 
             do { // 8ef93436-0363-4785-8b7c-c5b04c5cf52c
@@ -262,9 +254,8 @@ public class InteractiveChanges {
 
     @AfterClass
     public static void cleanup() {
-        for (File file : dir.listFiles()) {
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
+        for (TestSetup setup : setups) {
+            setup.cleanup();
         }
     }
 }

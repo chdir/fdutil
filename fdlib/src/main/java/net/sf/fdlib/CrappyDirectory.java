@@ -1,14 +1,28 @@
-package net.sf.fakenames.fddemo;
+package net.sf.fdlib;
 
 import android.support.annotation.NonNull;
 
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.UnreliableIterator;
-import net.sf.fdlib.WrappedIOException;
+import net.openhft.hashing.XxHash_r39_Custom;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.NoSuchElementException;
 
+/**
+ * A wrapper for {@link Directory}, that keeps all already read contents in memory.
+ *
+ * <p/>
+ *
+ * As the name implies, this API is meant to be used when you need to deal with really, really
+ * terrible, non-Posix-compliant filesystems. This includes FAT32, exFAT and any FUSE/unionfs
+ * filesystems, that does not support {@code telldir} and/or does not report proper inode numbers.
+ *
+ * <p/>
+ *
+ * This class does not {@code seek} the underlying directory except rewinding to 0 position when you
+ * call {@code moveToPosition(-1)}. Instead of returning inode numbers, reported by underlying
+ * filesystem, it reports filename hashes. The same hashes are returned from {@link #getOpaqueIndex}.
+ */
 public class CrappyDirectory implements Directory {
     private final Directory forwardOnlyDir;
 
@@ -22,6 +36,9 @@ public class CrappyDirectory implements Directory {
 
     private static final class It implements UnreliableIterator<Entry> {
         private final UnreliableIterator<Entry> wrapped;
+
+        private final XxHash_r39_Custom.AsLongHashFunctionSeeded hash =
+                XxHash_r39_Custom.asLongHashFunctionWithSeed(System.currentTimeMillis());
 
         It(UnreliableIterator<Entry> wrapped) {
             this.wrapped = wrapped;
@@ -41,7 +58,27 @@ public class CrappyDirectory implements Directory {
         @NonNull
         @Override
         public Entry next() {
-            throw new UnsupportedOperationException("next");
+            try {
+                final int currentPosition = bogusPosition;
+
+                if (currentPosition == -1) {
+                    if (!moveToFirst()) {
+                        throw new WrappedIOException(new IOException("The directory is empty"));
+                    }
+                } else if (lastPosition == currentPosition) {
+                    throw new NoSuchElementException("position = " + bogusPosition);
+                }
+
+                final Entry newEntry = new Entry();
+
+                get(newEntry);
+
+                moveToNext();
+
+                return newEntry;
+            } catch (IOException e) {
+                throw new WrappedIOException(e);
+            }
         }
 
         @Override
@@ -65,6 +102,13 @@ public class CrappyDirectory implements Directory {
         @Override
         public boolean moveToNext() throws IOException {
             return moveToPosition(bogusPosition + 1);
+        }
+
+        private void appendEntry() {
+            final Entry entry = new Entry();
+            wrapped.get(entry);
+            entry.ino = hash.hashNativeChars(entry.name);
+            entries.add(entry);
         }
 
         @Override
@@ -94,18 +138,15 @@ public class CrappyDirectory implements Directory {
 
             switch (position) {
                 case -1:
-                    bogusPosition = -1;
                     entries.clear();
+                    bogusPosition = -1;
                     wrapped.moveToPosition(-1);
                     lastPosition = -2;
-                    // do nothing, because even rewinddir may not be supported
                     return true;
                 case 0:
                     if (bogusPosition == -1) {
                         if (wrapped.moveToFirst()) {
-                            final Entry e = new Entry();
-                            wrapped.get(e);
-                            entries.add(e);
+                            appendEntry();
                             bogusPosition = 0;
                             return true;
                         } else {
@@ -123,6 +164,8 @@ public class CrappyDirectory implements Directory {
                 return false;
             }
 
+            bogusPosition = wrapped.getPosition();
+
             while (bogusPosition < position) {
                 if (!wrapped.moveToPosition(bogusPosition + 1)) {
                     lastPosition = wrapped.getPosition();
@@ -133,14 +176,8 @@ public class CrappyDirectory implements Directory {
                 ++bogusPosition;
 
                 if (bogusPosition == entries.size()) {
-                    final Entry created = new Entry();
-                    wrapped.get(created);
-                    entries.add(created);
+                    appendEntry();
                 }
-            }
-
-            if (!wrapped.moveToNext()) {
-                lastPosition = wrapped.getPosition();
             }
 
             return true;

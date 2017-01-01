@@ -95,33 +95,26 @@ public class LogUtil {
         }
     }
 
+    /** Log a small-deal Exception, that does not endanger bright future of overall application */
     public static void logCautiously(String message, Throwable t) {
         final int priority = VERBOSE ? Log.ERROR : Log.VERBOSE;
 
-        try (PrintWriter writer = new PrintWriter(new LogWriter(TAG, priority))) {
-            writer.println(message);
-
-            if (VERBOSE) {
-                t.printStackTrace(writer);
-            } else {
-                writer.println(t.getClass().toString() + ' ' + t.getMessage());
-            }
-
-            writer.flush();
-
-            Thread.sleep(10);
-        } catch (Throwable ignore) {
-        }
+        logInner(message, t, priority, VERBOSE);
     }
 
-    public static void logCautiously(String message, String heavyContents) {
-        final int priority = VERBOSE ? Log.ERROR : Log.VERBOSE;
+    /** Log a completely unexpected stuff, that is not supposed to happen (but we still don't want to crash on it) */
+    public static void swallowError(String message) {
+        logInner(message, new Throwable(message), Log.ERROR, true);
+    }
 
+    private static void logInner(String message, Throwable err, int priority, boolean trace) {
         try (PrintWriter writer = new PrintWriter(new LogWriter(TAG, priority))) {
             writer.println(message);
 
-            if (VERBOSE) {
-                writer.append(heavyContents);
+            if (trace) {
+                err.printStackTrace(writer);
+            } else {
+                writer.println(err.getClass().toString() + ' ' + err.getMessage());
             }
 
             writer.flush();

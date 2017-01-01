@@ -2,6 +2,7 @@ package net.sf.fakenames.fddemo;
 
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;
+import android.support.test.filters.MediumTest;
 import android.support.test.runner.AndroidJUnit4;
 
 import com.carrotsearch.hppc.LongArrayList;
@@ -17,6 +18,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;
@@ -60,6 +62,7 @@ public class IncrementalIteration {
     }
 
     @Test
+    @MediumTest
     public void suddenAddition() throws IOException {
         LongArrayList cookies = new LongArrayList();
 
@@ -90,6 +93,7 @@ public class IncrementalIteration {
     }
 
     @Test
+    @MediumTest
     public void expectedAddition() throws IOException {
         LongArrayList cookies = new LongArrayList();
 

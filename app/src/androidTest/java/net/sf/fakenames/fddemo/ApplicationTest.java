@@ -1,14 +1,14 @@
 package net.sf.fakenames.fddemo;
 
-import android.content.Context;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.runner.AndroidJUnit4;
+import android.support.test.filters.LargeTest;
+import android.support.test.filters.MediumTest;
 
 import com.carrotsearch.hppc.IntArrayList;
 
 import net.sf.fdlib.DebugUtil;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
+import net.sf.fdlib.DirectoryImpl;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.UnreliableIterator;
 
@@ -18,6 +18,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,9 +30,24 @@ import java.util.UUID;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;
+import static org.junit.runners.Parameterized.*;
 
-@RunWith(AndroidJUnit4.class)
+@RunWith(Parameterized.class)
+@UseParametersRunnerFactory(ParametrizedRunner.class)
 public class ApplicationTest {
+    private static final TestSetup[] setups = new TestSetup[] { TestSetup.internal(), TestSetup.external() };
+
+    @Parameters
+    public static TestSetup[] parameters() {
+        return setups;
+    }
+
+    private final TestSetup setup;
+
+    public ApplicationTest(TestSetup setup) {
+        this.setup = setup;
+    }
+
     private static final OS os;
 
     static {
@@ -42,36 +58,11 @@ public class ApplicationTest {
         }
     }
 
-    private static File dir;
-    private static int fCount;
-
-    @SuppressWarnings("ResultOfMethodCallIgnored")
-    @BeforeClass
-    public static void init() throws IOException {
-        dir = InstrumentationRegistry.getTargetContext().getDir("testDir", Context.MODE_PRIVATE);
-
-        cleanup();
-
-        final Random r = new Random();
-
-        fCount = 75 * 2 + r.nextInt(10) * 75;
-
-        for (int i = 0; i < fCount; ++i) {
-            final File randomFile = new File(dir, UUID.randomUUID().toString());
-
-            if (r.nextBoolean()) {
-                randomFile.createNewFile();
-            } else {
-                randomFile.mkdir();
-            }
-        }
-    }
-
     private @DirFd int descriptor;
 
     @Before
     public void openDir() {
-        String path = dir.getPath();
+        String path = setup.dir.getPath();
 
         try {
             descriptor = os.opendir(path, OS.O_RDONLY, 0);
@@ -81,19 +72,21 @@ public class ApplicationTest {
     }
 
     @Test
+    @MediumTest
     public void testStraightIteration() {
         final ArrayList<String> normalIterationResult = new ArrayList<>();
-
         final ArrayList<String> cursorIterationResult = new ArrayList<>();
 
-        Collections.addAll(normalIterationResult, dir.list());
+        final String[] dirContents = setup.dir.list();
+        cursorIterationResult.ensureCapacity(dirContents.length + 2);
+        normalIterationResult.ensureCapacity(dirContents.length + 2);
 
-        try (Directory dir = os.list(descriptor)) {
+        normalIterationResult.add(".");
+        normalIterationResult.add("..");
+        Collections.addAll(normalIterationResult, dirContents);
+
+        try (Directory dir = setup.forFd(descriptor)) {
             for (Directory.Entry file : dir) {
-                if ("..".equals(file.name) || ".".equals(file.name)) {
-                    continue;
-                }
-
                 cursorIterationResult.add(file.name);
             }
 
@@ -104,14 +97,21 @@ public class ApplicationTest {
     }
 
     @Test
+    @MediumTest
     public void testStraightIteration2() throws IOException {
         final ArrayList<String> normalIterationResult = new ArrayList<>();
 
         final ArrayList<String> cursorIterationResult = new ArrayList<>();
 
-        Collections.addAll(normalIterationResult, dir.list());
+        final String[] dirContents = setup.dir.list();
+        cursorIterationResult.ensureCapacity(dirContents.length + 2);
+        normalIterationResult.ensureCapacity(dirContents.length + 2);
 
-        try (Directory dir = os.list(descriptor)) {
+        normalIterationResult.add(".");
+        normalIterationResult.add("..");
+        Collections.addAll(normalIterationResult, dirContents);
+
+        try (Directory dir = setup.forFd(descriptor)) {
             final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
 
             Directory.Entry file = new Directory.Entry();
@@ -119,10 +119,6 @@ public class ApplicationTest {
             while (iterator.moveToNext()) {
                 iterator.get(file);
 
-                if ("..".equals(file.name) || ".".equals(file.name)) {
-                    continue;
-                }
-
                 cursorIterationResult.add(file.name);
             }
 
@@ -133,16 +129,21 @@ public class ApplicationTest {
     }
 
     @Test
+    @MediumTest
     public void testBackwardIteration() throws IOException {
         final ArrayList<String> normalIterationResult = new ArrayList<>();
-
         final ArrayList<String> cursorIterationResult = new ArrayList<>();
 
-        Collections.addAll(normalIterationResult, dir.list());
+        final String[] dirContents = setup.dir.list();
+        cursorIterationResult.ensureCapacity(dirContents.length + 2);
+        normalIterationResult.ensureCapacity(dirContents.length + 2);
 
+        normalIterationResult.add(".");
+        normalIterationResult.add("..");
+        Collections.addAll(normalIterationResult, dirContents);
         Collections.reverse(normalIterationResult);
 
-        try (Directory dir = os.list(descriptor)) {
+        try (Directory dir = setup.forFd(descriptor)) {
             final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
 
             if (iterator.moveToPosition(Integer.MAX_VALUE)) {
@@ -158,10 +159,6 @@ public class ApplicationTest {
 
                 iterator.get(file);
 
-                if ("..".equals(file.name) || ".".equals(file.name)) {
-                    continue;
-                }
-
                 cursorIterationResult.add(file.name);
             }
             while (iterator.moveToPrevious());
@@ -173,21 +170,25 @@ public class ApplicationTest {
     }
 
     @Test
+    @LargeTest
     public void madJumping() throws IOException {
-        final ArrayList<String> normalIterationResult = new ArrayList<>();
-        Collections.addAll(normalIterationResult, dir.list());
+        final String[] dirContents = setup.dir.list();
+        final ArrayList<String> normalIterationResult = new ArrayList<>(dirContents.length);
+        Collections.addAll(normalIterationResult, dirContents);
 
-        IntArrayList jumps = new IntArrayList();
+        IntArrayList jumps;
 
-        try (Directory dir = os.list(descriptor)) {
+        try (Directory dir = setup.forFd(descriptor)) {
             final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
 
             final Random r = new Random();
 
             int jumpCount = 1000 + r.nextInt(2000);
 
+            jumps = new IntArrayList(jumpCount);
+
             if (!iterator.moveToPosition(2)) {
-                throw new AssertionError("Failed to move to 2 from -1 within " + fCount);
+                throw new AssertionError("Failed to move to 2 from -1 within " + setup.fCount);
             }
 
             int pos;
@@ -201,7 +202,7 @@ public class ApplicationTest {
                 boolean backward = r.nextBoolean();
                 int newPos = backward
                         ? Math.max(0, pos - jumpLength)
-                        : Math.min(fCount - 1, pos + jumpLength);
+                        : Math.min(setup.fCount - 1, pos + jumpLength);
 
                 jumps.add(newPos);
 
@@ -210,10 +211,10 @@ public class ApplicationTest {
                 final int cursorTarget = newPos + 2;
 
                 if (!iterator.moveToPosition(cursorTarget)) {
-                    throw new AssertionError("Failed to move to " + cursorTarget + " (" +  dir.getOpaqueIndex(newPos) + ")" +
+                    throw new AssertionError("Failed to move to " + cursorTarget + " (" + dir.getOpaqueIndex(newPos) + ")" +
                             " from " + pos + " (" + dir.getOpaqueIndex(pos) + ")" +
                             " reached " + iterator.getPosition() + " (" + dir.getOpaqueIndex(iterator.getPosition()) + ")" +
-                            " within " + fCount +
+                            " within " + setup.fCount +
                             " cookie list: " + DebugUtil.getCookieList(dir) +
                             " jumps: " + jumps);
                 }
@@ -223,14 +224,7 @@ public class ApplicationTest {
                 final String got = file.name;
 
                 if (!expected.equals(got)) {
-                    final ArrayList<String> linearView = new ArrayList<>();
-                    for (Directory.Entry e : dir) {
-                        linearView.add(e.name);
-                    }
-
-                    final String allItems = Arrays.toString(linearView.toArray(new String[linearView.size()]));
-
-                    assertWithMessage("moving from %s to %s yielded unexpected results, complete list: %s", pos, newPos + 2, allItems)
+                    assertWithMessage("moving from %s to %s yielded unexpected results, jumps: %s", pos, newPos + 2, jumps)
                             .that(expected).isEqualTo(got);
                 }
             }
@@ -244,9 +238,8 @@ public class ApplicationTest {
 
     @AfterClass
     public static void cleanup() {
-        for (File file : dir.listFiles()) {
-            //noinspection ResultOfMethodCallIgnored
-            file.delete();
+        for (TestSetup setup : setups) {
+            setup.cleanup();
         }
     }
 }
