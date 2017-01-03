@@ -1,0 +1,31 @@
+StartChar: uniE8EE
+Encoding: 59630 59630 895
+Width: 512
+GlyphClass: 3
+Flags: W
+LayerCount: 2
+Fore
+SplineSet
+85 405 m 1,0,-1
+ 427 405 l 1,1,-1
+ 427 363 l 1,2,-1
+ 85 363 l 1,3,-1
+ 85 405 l 1,0,-1
+85 277 m 1,4,-1
+ 85 320 l 1,5,-1
+ 427 320 l 1,6,-1
+ 427 277 l 1,7,-1
+ 85 277 l 1,4,-1
+85 107 m 1,8,-1
+ 85 149 l 1,9,-1
+ 427 149 l 1,10,-1
+ 427 107 l 1,11,-1
+ 85 107 l 1,8,-1
+85 192 m 1,12,-1
+ 85 235 l 1,13,-1
+ 427 235 l 1,14,-1
+ 427 192 l 1,15,-1
+ 85 192 l 1,12,-1
+EndSplineSet
+Ligature2: "'liga' Standard Ligatures in Latin lookup 0 subtable" v i e w underscore h e a d l i n e
+EndChar

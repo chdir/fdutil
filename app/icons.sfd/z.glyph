@@ -1,0 +1,11 @@
+StartChar: z
+Encoding: 122 122 39
+Width: 512
+GlyphClass: 2
+Flags: W
+LayerCount: 2
+Fore
+SplineSet
+0 0 m 1024,0,-1
+EndSplineSet
+EndChar

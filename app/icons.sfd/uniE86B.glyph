@@ -1,0 +1,19 @@
+StartChar: uniE86B
+Encoding: 59499 59499 767
+Width: 512
+GlyphClass: 3
+Flags: W
+LayerCount: 2
+Fore
+SplineSet
+256 427 m 1,0,-1
+ 469 85 l 1,1,-1
+ 43 85 l 1,2,-1
+ 256 427 l 1,0,-1
+256 346 m 1,3,-1
+ 120 128 l 1,4,-1
+ 392 128 l 1,5,-1
+ 256 346 l 1,3,-1
+EndSplineSet
+Ligature2: "'liga' Standard Ligatures in Latin lookup 0 subtable" c h a n g e underscore h i s t o r y
+EndChar

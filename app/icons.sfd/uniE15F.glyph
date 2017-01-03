@@ -1,0 +1,26 @@
+StartChar: uniE15F
+Encoding: 57695 57695 200
+Width: 512
+GlyphClass: 3
+Flags: W
+LayerCount: 2
+Fore
+SplineSet
+277 320 m 1,0,1
+ 381 305 381 305 437.5 240.5 c 128,-1,2
+ 494 176 494 176 512 85 c 1,3,4
+ 435 194 435 194 277 194 c 1,5,-1
+ 277 107 l 1,6,-1
+ 128 256 l 1,7,-1
+ 277 405 l 1,8,-1
+ 277 320 l 1,0,1
+149 341 m 1,9,-1
+ 64 256 l 1,10,-1
+ 149 171 l 1,11,-1
+ 149 107 l 1,12,-1
+ 0 256 l 1,13,-1
+ 149 405 l 1,14,-1
+ 149 341 l 1,9,-1
+EndSplineSet
+Ligature2: "'liga' Standard Ligatures in Latin lookup 0 subtable" r e p l y underscore a l l
+EndChar
