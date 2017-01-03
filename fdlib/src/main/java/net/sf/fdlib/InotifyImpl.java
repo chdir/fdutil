@@ -123,7 +123,7 @@ public class InotifyImpl implements Inotify {
                 fake.configureBlocking(true);
                 fake.configureBlocking(false);
 
-                selectionKey = selector.register(fake, SelectionKey.OP_READ, this);
+                selectionKey = selector.register(fake, SelectionKey.OP_READ, this::read);
 
                 this.selector = new WeakReference<>(selector);
             }
@@ -135,97 +135,89 @@ public class InotifyImpl implements Inotify {
     private ObjectIdentityHashSet<Watch> discarded = new ObjectIdentityHashSet<>();
     private ObjectIdentityHashSet<Watch> notified = new ObjectIdentityHashSet<>();
 
-    private final ObjectProcedure<Watch> cleanup = new ObjectProcedure<Watch>() {
-        @Override
-        public void apply(Watch needsCleanup) {
-            needsCleanup.onReset();
+    private final ObjectProcedure<Watch> cleanup = needsCleanup -> {
+        needsCleanup.onReset();
 
-            notified.remove(needsCleanup);
-        }
+        notified.remove(needsCleanup);
     };
 
-    private final ObjectProcedure<Watch> notify = new ObjectProcedure<Watch>() {
-        @Override
-        public void apply(Watch hasNewEvents) {
-            hasNewEvents.onChanges();
-        }
-    };
+    private final ObjectProcedure<Watch> notify = Watch::onChanges;
 
     private final Lock primaryLock = new ReentrantLock();
 
     @Override
-    public void run() {
-        try {
-            primaryLock.lockInterruptibly();
+    public boolean read() {
+        if (!primaryLock.tryLock()) {
+            return false;
+        }
 
-            try {
-                if (done) {
-                    return;
+        try {
+            if (done) {
+                return true;
+            }
+
+            int lastRead;
+
+            do {
+                lastRead = read(fd, nativePtr, readBuffer.capacity());
+
+                if (lastRead != -1) {
+                    readBuffer.limit(lastRead);
+                } else {
+                    break;
                 }
 
-                int lastRead;
+                int currentBufferPosition = 0;
 
                 do {
-                    lastRead = read(fd, nativePtr, readBuffer.capacity());
+                    readBuffer.position(currentBufferPosition);
 
-                    if (lastRead != -1) {
-                        readBuffer.limit(lastRead);
-                    } else {
-                        break;
+                    final int watchId = readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_WATCH_DESC);
+
+                    if (watchId == -1) {
+                        // the event is IN_Q_OVERFLOW, time for everyone to restart their observers
+                        sayGoodBye();
+                        return true;
                     }
 
-                    int currentBufferPosition = 0;
-
-                    do {
-                        readBuffer.position(currentBufferPosition);
-
-                        final int watchId = readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_WATCH_DESC);
-
-                        if (watchId == -1) {
-                            // the event is IN_Q_OVERFLOW, time for everyone to restart their observers
-                            sayGoodBye();
-                            return;
+                    Watch sub = subscriptions.get(watchId);
+                    if (sub != null) {
+                        if ((readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_MASK) & MASK_IGNORED) == MASK_IGNORED) {
+                            // the event is IN_IGNORED, basically the same as MASK_OVERFLOW, but only
+                            // specific watch descriptor is affected, so we keep going
+                            discarded.add(sub);
+                        } else {
+                            notified.add(sub);
                         }
-
-                        Watch sub = subscriptions.get(watchId);
-                        if (sub != null) {
-                            if ((readBuffer.getInt(currentBufferPosition + INOTIFY_OFF_MASK) & MASK_IGNORED) == MASK_IGNORED) {
-                                // the event is IN_IGNORED, basically the same as MASK_OVERFLOW, but only
-                                // specific watch descriptor is affected, so we keep going
-                                discarded.add(sub);
-                            } else {
-                                notified.add(sub);
-                            }
-                        }
-
-                        final int nameLength = readNameLength(currentBufferPosition + INOTIFY_OFF_NAME_LEN);
-
-                        currentBufferPosition = currentBufferPosition + INOTIFY_OFF_NAME + nameLength;
                     }
-                    while (currentBufferPosition != readBuffer.limit());
+
+                    final int nameLength = readNameLength(currentBufferPosition + INOTIFY_OFF_NAME_LEN);
+
+                    currentBufferPosition = currentBufferPosition + INOTIFY_OFF_NAME + nameLength;
                 }
-                while (true);
-
-                discarded.forEach(cleanup);
-                notified.forEach(notify);
-            } catch (IOException e) {
-                final WrappedIOException wrapped = new WrappedIOException(e);
-
-                try {
-                    close();
-                } catch (Throwable closeError) {
-                    wrapped.addSuppressed(closeError);
-                }
-
-                throw wrapped;
-            } finally {
-                primaryLock.unlock();
-                notified.clear();
-                discarded.clear();
+                while (currentBufferPosition != readBuffer.limit());
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            while (true);
+
+            discarded.forEach(cleanup);
+            notified.forEach(notify);
+        } catch (IOException e) {
+            final WrappedIOException wrapped = new WrappedIOException(e);
+
+            try {
+                close();
+            } catch (Throwable closeError) {
+                wrapped.addSuppressed(closeError);
+            }
+
+            throw wrapped;
+        } finally {
+            primaryLock.unlock();
+            notified.clear();
+            discarded.clear();
         }
+
+        return true;
     }
 
     private void sayGoodBye() throws IOException {

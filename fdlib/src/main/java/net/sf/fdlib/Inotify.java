@@ -57,7 +57,7 @@ import java.io.IOException;
  * Only {@link #run} and {@link #close} are thread-safe: {@link #subscribe} and {@link #setSelector}
  * must be called from the same Looper thread as one used to dispatch {@link InotifyListener}.
  */
-public interface Inotify extends Closeable, Runnable {
+public interface Inotify extends Closeable {
     /**
      * Linux inotify descriptors support {@code epoll} — a mechanism, that allows to efficiently
      * monitor multiple file descriptors for new data without creating dedicated a thread for each.
@@ -79,10 +79,11 @@ public interface Inotify extends Closeable, Runnable {
      * This method must be called in loop to continuously monitor for new inotify events.
      * Alternatively, you can pass a pre-configured {@link SelectorThread} to {@link #setSelector}
      * and let it take care of monitoring.
+     *
+     * @return {@code true}, if the read was successful, {@code false} if the attempt should be repeated shortly
      */
-    @Override
     @WorkerThread
-    void run();
+    boolean read();
 
     /**
      * Subscribe to changes in filesystem object, associated with specified file descriptor.

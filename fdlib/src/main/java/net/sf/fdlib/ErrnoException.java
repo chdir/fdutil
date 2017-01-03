@@ -3,6 +3,8 @@ package net.sf.fdlib;
 import java.io.IOException;
 
 public final class ErrnoException extends IOException {
+    public static final int ENOTDIR = 20;
+
     private final int errno;
 
     public ErrnoException(int errno, String explanation) {

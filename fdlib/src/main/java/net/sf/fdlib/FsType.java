@@ -58,4 +58,8 @@ public enum FsType {
         // Oops
         return MYSTERY;
     }
+
+    static FsType at(int ordinal) {
+        return VALUES[ordinal];
+    }
 }

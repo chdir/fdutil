@@ -1,39 +1,60 @@
 package net.sf.fakenames.fddemo;
 
 import android.content.Context;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.renderscript.RenderScript;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.DividerItemDecoration;
+import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.SimpleItemAnimator;
 import android.system.Os;
 import android.system.StructStat;
 import android.system.StructStatVfs;
+import android.view.ContextMenu;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import net.sf.fakenames.fddemo.icons.IconFontDrawable;
+import net.sf.fakenames.fddemo.icons.Icons;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
 import net.sf.fakenames.fddemo.view.DirItemHolder;
 import net.sf.fakenames.fddemo.view.DirLayoutManager;
+import net.sf.fakenames.fddemo.view.FileMenuInfo;
+import net.sf.fakenames.fddemo.view.NameInputFragment;
 import net.sf.fakenames.fddemo.view.SaneDecor;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
+import net.sf.fdlib.ErrnoException;
 import net.sf.fdlib.FsType;
 import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.OS;
+import net.sf.fdlib.Stat;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.UUID;
 
 import butterknife.BindView;
+import butterknife.OnClick;
 
-public class MainActivity extends BaseActivity implements View.OnClickListener, View.OnLongClickListener {
+public class MainActivity extends BaseActivity implements
+        View.OnClickListener,
+        MenuItem.OnMenuItemClickListener,
+        NameInputFragment.FileNameReceiver,
+        PopupMenu.OnMenuItemClickListener {
     private final RecyclerView.ItemAnimator animator = new DefaultItemAnimator();
 
     private DirObserver dirObserver;
@@ -41,6 +62,7 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
 
     private RecyclerView.ItemDecoration decoration;
 
+    private BaseDirLayout layout;
     private GuardedState state;
     private RecyclerView.LayoutManager layoutManager;
 
@@ -49,6 +71,9 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
 
     @BindView(R.id.act_main_quick_scroll)
     DirFastScroller quickScroller;
+
+    @BindView(R.id.act_main_btn_append)
+    View button;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,22 +103,28 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
                 return;
             }
 
-            final File file = getDir("testDir", Context.MODE_PRIVATE);
-            final String path = file.getPath();
+            File home;
+            layout = new BaseDirLayout(os, this);
+            try {
+                layout.init();
+                home = layout.getHome();
+            } catch (IOException e) {
+                Toast.makeText(this, "failed to create storage links, exiting", Toast.LENGTH_SHORT).show();
+                finish();
+                return;
+            }
 
             @DirFd int directory;
             try {
-                directory = os.opendir(path, OS.O_RDONLY, 0);
+                directory = os.opendir(home.getPath(), OS.O_RDONLY, 0);
             } catch (IOException e) {
-                Toast.makeText(this, "failed to open " + path + ", exiting", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "failed to open " + home.getPath() + ", exiting", Toast.LENGTH_SHORT).show();
                 finish();
                 return;
             }
 
             adapter = state.adapter;
 
-            adapter.setItemClickListener(this);
-            adapter.setItemLongClickListener(this);
             adapter.swapDirectoryDescriptor(directory);
         } else {
             os = state.os;
@@ -116,10 +147,26 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
         directoryList.addOnScrollListener(quickScroller.getOnScrollListener());
         directoryList.setHasFixedSize(true);
 
+        quickScroller.setRecyclerView(directoryList);
+
+        adapter.setItemClickListener(this);
         adapter.registerAdapterDataObserver(scrollerObserver);
         adapter.registerAdapterDataObserver(dirObserver);
 
-        quickScroller.setRecyclerView(directoryList);
+        registerForContextMenu(directoryList);
+    }
+
+    @Override
+    protected void onRestart() {
+        super.onRestart();
+    }
+
+    @OnClick(R.id.act_main_btn_append)
+    void appendClicked() {
+        final PopupMenu menu = new PopupMenu(this, button);
+        menu.inflate(R.menu.menu_main);
+        menu.setOnMenuItemClickListener(this);
+        menu.show();
     }
 
     @Override
@@ -137,6 +184,8 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
 
     @Override
     protected void onDestroy() {
+        unregisterForContextMenu(directoryList);
+
         if (state != null) {
             final DirAdapter adapter = state.adapter;
 
@@ -147,8 +196,7 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
                 adapter.unregisterAdapterDataObserver(dirObserver);
             }
 
-            adapter.setItemLongClickListener(null);
-            adapter.setItemLongClickListener(null);
+            adapter.setItemClickListener(null);
 
             if (!isChangingConfigurations()) {
                 state.close();
@@ -165,40 +213,163 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
         final Directory.Entry dirInfo = dirItemHolder.getDirInfo();
 
         if (dirInfo.type == null || !dirInfo.type.isNotDir()) {
-            @DirFd int newFd = DirFd.NIL, prev = DirFd.NIL;
-            try {
-                newFd = state.os.opendirat(state.adapter.getFd(), dirInfo.name, OS.O_RDONLY, 0);
+            opendir(state.adapter.getFd(), dirInfo.name);
+        }
+    }
 
-                prev = state.adapter.swapDirectoryDescriptor(newFd);
+    private void openHomeDir() {
+        opendir(DirFd.NIL, layout.getHome().getAbsolutePath());
+    }
 
-                layoutManager.scrollToPosition(0);
+    private void opendir(@DirFd int base, String path) {
+        @DirFd int newFd = DirFd.NIL, prev = DirFd.NIL;
+        try {
+            newFd = state.os.opendirat(base, path, OS.O_RDONLY, 0);
 
-                directoryList.setItemAnimator(null);
+            final Stat stat = state.os.fstat(newFd);
 
-                directoryList.swapAdapter(state.adapter, true);
-            } catch (IOException e) {
-                LogUtil.logCautiously("Unable to open directory, ignoring", e);
-            } finally {
-                if (newFd != DirFd.NIL && prev != DirFd.NIL) {
-                    state.os.dispose(newFd);
-                }
+            if (stat.type != FsType.DIRECTORY) {
+                return;
+            }
+
+            prev = state.adapter.swapDirectoryDescriptor(newFd);
+
+            layoutManager.scrollToPosition(0);
+
+            directoryList.setItemAnimator(null);
+
+            directoryList.swapAdapter(state.adapter, true);
+        } catch (ErrnoException e) {
+            if (e.code() != ErrnoException.ENOTDIR) {
+                toast("Unable to open directory: " + e.getMessage());
+            }
+        } catch (IOException e) {
+            LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
+        } finally {
+            if (newFd != DirFd.NIL && prev != DirFd.NIL) {
+                state.os.dispose(newFd);
             }
         }
     }
 
-    @Override
-    public boolean onLongClick(View v) {
-        return false;
+    private Toast toast;
+
+    private void toast(String message) {
+        if (toast != null) {
+            toast.cancel();
+        }
+
+        toast = Toast.makeText(this, message, Toast.LENGTH_SHORT);
+
+        toast.show();
     }
 
     private void restoreDecor() {
         directoryList.setItemAnimator(animator);
-        //directoryList.addItemDecoration(decoration);
     }
 
     private Handler handler = new Handler(Looper.getMainLooper());
 
-    private class DirObserver extends RecyclerView.AdapterDataObserver implements DirLayoutManager.OnLayoutCallback {
+    @Override
+    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
+        final MenuItem addItem = menu.add(Menu.NONE, R.id.menu_item_delete, Menu.CATEGORY_ALTERNATIVE, "Delete");
+
+        addItem.setOnMenuItemClickListener(this);
+    }
+
+    @Override
+    public boolean onMenuItemClick(MenuItem item) {
+        FileMenuInfo info = (FileMenuInfo) item.getMenuInfo();
+
+        switch (item.getItemId()) {
+            case R.id.menu_item_delete:
+
+                try {
+                    state.os.unlinkat(info.parentDir, info.fileInfo.name,
+                            info.fileInfo.type == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
+                } catch (IOException e) {
+                    toast("Failed to remove: " + e.getMessage());
+                }
+                break;
+            case R.id.menu_fifo:
+                showCreateNewDialog(getString(R.string.fifo), item.getItemId());
+                break;
+            case R.id.menu_dir:
+                showCreateNewDialog(getString(R.string.directory).toLowerCase(), item.getItemId());
+                break;
+            case R.id.menu_file:
+                showCreateNewDialog(getString(R.string.file).toLowerCase(), item.getItemId());
+                break;
+            case R.id.menu_socket:
+                showCreateNewDialog(getString(R.string.socket).toLowerCase(), item.getItemId());
+                break;
+        }
+
+        return true;
+    }
+
+    private void showCreateNewDialog(String name, int type) {
+        new NameInputFragment(name, type).show(getFragmentManager(), null);
+    }
+
+    @Override
+    public void onNameChosen(String name, int type) {
+        @OS.FileTypeFlag int fileType;
+
+        switch (type) {
+            case R.id.menu_fifo:
+                fileType = OS.S_IFIFO;
+                break;
+            case R.id.menu_socket:
+                fileType = OS.S_IFSOCK;
+                break;
+            case R.id.menu_dir:
+                try {
+                    state.os.mkdirat(state.adapter.getFd(), name, 0);
+                } catch (IOException e) {
+                    toast("Failed to create a directory: " + e.getMessage());
+                }
+                return;
+            case R.id.menu_file:
+            default:
+                fileType = OS.S_IFREG;
+                break;
+        }
+
+        try {
+            state.os.mknodat(state.adapter.getFd(), name, fileType, 0);
+        } catch (IOException e) {
+            toast("Failed to create a file: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.menu_bar, menu);
+
+        MenuItem home = menu.findItem(R.id.menu_home);
+
+        Drawable icon = new IconFontDrawable(this, Icons.HOME)
+                .color(Color.WHITE)
+                .actionBar();
+
+        home.setIcon(icon);
+
+        return super.onCreateOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.menu_home:
+                openHomeDir();
+                return true;
+        }
+
+        return super.onOptionsItemSelected(item);
+    }
+
+    private final class DirObserver extends RecyclerView.AdapterDataObserver implements DirLayoutManager.OnLayoutCallback {
         private int visibleViewsMax;
         private boolean waitForLayout;
 
@@ -227,13 +398,14 @@ public class MainActivity extends BaseActivity implements View.OnClickListener, 
             RecyclerView.RecycledViewPool pool = directoryList.getRecycledViewPool();
 
             final int visibleViews = dirLayoutManager.getChildCount();
+            final int knownCount = state.adapter.getItemCount();
 
             int visibility;
 
-            if (dirLayoutManager.getChildCount() >= state.adapter.getItemCount()) {
-                visibility = View.GONE;
-            } else {
+            if (knownCount != Integer.MAX_VALUE && visibleViews < knownCount) {
                 visibility = View.VISIBLE;
+            } else {
+                visibility = View.GONE;
             }
 
             if (quickScroller.getVisibility() != visibility) {

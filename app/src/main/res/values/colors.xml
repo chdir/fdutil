@@ -5,7 +5,11 @@
     <color name="colorAccent">#FF4081</color>
     <color name="transparent" >#00000000</color>
 
+    <color name="grey_300">#e0e0e0</color>
+
     <color name="black_900">#212121</color>
     <color name="blue_A700">#304ffe</color>
     <color name="pink_A700">#c51162</color>
+    <color name="orange_A700">#ff6d00</color>
+    <color name="purple_A700">#aa00ff</color>
 </resources>

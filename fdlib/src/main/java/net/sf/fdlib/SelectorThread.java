@@ -16,6 +16,14 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * A basic implementation of selector-based event loop.
+ *
+ * <p/>
+ *
+ * It is inadvisable to excessively interrupt this thread — java epoll-based Selector implementation
+ * uses a pipe for interruption, which may filled up if {@code select()} isn't called frequently enough.
+ */
 public class SelectorThread extends Thread implements Closeable {
     private final AtomicBoolean done;
 
@@ -42,8 +50,12 @@ public class SelectorThread extends Thread implements Closeable {
 
             SelectionKey key;
 
+            boolean hasPendingKeys = false;
+
             while (true) {
                 final Iterator<SelectionKey> selectedKeys = selected.iterator();
+
+                hasPendingKeys = false;
 
                 while (selectedKeys.hasNext()) {
                     if (done.get()) {
@@ -52,22 +64,28 @@ public class SelectorThread extends Thread implements Closeable {
 
                     key = selectedKeys.next();
 
+                    boolean removeKey = true;
                     try {
+
                         if (key.isValid()) {
                             try {
-                                ((Runnable) key.attachment()).run();
+                                removeKey = ((Task) key.attachment()).run();
                             } catch (Exception e) {
                                 LogUtil.logCautiously("Received exception from polled resource", e);
                             }
                         }
                     } finally {
-                        selectedKeys.remove();
+                        if (removeKey) {
+                            selectedKeys.remove();
+                        } else {
+                            hasPendingKeys = true;
+                        }
                     }
                 }
 
                 while (true) {
                     try {
-                        final int selectedCount;
+                        int selectedCount;
 
                         // make a window for register()
                         selectorLock.lock();
@@ -75,7 +93,9 @@ public class SelectorThread extends Thread implements Closeable {
                             // let the selection operation perform 1st-stage cleanup of unregistered channels
                             selectedCount = selector.selectNow();
 
-                            epollCleanupPending = false;
+                            if (epollCleanupPending) {
+                                epollCleanupPending = false;
+                            }
 
                             // epoll_ctl cleanup is complete, let unregister() know
                             epollCleanupComplete.signalAll();
@@ -83,13 +103,17 @@ public class SelectorThread extends Thread implements Closeable {
                             selectorLock.unlock();
                         }
 
-                        if (selectedCount != 0) {
+                        if (hasPendingKeys || selectedCount != 0) {
                             break;
                         }
 
                         if (selector.select() != 0) {
                             break;
                         }
+                    } catch (IOException ioe) {
+                        // as explained in http://bugs.java.com/bugdatabase/view_bug.do?bug_id=4619326,
+                        // sometimes a pipe buffer may overflow and prevent select() from working
+                        LogUtil.logCautiously("Received exception from epoll", ioe);
                     } catch (CancelledKeyException e) {
                         // ignore, that's a normal operation mode for this crappy API
                         LogUtil.logCautiously("Cancelled", e);
@@ -138,14 +162,7 @@ public class SelectorThread extends Thread implements Closeable {
             selector.wakeup();
 
             while (epollCleanupPending) {
-                try {
-                    epollCleanupComplete.await(20, TimeUnit.MILLISECONDS);
-
-                    interrupt();
-                } catch (InterruptedException e) {
-                    // ignore
-                    currentThread().interrupt();
-                }
+                epollCleanupComplete.awaitUninterruptibly();
             }
         } finally {
             selectorLock.unlock();
@@ -158,7 +175,7 @@ public class SelectorThread extends Thread implements Closeable {
      *
      * @throws ClosedChannelException if the channel has already been closed by the time of call
      */
-    public SelectionKey register(SelectableChannel channel, int ops, Runnable onReady) throws ClosedChannelException {
+    public SelectionKey register(SelectableChannel channel, int ops, Task onReady) throws ClosedChannelException {
         selectorLock.lock();
         try {
             selector.wakeup();
@@ -176,5 +193,9 @@ public class SelectorThread extends Thread implements Closeable {
 
             interrupt();
         }
+    }
+
+    public interface Task {
+        boolean run();
     }
 }

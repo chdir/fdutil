@@ -58,7 +58,7 @@ public final class GuardedState extends CloseableGuard {
         os.dispose(inotifyFd);
 
         @DirFd int prev = adapter.swapDirectoryDescriptor(DirFd.NIL);
-        if (prev != DirFd.NIL) {
+        if (prev >= 0) {
             os.dispose(prev);
         }
     }

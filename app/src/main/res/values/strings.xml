@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">fddemo</string>
+    <string name="enter_name">Enter %s name</string>
+    <string name="directory">Directory</string>
+    <string name="fifo">FIFO</string>
+    <string name="socket">Socket</string>
+    <string name="file">File</string>
+    <string name="home">Home</string>
 </resources>

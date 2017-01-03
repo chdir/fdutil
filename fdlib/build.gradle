@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'me.tatarka.retrolambda'
 
 final int appVersionCode = 1
 final int nativeVersionCode = 0
@@ -22,6 +23,10 @@ android {
                 cppFlags '-std=c++11', '-Wall', '-Werror=all'
             }
         }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
     buildTypes {
         release {

@@ -1,6 +1,7 @@
 #include "common.h"
 
 #include "linux_syscall_support.h"
+#include "moar_syscalls.h"
 
 #include <sys/inotify.h>
 #include <sys/stat.h>
@@ -89,6 +90,16 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
+    statContainer = saveClassRef("net/sf/fdlib/Stat", env);
+    if (statContainer == NULL) {
+        return -1;
+    }
+
+    statContainerConstructor = env->GetMethodID(statContainer, "<init>", "(JJJI)V");
+    if (statContainerConstructor == NULL) {
+        return -1;
+    }
+
     errnoException = saveClassRef("net/sf/fdlib/ErrnoException", env);
     if (errnoException == NULL) {
         return -1;
@@ -108,16 +119,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     return JNI_VERSION_1_6;
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_nativeOpenDir(JNIEnv *env, jclass type, jobject path, jint flags, jint mode) {
-    return coreio_open(env, path, flags | O_DIRECTORY, mode);
-}
-
 JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_nativeOpenDirAt(JNIEnv *env, jclass type, jint fd, jobject name, jint flags, jint mode) {
     return coreio_openat(env, fd, name, flags | O_DIRECTORY, mode);
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_nativeOpen(JNIEnv *env, jclass type, jobject path, jint flags, jint mode) {
-    return coreio_open(env, path, flags | O_LARGEFILE, mode);
+JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_nativeOpenAt(JNIEnv *env, jclass type, jint fd, jobject path, jint flags, jint mode) {
+    return coreio_openat(env, fd, path, flags | O_LARGEFILE, mode);
 }
 
 JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeClose(JNIEnv *env, jclass type, jint fd) {
@@ -215,6 +222,106 @@ JNIEXPORT jworkaroundstr JNICALL Java_net_sf_fdlib_Android_nativeReadlink(JNIEnv
             return result;
         }
     }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeSymlinkAt(JNIEnv *env, jobject instance, jworkaroundstr name_, jint target, jworkaroundstr newpath_) {
+    const char *name = getUtf8(env, name_);
+    if (name == NULL) {
+        return;
+    }
+    const char *newpath = getUtf8(env, newpath_);
+    if (newpath == NULL) {
+        return;
+    }
+
+    int rc = sys_symlinkat(name, target, newpath);
+    int err = errno;
+
+    freeUtf8(env, name_, name);
+    freeUtf8(env, newpath_, newpath);
+
+    if (rc) {
+        handleError(env, err);
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeUnlinkAt(JNIEnv *env, jobject instance, jint target, jworkaroundstr name, jint flags) {
+    const char* name_ = getUtf8(env, name);
+    if (name_ == NULL) {
+        return;
+    }
+
+    int rc = sys_unlinkat(target, name_, flags);
+    int err = errno;
+
+    freeUtf8(env, name, name_);
+
+    if (rc) {
+        handleError(env, err);
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeMknodAt(JNIEnv *env, jclass type, jint target, jworkaroundstr name, jint mode, jint device) {
+    const char* name_ = getUtf8(env, name);
+
+    if (name_ == NULL) {
+        return;
+    }
+
+    int rc = sys_mknodat(target, name_, static_cast<mode_t>(mode), static_cast<dev_t>(device));
+    int err = errno;
+
+    freeUtf8(env, name, name_);
+
+    if (rc) {
+        handleError(env, err);
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeMkdirAt(JNIEnv *env, jclass type, jint target, jworkaroundstr name, jint mode) {
+    const char* name_ = getUtf8(env, name);
+
+    int rc = sys_mkdirat(target, name_, static_cast<mode_t>(mode));
+    int err = errno;
+
+    freeUtf8(env, name, name_);
+
+    if (rc) {
+        handleError(env, err);
+    }
+}
+
+
+JNIEXPORT jobject JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject self, jint fd) {
+    kernel_stat64 dirStat;
+
+    if (sys_fstat64(fd, &dirStat) != 0) {
+        handleError(env);
+        return NULL;AT_FDCWD
+    }
+
+    jint fileTypeOrdinal = 0;
+
+    if (S_ISBLK(dirStat.st_mode)) {
+        fileTypeOrdinal = 0;
+    } else if (S_ISCHR(dirStat.st_mode)) {
+        fileTypeOrdinal = 1;
+    } else if (S_ISFIFO(dirStat.st_mode)) {
+        fileTypeOrdinal = 2;
+    } else if (S_ISSOCK(dirStat.st_mode)) {
+        fileTypeOrdinal = 3;
+    } else if (S_ISLNK(dirStat.st_mode)) {
+        fileTypeOrdinal = 4;
+    } else if (S_ISREG(dirStat.st_mode)) {
+        fileTypeOrdinal = 5;
+    } else if (S_ISDIR(dirStat.st_mode)) {
+        fileTypeOrdinal = 6;
+    } else {
+        fileTypeOrdinal = 7;
+    }
+
+    return env -> NewObject(statContainer, statContainerConstructor,
+                            dirStat.st_dev, dirStat.st_ino, dirStat.st_size, fileTypeOrdinal);
 }
 
 }

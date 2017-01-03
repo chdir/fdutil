@@ -2,6 +2,8 @@ package net.sf.fakenames.fddemo.view;
 
 import android.annotation.SuppressLint;
 import android.content.res.ColorStateList;
+import android.os.Build;
+import android.support.annotation.RequiresApi;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.View;
@@ -17,8 +19,6 @@ import butterknife.BindColor;
 import butterknife.BindView;
 import butterknife.ButterKnife;
 
-import static android.support.v7.appcompat.R.color.primary_text_default_material_dark;
-
 public final class DirItemHolder extends RecyclerView.ViewHolder {
     @BindColor(R.color.blue_A700)
     ColorStateList directoryColor;
@@ -28,6 +28,12 @@ public final class DirItemHolder extends RecyclerView.ViewHolder {
 
     @BindColor(R.color.pink_A700)
     ColorStateList symlinkColor;
+
+    @BindColor(R.color.orange_A700)
+    ColorStateList socketColor;
+
+    @BindColor(R.color.purple_A700)
+    ColorStateList fifoColor;
 
     @BindView(android.R.id.text1)
     TextView textView;
@@ -39,13 +45,18 @@ public final class DirItemHolder extends RecyclerView.ViewHolder {
     public DirItemHolder(View itemView) {
         super(itemView);
 
+        if (Build.VERSION.SDK_INT >= 23) {
+            itemView.setContextClickable(true);
+            itemView.setOnContextClickListener(ContextClickListener.INSTANCE);
+        }
+
         ButterKnife.bind(this, itemView);
     }
 
     public void setFile(UnreliableIterator<Directory.Entry> file) throws IOException {
         file.get(reusable);
 
-        Log.d("TRACE", reusable + " pos " + file.getPosition());
+        //Log.d("TRACE", reusable + " pos " + file.getPosition());
 
         textView.setText(reusable.name);
 
@@ -58,6 +69,12 @@ public final class DirItemHolder extends RecyclerView.ViewHolder {
                     break;
                 case LINK:
                     textColor = symlinkColor;
+                    break;
+                case DOMAIN_SOCKET:
+                    textColor = socketColor;
+                    break;
+                case NAMED_PIPE:
+                    textColor = fifoColor;
                     break;
                 default:
                     textColor = miscColor;
@@ -91,5 +108,15 @@ public final class DirItemHolder extends RecyclerView.ViewHolder {
     @Override
     public String toString() {
         return "DirItem[isPlaceholder: " + placeholder + "; item: " + reusable + "]";
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    private static final class ContextClickListener implements View.OnContextClickListener {
+        private static final ContextClickListener INSTANCE = new ContextClickListener();
+
+        @Override
+        public boolean onContextClick(View v) {
+            return v.showContextMenu();
+        }
     }
 }

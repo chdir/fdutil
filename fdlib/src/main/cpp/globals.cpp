@@ -9,8 +9,10 @@ int API_VERSION;
 jclass ioException;
 jclass oomError;
 jclass errnoException;
+jclass statContainer;
 
 jmethodID errnoExceptionConstructor;
+jmethodID statContainerConstructor;
 
 size_t pageSize;
 

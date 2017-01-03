@@ -21,7 +21,14 @@ import static net.sf.fdlib.Fd.*;
 @IntDef({NIL, ERROR, STDIN, STDOUT, STDERR})
 @Target({FIELD, METHOD, PARAMETER, LOCAL_VARIABLE})
 public @interface Fd {
+    /**
+     * Invalid descriptor sentinel for indicating absence of value (a {@code null} replacement)
+     */
     int NIL = -1;
+
+    /**
+     * Invalid descriptor sentinel for indicating an error condition
+     */
     int ERROR = 0x80000000;
 
     int STDIN = 0;

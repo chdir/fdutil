@@ -15,8 +15,10 @@ extern int API_VERSION;
 extern jclass ioException;
 extern jclass oomError;
 extern jclass errnoException;
+extern jclass statContainer;
 
 extern jmethodID errnoExceptionConstructor;
+extern jmethodID statContainerConstructor;
 
 extern size_t pageSize;
 

@@ -112,7 +112,8 @@ public class InotifyTests {
 
             sync(dirDescriptor);
 
-            inotify.run();
+            //noinspection StatementWithEmptyBody
+            while (!inotify.read());
 
             instrumentation.waitForIdleSync();
         } finally {
@@ -187,7 +188,8 @@ public class InotifyTests {
 
             sync(dirDescriptor);
 
-            inotify.run();
+            //noinspection StatementWithEmptyBody
+            while (!inotify.read());
 
             instrumentation.waitForIdleSync();
 
@@ -255,7 +257,8 @@ public class InotifyTests {
 
             sync(dirDescriptor);
 
-            inotify.run();
+            //noinspection StatementWithEmptyBody
+            while (!inotify.read());
 
             instrumentation.waitForIdleSync();
 

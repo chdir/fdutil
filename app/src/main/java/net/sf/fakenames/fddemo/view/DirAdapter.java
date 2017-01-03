@@ -8,7 +8,10 @@ import android.os.Looper;
 import android.os.Message;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
+import android.view.ContextMenu;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -26,7 +29,9 @@ import net.sf.fdlib.WrappedIOException;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.List;
+import java.util.Random;
 
 public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implements Closeable {
     private static final String IO_ERR = "core.io.ui";
@@ -47,7 +52,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     private UnreliableIterator<Directory.Entry> iterator;
     private boolean ioFail;
 
-    private int count = Integer.MAX_VALUE;
+    private int count = 0;
 
     private final OS os;
 
@@ -114,10 +119,12 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
                 directory = null;
             }
 
+            this.dirFd = dirFd;
+
             iterator = null;
         }
 
-        setCount(Integer.MAX_VALUE);
+        advanceCount(dirFd >= 0 ? Integer.MAX_VALUE : 0);
 
         return oldFd;
     }
@@ -154,7 +161,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     @Override
     public int getItemCount() {
-        return dirFd > 0 ? count : 0;
+        return count;
     }
 
     // must be called immediately after moveToPosition!
@@ -178,7 +185,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     private static final int MSG_COUNTED = 0;
 
     private void advanceCount(int newCount) {
-        if (recyclerView.isComputingLayout()) {
+        if (recyclerView != null && recyclerView.isComputingLayout()) {
             isStalled = true;
 
             notificationHandler.removeMessages(MSG_COUNTED);
@@ -229,6 +236,8 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         holder.clearHolder();
     }
 
+    private final Random r = new SecureRandom();
+
     @Override
     public long getItemId(int position) {
         if (position == 0) {
@@ -249,7 +258,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             }
         }
 
-        return -1L;
+        return r.nextLong();
     }
 
     private final Handler notificationHandler = new Handler(Looper.getMainLooper()) {
@@ -271,7 +280,10 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         }
 
         if (ioFail) {
-            swapDirectoryDescriptor(DirFd.ERROR);
+            @DirFd int oldFd = swapDirectoryDescriptor(DirFd.ERROR);
+            if (oldFd >= 0) {
+                os.dispose(oldFd);
+            }
         } else {
             ioFail = true;
         }
