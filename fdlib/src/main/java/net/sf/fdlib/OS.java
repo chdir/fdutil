@@ -4,6 +4,7 @@ import android.os.Looper;
 import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
+import android.support.annotation.WorkerThread;
 
 import java.io.IOException;
 import java.lang.annotation.Documented;
@@ -11,6 +12,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 public abstract class OS {
+    public static final String DEBUG_MODE = "net.sf.fdshare.DEBUG";
+
     protected OS() {
     }
 
@@ -43,12 +46,15 @@ public abstract class OS {
     public static final int S_IFIFO =  0b0001000000000000;
 
     @CheckResult
+    @WorkerThread
     public abstract @Fd int open(String path, @OpenFlag int flags, int mode) throws IOException;
 
     @CheckResult
+    @WorkerThread
     public abstract @DirFd int opendir(String path, @OpenFlag int flags, int mode) throws IOException;
 
     @CheckResult
+    @WorkerThread
     public abstract @DirFd int opendirat(@DirFd int fd, String name, int flags, int mode) throws IOException;
 
     @CheckResult

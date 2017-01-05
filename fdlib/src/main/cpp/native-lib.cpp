@@ -16,25 +16,6 @@ inline static jclass saveClassRef(const char* name, JNIEnv *env) {
     return reinterpret_cast<jclass>(env->NewGlobalRef(found));
 }
 
-inline static jint coreio_open(JNIEnv *env, jworkaroundstr path, jint flags, jint mode) {
-    const char *utf8Path = getUtf8(env, path);
-
-    if (utf8Path == NULL) {
-        env->ThrowNew(oomError, "file name buffer");
-        return -1;
-    }
-
-    int newFd = TEMP_FAILURE_RETRY(sys_open(utf8Path, flags, mode));
-
-    freeUtf8(env, path, utf8Path);
-
-    if (newFd < 0) {
-        handleError(env);
-    }
-
-    return newFd;
-}
-
 inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint flags, jint mode) {
     const char *utf8Path = getUtf8(env, name);
 
@@ -297,7 +278,7 @@ JNIEXPORT jobject JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject s
 
     if (sys_fstat64(fd, &dirStat) != 0) {
         handleError(env);
-        return NULL;AT_FDCWD
+        return NULL;
     }
 
     jint fileTypeOrdinal = 0;

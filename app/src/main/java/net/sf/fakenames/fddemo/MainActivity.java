@@ -35,6 +35,8 @@ import net.sf.fakenames.fddemo.view.DirLayoutManager;
 import net.sf.fakenames.fddemo.view.FileMenuInfo;
 import net.sf.fakenames.fddemo.view.NameInputFragment;
 import net.sf.fakenames.fddemo.view.SaneDecor;
+import net.sf.fakenames.syscallserver.Rooted;
+import net.sf.fakenames.syscallserver.SyscallFactory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
 import net.sf.fdlib.ErrnoException;
@@ -81,18 +83,28 @@ public class MainActivity extends BaseActivity implements
 
         setContentView(R.layout.file_manager);
 
-        final OS os;
+        final OS unpriv;
         final DirAdapter adapter;
+
+        OS os;
 
         state = getLastNonConfigurationInstance();
 
         if (state == null) {
             try {
-                os = OS.getInstance();
+                unpriv = OS.getInstance();
             } catch (IOException e) {
                 Toast.makeText(this, "failed to initialize native libraries, exiting", Toast.LENGTH_SHORT).show();
                 finish();
                 return;
+            }
+
+            try {
+                os = Rooted.createWithChecks(this);
+            } catch (IOException e) {
+                LogUtil.logCautiously("Failed to acquire root access, using unprivileged fallback", e);
+
+                os  = unpriv;
             }
 
             try {
@@ -104,7 +116,7 @@ public class MainActivity extends BaseActivity implements
             }
 
             File home;
-            layout = new BaseDirLayout(os, this);
+            layout = new BaseDirLayout(unpriv, this);
             try {
                 layout.init();
                 home = layout.getHome();
@@ -116,7 +128,7 @@ public class MainActivity extends BaseActivity implements
 
             @DirFd int directory;
             try {
-                directory = os.opendir(home.getPath(), OS.O_RDONLY, 0);
+                directory = unpriv.opendir(home.getPath(), OS.O_RDONLY, 0);
             } catch (IOException e) {
                 Toast.makeText(this, "failed to open " + home.getPath() + ", exiting", Toast.LENGTH_SHORT).show();
                 finish();
@@ -240,11 +252,15 @@ public class MainActivity extends BaseActivity implements
 
             directoryList.swapAdapter(state.adapter, true);
         } catch (ErrnoException e) {
+            LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
+
             if (e.code() != ErrnoException.ENOTDIR) {
                 toast("Unable to open directory: " + e.getMessage());
             }
         } catch (IOException e) {
             LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
+
+            toast("Unable to open directory: " + e.getMessage());
         } finally {
             if (newFd != DirFd.NIL && prev != DirFd.NIL) {
                 state.os.dispose(newFd);
@@ -327,6 +343,8 @@ public class MainActivity extends BaseActivity implements
                 try {
                     state.os.mkdirat(state.adapter.getFd(), name, 0);
                 } catch (IOException e) {
+                    LogUtil.logCautiously("Failed to create a directory", e);
+
                     toast("Failed to create a directory: " + e.getMessage());
                 }
                 return;
@@ -339,6 +357,8 @@ public class MainActivity extends BaseActivity implements
         try {
             state.os.mknodat(state.adapter.getFd(), name, fileType, 0);
         } catch (IOException e) {
+            LogUtil.logCautiously("Failed to create a file", e);
+
             toast("Failed to create a file: " + e.getMessage());
         }
     }

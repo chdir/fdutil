@@ -47,7 +47,7 @@ dependencies {
     })
     testCompile 'junit:junit:4.12'
 
-    compile project(':fdlib')
+    compile project(':syscallserver')
 
     androidTestCompile 'com.google.truth:truth:0.30'
     androidTestCompile project(':fdlib')

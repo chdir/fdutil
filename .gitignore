@@ -5,6 +5,8 @@
 *.log
 *.jks
 *.jar
+*.so
+*.o
 
 *.iml
 .gradle/
@@ -14,3 +16,4 @@ local.properties
 build/
 captures/
 .externalNativeBuild/
+libs/

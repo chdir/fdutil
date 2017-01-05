@@ -1,0 +1,70 @@
+apply plugin: 'com.android.library'
+
+final int nativeVersionCode = 0
+
+android {
+    compileSdkVersion 24
+    buildToolsVersion "25.0.2"
+
+    defaultConfig {
+        minSdkVersion 19
+        targetSdkVersion 24
+        versionCode 1
+        versionName "1.0"
+
+        buildConfigField 'int', 'NATIVE_VER', "$nativeVersionCode"
+
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                targets "fdhelper-$nativeVersionCode"
+                abiFilters 'x86', 'armeabi-v7a', 'mips'
+                cppFlags '-std=c++11', '-Wall', '-Werror=all'
+                arguments "-DFDHELPER_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_PIE=ON"
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
+        exclude group: 'com.android.support', module: 'support-annotations'
+    })
+
+
+    compile project(':fdlib')
+
+    testCompile 'junit:junit:4.12'
+}
+
+project.android.libraryVariants.all { variant ->
+    def renameExecutablesTaskName = 'renameExecutables' + variant.name.capitalize()
+
+    Task renameExecutables = task(renameExecutablesTaskName) << {
+        project.copy {
+            from "$projectDir.absolutePath/src/main/libs"
+            into "$projectDir.absolutePath/src/main/jniLibs"
+            include '**/*'
+            exclude '**/*.jar'
+            exclude '**/*.so'
+            rename(/(.+)/, true ? 'lib$1_PIC_exec.so' : 'lib$1_exec.so')
+        }
+    }
+
+    renameExecutables.dependsOn(variant.externalNativeBuildTasks[0])
+
+    variant.javaCompile.dependsOn(renameExecutables)
+}

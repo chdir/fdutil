@@ -12,7 +12,7 @@ import java.io.Writer;
 public class LogUtil {
     private static final boolean VERBOSE;
     static {
-        VERBOSE = Boolean.valueOf(System.getProperty("net.sf.fdlib.VERBOSE"));
+        VERBOSE = Boolean.valueOf(System.getProperty(OS.DEBUG_MODE));
     }
 
     public static final String TAG = "fdlib";
