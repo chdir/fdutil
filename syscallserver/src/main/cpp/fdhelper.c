@@ -23,6 +23,7 @@
 #include <sys/ioctl.h>
 #include <sys/uio.h>
 #include <sys/un.h>
+#include <sys/inotify.h>
 
 #include <stdlib.h> // exit
 #include <stdio.h> // printf
@@ -30,11 +31,19 @@
 #include <android/log.h>
 
 #include "linux_syscall_support.h"
+#include "moar_syscalls.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
 
 #define LOG_TAG "fdshare"
+
+#define REQ_TYPE_OPEN 1
+#define REQ_TYPE_MKDIR 2
+#define REQ_TYPE_UNLINK 3
+#define REQ_TYPE_ADD_WATCH 4
+
+#define INOTIFY_FLAGS (IN_ATTRIB | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE | IN_MOVE_SELF)
 
 static int verbose;
 
@@ -81,7 +90,7 @@ static int ancil_send_fds_with_buffer(int sock, int fd)
     return (TEMP_FAILURE_RETRY(sendmsg(sock, &msghdr, 0)) >= 0 ? 0 : -1);
 }
 
-static int ancil_recv_fds_with_buffer(int sock)
+static int ancil_recv_fds_with_buffer(int sock, int fdCount, int *fds)
 {
     struct msghdr msghdr;
     msghdr.msg_name = NULL;
@@ -98,7 +107,7 @@ static int ancil_recv_fds_with_buffer(int sock)
 
     union {
         struct cmsghdr  cmsghdr;
-        char        control[CMSG_SPACE(sizeof (int))];
+        char        control[CMSG_SPACE(sizeof(int))];
     } cmsgfds;
 
     struct cmsghdr  cmsghdr;
@@ -111,30 +120,32 @@ static int ancil_recv_fds_with_buffer(int sock)
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
 
-    ((int *)CMSG_DATA(cmsg))[0] = AT_FDCWD;
+    for(int i = 0; i < fdCount; i++) {
+        ((int *) CMSG_DATA(cmsg))[0] = AT_FDCWD;
 
-    if (verbose) {
-        LOG("Invoking recvmsg()");
+        if (verbose) {
+            LOG("Invoking recvmsg()");
+        }
+
+        int bytesRead = TEMP_FAILURE_RETRY(recvmsg(sock, &msghdr, 0));
+
+        if (bytesRead <= 0) {
+            DieWithError("Failed to read a message from buffer");
+            return -1;
+        }
+
+        if (verbose) {
+            LOG("recvmsg() received %d bytes", bytesRead);
+        }
+
+        if (cmsg->cmsg_type == SCM_RIGHTS) {
+            LOG("Descriptor: %d", ((int *) CMSG_DATA(cmsg))[0]);
+
+            fds[i] = ((int *) CMSG_DATA(cmsg))[0];
+        }
     }
 
-    int bytesRead = TEMP_FAILURE_RETRY(recvmsg(sock, &msghdr, 0));
-
-    if (bytesRead <= 0) {
-        DieWithError("Failed to read a message from buffer");
-        return -1;
-    }
-
-    if (verbose) {
-        LOG("recvmsg() received %d bytes", bytesRead);
-    }
-
-    int fd = -1;
-
-    if (cmsg->cmsg_type == SCM_RIGHTS) {
-        fd = ((int *)CMSG_DATA(cmsg))[0];
-    }
-
-    return fd;
+    return fdCount;
 }
 
 // Fork and get ourselves a tty. Acquired tty will be new stdin,
@@ -233,15 +244,30 @@ static int Bootstrap(char *socket_name) {
 static void initFileContext(const char* context) {
     char fsCreatePathBuf[42];
 
-    sprintf(fsCreatePathBuf, "/proc/self/task/%d/attr/fscreate", gettid());
+    int threadId = gettid();
+
+    sprintf(fsCreatePathBuf, "/proc/self/task/%d/attr/fscreate", threadId);
 
     FILE* fscreateFd = fopen(fsCreatePathBuf, "w");
 
     if (fscreateFd != NULL) {
-        LOG("Switching descriptor creation context to %s", context);
+        LOG("Switching file creation context to %s", context);
 
         fputs(context, fscreateFd);
         fclose(fscreateFd);
+    }
+
+    char sockCreatePathBuf[44];
+
+    sprintf(sockCreatePathBuf, "/proc/self/task/%d/attr/sockcreate", threadId);
+
+    FILE* sockcreateFd = fopen(fsCreatePathBuf, "w");
+
+    if (sockcreateFd != NULL) {
+        LOG("Switching socket creation context to %s", context);
+
+        fputs(context, sockcreateFd);
+        fclose(sockcreateFd);
     }
 }
 
@@ -256,8 +282,8 @@ int main(int argc, char *argv[]) {
     // connect to supplied address and send the greeting message to server
     int sock = Bootstrap(argv[1]);
 
-    // Obnoxious SELinux has a tendency block fd transfers left and right. Apparently, this
-    // can be "fixed" by using target context for descriptor creation
+    // Use the context of calling app for file manipulation (this ensures. that our files
+    // are created with same context as if they were created by the calling app)
     if (argc > 2) {
         initFileContext(argv[2]);
     }
@@ -266,9 +292,9 @@ int main(int argc, char *argv[]) {
     char status[3];
 
     while(1) {
-        int nameLength, mode, fdCount, receivedFd;
+        int reqType, nameLength, mode, fdCount, receivedFd = -1;
 
-        if (scanf("%d %d %d ", &nameLength, &mode, &fdCount) != 3)
+        if (scanf("%d %d %d %d ", &reqType, &nameLength, &mode, &fdCount) != 4)
             DieWithError("reading a filename length, mode and fd count failed");
 
         if (verbose) {
@@ -290,27 +316,164 @@ int main(int argc, char *argv[]) {
             LOG("Attempting to open %s", filename);
         }
 
-        if (fdCount > 0) {
-            receivedFd = ancil_recv_fds_with_buffer(sock);
-        } else {
-            receivedFd = AT_FDCWD;
-        }
+        switch (reqType) {
+            case REQ_TYPE_OPEN: {
+                if (fdCount > 0) {
+                    ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+                } else {
+                    receivedFd = AT_FDCWD;
+                }
 
-        int targetFd = sys_openat(receivedFd, filename, mode, S_IRWXU|S_IRWXG);
+                int targetFd = sys_openat(receivedFd, filename, mode, S_IRWXU | S_IRWXG);
 
-        if (targetFd > 0) {
-            if (ancil_send_fds_with_buffer(sock, targetFd))
-                DieWithError("sending file descriptor failed");
-        } else {
-            const char* errmsg = strerror(errno);
+                if (targetFd > 0) {
+                    if (ancil_send_fds_with_buffer(sock, targetFd))
+                        DieWithError("sending file descriptor failed");
+                } else {
+                    const char *errmsg = strerror(errno);
 
-            LOG("Error: failed to open a file - %s\n", errmsg);
+                    LOG("Error: failed to open a file - %s\n", errmsg);
 
-            fprintf(stderr, "Error: failed to open a file - %s\n", errmsg);
+                    fprintf(stderr, "failed to open a file - %s\n", errmsg);
+                }
+
+                close(targetFd);
+
+                break;
+            }
+
+            case REQ_TYPE_MKDIR: {
+                if (fdCount > 0) {
+                    ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+                } else {
+                    receivedFd = AT_FDCWD;
+                }
+
+                if (sys_mkdirat(receivedFd, filename, (mode_t) mode) != 0) {
+                    const char *errmsg = strerror(errno);
+
+                    LOG("Error: failed to open a file - %s\n", errmsg);
+
+                    fprintf(stderr, "failed to create a directory - %s\n", errmsg);
+                } else {
+                    fprintf(stderr, "READY");
+                }
+
+                break;
+            }
+
+            case REQ_TYPE_UNLINK: {
+                if (fdCount > 0) {
+                    ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+                } else {
+                    receivedFd = AT_FDCWD;
+                }
+
+                if (sys_unlinkat(receivedFd, filename, mode) != 0) {
+                    const char *errmsg = strerror(errno);
+
+                    LOG("Error: failed to unlink - %s\n", errmsg);
+
+                    fprintf(stderr, "failed to invoke unlink - %s\n", errmsg);
+                } else {
+                    fprintf(stderr, "READY");
+                }
+
+                break;
+            }
+
+            case REQ_TYPE_ADD_WATCH: {
+                if (fdCount != 2) {
+                    DieWithError("Unexpected number of descriptors");
+                }
+
+                int fds[2];
+
+                ancil_recv_fds_with_buffer(sock, 2, fds);
+
+                char addWatchBuff[25];
+
+                sprintf(addWatchBuff, "/proc/self/fd/%d", fds[1]);
+
+                LOG("Resolving %s", addWatchBuff);
+
+                size_t filenameSize = 1024 * 4;
+                char* readLinkBuf;
+
+                if ((readLinkBuf = (char*) calloc(filenameSize + 1, 1)) == NULL)
+                    DieWithError("Failed to alloc readlink buffer");
+
+                while (1) {
+                    int rc = sys_readlink(addWatchBuff, readLinkBuf, filenameSize);
+
+                    if (rc == -1) {
+                        const char *errmsg = strerror(errno);
+
+                        LOG("failed to readlink - %s\n", errmsg);
+
+                        fprintf(stderr, "failed to invoke readlink - %s\n", errmsg);
+
+                        free(readLinkBuf);
+                        readLinkBuf = NULL;
+
+                        break;
+                    } else if (rc >= filenameSize) {
+                        filenameSize *= 2;
+
+                        LOG("unable to fit filename, expanding to %d", filenameSize);
+
+                        char* newBuf = realloc((void*) readLinkBuf, filenameSize);
+
+                        if (newBuf == NULL) {
+                            free(readLinkBuf);
+                            newBuf = calloc(filenameSize + 1, 1);
+                            if (newBuf == NULL) {
+                                LOG("realloc failed");
+
+                                free(readLinkBuf);
+                                readLinkBuf = NULL;
+
+                                LOG("Failed to allocate new buffer of size %d", filenameSize);
+
+                                break;
+                            }
+                        }
+
+                        readLinkBuf = newBuf;
+                        continue;
+                    } else {
+                        readLinkBuf[rc] = '\0';
+                        break;
+                    }
+                }
+
+                if (readLinkBuf != NULL) {
+                    int addedWatch = inotify_add_watch(fds[0], readLinkBuf, INOTIFY_FLAGS);
+
+                    free(readLinkBuf);
+
+                    if (addedWatch == -1) {
+                        const char *errmsg = strerror(errno);
+
+                        LOG("failed to add watch - %s\n", errmsg);
+
+                        fprintf(stderr, "failed to invoke inotify_add_watch - %s\n", errmsg);
+                    } else {
+                        fprintf(stderr, "%d", addedWatch);
+                    }
+                }
+
+                close(fds[0]);
+                close(fds[1]);
+
+                break;
+            }
+
+            default:
+                DieWithError("unknown request type");
         }
 
         free(filename);
-        close(targetFd);
 
         if (receivedFd > 0) {
             close(receivedFd);

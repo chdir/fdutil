@@ -70,7 +70,7 @@ public class InotifyImpl implements Inotify {
 
     private SelectionKey selectionKey;
 
-    InotifyImpl(@InotifyFd int fd, @Nullable Looper looper, OS os, GuardFactory factory) {
+    public InotifyImpl(@InotifyFd int fd, @Nullable Looper looper, OS os, GuardFactory factory) {
         this.fd = fd;
 
         this.looper = looper != null ? looper : Looper.getMainLooper();
@@ -84,7 +84,7 @@ public class InotifyImpl implements Inotify {
     }
 
     // bindings for inotify_add_watch/inotify_rm_watch
-    private static native int addSubscription(@InotifyFd int fd, int watchedFd) throws ErrnoException;
+    protected native int addSubscription(@InotifyFd int fd, int watchedFd) throws IOException;
     private static native void removeSubscription(@InotifyFd int fd, int watchDesc) throws ErrnoException;
 
     // a specialized binding for read (2), that can handle EAGAIN/EWOULDBLOCK without throwing

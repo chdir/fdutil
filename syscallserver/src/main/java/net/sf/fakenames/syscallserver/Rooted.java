@@ -4,17 +4,26 @@ import android.content.Context;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
 
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
 import net.sf.fdlib.Fd;
+import net.sf.fdlib.GuardFactory;
 import net.sf.fdlib.Inotify;
 import net.sf.fdlib.InotifyFd;
+import net.sf.fdlib.InotifyImpl;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.Stat;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.Locale;
+import java.util.Scanner;
+
+import static android.os.Process.myPid;
 
 public final class Rooted extends net.sf.fdlib.OS {
     private final OS delegate;
@@ -35,7 +44,7 @@ public final class Rooted extends net.sf.fdlib.OS {
         return new Rooted(context, getInstance());
     }
 
-    private Rooted(Context context, net.sf.fdlib.OS delegate) {
+    private Rooted(Context context, OS delegate) {
         this.context = context;
         this.delegate = delegate;
     }
@@ -45,7 +54,17 @@ public final class Rooted extends net.sf.fdlib.OS {
     private SyscallFactory getFactory() throws IOException {
         if (factoryInstance == null) {
             synchronized (this) {
-                factoryInstance = SyscallFactory.create(context);
+                String contextStr = null;
+
+                final String contextFileName = String.format(Locale.ENGLISH, "/proc/%d/attr/current", myPid());
+
+                try (Scanner s = new Scanner(new FileInputStream(contextFileName))) {
+                    contextStr = s.nextLine();
+                } catch (FileNotFoundException ok) {
+                    // either there is no SELinux, or we are simply powerless to do anything
+                }
+
+                factoryInstance = SyscallFactory.create(context, contextStr);
             }
         }
 
@@ -83,7 +102,7 @@ public final class Rooted extends net.sf.fdlib.OS {
         } catch (FactoryBrokenException e) {
             factoryInstance = null;
 
-            throw new IOException("open() failed: unable to access privileged process", e);
+            throw new IOException("open() failed, unable to access privileged process", e);
         }
     }
 
@@ -105,12 +124,12 @@ public final class Rooted extends net.sf.fdlib.OS {
 
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor) {
-        return delegate.observe(inotifyDescriptor);
+        return observe(inotifyDescriptor, Looper.myLooper());
     }
 
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) {
-        return delegate.observe(inotifyDescriptor, looper);
+        return new RootInotify(inotifyDescriptor, looper);
     }
 
     @Override
@@ -124,8 +143,16 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
-    public void unlinkat(@DirFd int target, String name, @UnlinkAtFlags int flags) throws IOException {
-        delegate.unlinkat(target, name, flags);
+    public void unlinkat(@DirFd int target, String pathname, @UnlinkAtFlags int flags) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            factory.unlinkat(target, pathname, flags);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("unlink() failed, unable to access privileged process", e);
+        }
     }
 
     @Override
@@ -134,8 +161,16 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
-    public void mkdirat(@DirFd int target, String name, int mode) throws IOException {
-        delegate.mkdirat(target, name, mode);
+    public void mkdirat(@DirFd int target, String pathname, int mode) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            factory.mkdirat(target, pathname, mode);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("mkdir() failed, unable to access privileged process", e);
+        }
     }
 
     @Override
@@ -151,5 +186,24 @@ public final class Rooted extends net.sf.fdlib.OS {
     @Override
     public void dispose(int fd) {
         delegate.dispose(fd);
+    }
+
+    private final class RootInotify extends InotifyImpl {
+        RootInotify(@InotifyFd int fd, @Nullable Looper looper) {
+            super(fd, looper, Rooted.this, GuardFactory.getInstance(delegate));
+        }
+
+        @Override
+        protected int addSubscription(@InotifyFd int fd, int watchedFd) throws IOException {
+            try {
+                final SyscallFactory factory = getFactory();
+
+                return factory.inotify_add_watch(fd, watchedFd);
+            } catch (FactoryBrokenException e) {
+                factoryInstance = null;
+
+                throw new IOException("inotify_add_watch() failed, unable to access privileged process", e);
+            }
+        }
     }
 }

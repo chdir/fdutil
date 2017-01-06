@@ -24,13 +24,19 @@ import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.*;
 import android.provider.DocumentsContract;
+import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
 import android.support.annotation.WorkerThread;
+import android.system.ErrnoException;
+import android.system.Os;
 import android.text.TextUtils;
 import android.util.Log;
 
 import net.sf.fdlib.DirFd;
+import net.sf.fdlib.Fd;
+import net.sf.fdlib.InotifyFd;
+import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.OS;
 import java.io.Closeable;
 import java.io.File;
@@ -43,6 +49,8 @@ import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
 import java.io.Writer;
 import java.lang.Process;
+import java.net.DatagramSocket;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.Channels;
@@ -139,7 +147,7 @@ public final class SyscallFactory implements Closeable {
      *
      * @throws IOException if creation of instance fails, such as due to absence of "su" command in {@code PATH} etc.
      */
-    public static SyscallFactory create(Context context) throws IOException {
+    public static SyscallFactory create(Context context, String seLinuxContext) throws IOException {
         final String command = new File(context.getApplicationInfo().nativeLibraryDir, System.mapLibraryName(EXEC_NAME)).getAbsolutePath();
 
         final String address = UUID.randomUUID().toString();
@@ -148,16 +156,8 @@ public final class SyscallFactory implements Closeable {
                 .append(' ')
                 .append(address);
 
-        final String contextFileName = String.format(Locale.ENGLISH, "/proc/%d/attr/current", myPid());
-
-        try (Scanner s = new Scanner(new FileInputStream(contextFileName))) {
-            final String contextStr = s.nextLine();
-
-            if (!TextUtils.isEmpty(contextStr)) {
-                args.append(' ').append(contextStr);
-            }
-        } catch (FileNotFoundException ok) {
-            // either there is no SELinux, or we are simply powerless to do anything
+        if (!TextUtils.isEmpty(seLinuxContext)) {
+            args.append(' ').append(seLinuxContext);
         }
 
         return create(address, "su", "-c", args.toString());
@@ -188,14 +188,14 @@ public final class SyscallFactory implements Closeable {
     private final ArrayBlockingQueue<FdReq> intake = new ArrayBlockingQueue<>(1);
     private final SynchronousQueue<FdResp> responses = new SynchronousQueue<>();
 
-    final LocalServerSocket serverSocket;
+    final CloseableSocket serverSocket;
     final Process clientProcess;
 
     private volatile Server serverThread;
 
     private SyscallFactory(final Process clientProcess, final LocalServerSocket serverSocket) {
         this.clientProcess = clientProcess;
-        this.serverSocket = serverSocket;
+        this.serverSocket = new CloseableSocket(serverSocket);
 
         intake.offer(FdReq.PLACEHOLDER);
     }
@@ -222,6 +222,35 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
+    public void mkdirat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+        try {
+            mkdirInternal(pfd, filepath, mode);
+        } finally {
+            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+        }
+    }
+
+    @WorkerThread
+    public void unlinkat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+        try {
+            unlinkInternal(pfd, filepath, mode);
+        } finally {
+            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+        }
+    }
+
+    @CheckResult
+    @WorkerThread
+    public int inotify_add_watch(@InotifyFd int target, @Fd int pathnameFd) throws IOException, FactoryBrokenException {
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(target);
+             ParcelFileDescriptor pfd2 = ParcelFileDescriptor.fromFd(pathnameFd)) {
+            return addWatchInternal(pfd, pfd2);
+        }
+    }
+
+    @WorkerThread
     public @NonNull ParcelFileDescriptor open(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         return FdCompat.adopt(openInternal(null, filepath, mode));
     }
@@ -229,21 +258,117 @@ public final class SyscallFactory implements Closeable {
     @WorkerThread
     public @NonNull ParcelFileDescriptor openat(@DirFd int fd, String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
-
-        return FdCompat.adopt(openInternal(pfd, filepath, mode));
+        try {
+            return FdCompat.adopt(openInternal(pfd, filepath, mode));
+        } finally {
+            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+        }
     }
 
     @NonNull FileDescriptor openFileDescriptor(File file, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         return openInternal(null, file.getPath(), mode);
     }
 
+    private int addWatchInternal(ParcelFileDescriptor pfd, ParcelFileDescriptor pathnameFd) throws FactoryBrokenException, IOException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new AddWatch(pfd, pathnameFd);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    try {
+                        return Integer.parseInt(response.message);
+                    } catch (NumberFormatException nfe) {
+                        LogUtil.swallowError(response.message);
+
+                        throw new IOException("Failed to add inotify watch: " + response.message);
+                    }
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private void unlinkInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new UnlinkReq(fd, path, mode);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    if ("READY".equals(response.message)) {
+                        return;
+                    }
+
+                    LogUtil.swallowError(response.message);
+
+                    throw new IOException("Failed to create directory: " + response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private void mkdirInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new MkdirReq(fd, path, mode);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    if ("READY".equals(response.message)) {
+                        return;
+                    }
+
+                    LogUtil.swallowError(response.message);
+
+                    throw new IOException("Failed to create directory: " + response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
     private FileDescriptor openInternal(ParcelFileDescriptor fd, String path, int mode) throws FactoryBrokenException, IOException {
         if (closedStatus.get())
             throw new FactoryBrokenException("Already closed");
 
-        final FdReq request = new FdReq(fd, path, mode);
-
-        final Thread current = Thread.currentThread();
+        final FdReq request = serverThread.new OpenReq(fd, path, mode);
 
         FdResp response;
         try {
@@ -258,7 +383,11 @@ public final class SyscallFactory implements Closeable {
                 }
 
                 if (response.message != null) {
-                    throw new IOException("Failed to open file: " + response.message);
+                    LogUtil.swallowError(response.message);
+
+                    if (response.request == request) {
+                        throw new IOException("Failed to open file: " + response.message);
+                    }
                 }
             }
         } catch (InterruptedException e) {
@@ -309,7 +438,7 @@ public final class SyscallFactory implements Closeable {
             final int exitCode = shell.waitFor();
 
             if (exitCode != 0) {
-                throw new IOException("Expected UID 0, but was " + exitCode);
+                throw new IOException("Unable to confirm root: expected UID 0, but was " + exitCode);
             }
         } catch (InterruptedException e) {
             throw new IOException("Interrupted before completion", e);
@@ -330,7 +459,7 @@ public final class SyscallFactory implements Closeable {
             String message = null;
 
             try (ReadableByteChannel clientOutput = Channels.newChannel(clientProcess.getInputStream());
-                 Closeable c = new CloseableSocket(serverSocket))
+                 Closeable c = serverSocket)
             {
                 try {
                     initializeAndHandleRequests(readHelperPid(clientOutput));
@@ -375,8 +504,8 @@ public final class SyscallFactory implements Closeable {
                 try {
                     FdReq req = intake.poll(5, TimeUnit.MILLISECONDS);
 
-                    if (req.outboundFd != null) {
-                        try { req.outboundFd.close(); } catch (IOException ignored) {}
+                    if (req != null) {
+                        req.close();
                     }
 
                     final FdResp error = new FdResp(FdReq.STOP, message, null);
@@ -416,7 +545,7 @@ public final class SyscallFactory implements Closeable {
         private void initializeAndHandleRequests(int helperPid) throws Exception {
             clientProcess.destroy();
             while (!isInterrupted()) {
-                try (LocalSocket localSocket = serverSocket.accept())
+                try (LocalSocket localSocket = serverSocket.lss.accept())
                 {
                     final int socketPid = localSocket.getPeerCredentials().getPid();
                     if (socketPid != helperPid)
@@ -442,7 +571,7 @@ public final class SyscallFactory implements Closeable {
                             // as little exercise in preparation to real deal, try to protect our helper from OOM killer
                             final String oomFile = "/proc/" + helperPid + "/oom_score_adj";
 
-                            final FdResp oomFileTestResp = sendFdRequest(new FdReq(null, oomFile, OS.O_RDWR), clientTty, rbc, wbc, localSocket);
+                            final FdResp oomFileTestResp = sendFdRequest(new OpenReq(null, oomFile, OS.O_RDWR), clientTty, rbc, wbc, localSocket);
 
                             logTrace(Log.DEBUG, "Response to " + oomFile + " request: " + oomFileTestResp);
 
@@ -498,29 +627,20 @@ public final class SyscallFactory implements Closeable {
         }
 
         private FdResp sendFdRequest(FdReq fileOps, Writer req, ReadableByteChannel rvc, WritableByteChannel wbc, LocalSocket ls) throws IOException {
-            final String header = String.valueOf(fileOps.fileName.getBytes().length)
-                    + ' ' +  fileOps.mode + ' ' + (fileOps.outboundFd == null ? 0 : 1) + ' ';
+            final String header = String.valueOf(fileOps.reqType) + ' ' +
+                    fileOps.fileName.getBytes().length + ' ' +
+                    fileOps.mode + ' ' +
+                    (fileOps.outboundFd == null ? 0 : fileOps.outboundFd.length) + ' ';
 
             req.append(header).flush();
 
             req.append(fileOps.fileName).append("\n").flush();
 
-            if (fileOps.outboundFd != null) {
-                setFd(fileOps.outboundFd, wbc, ls);
+            if (fileOps.outboundFd != null && fileOps.outboundFd.length != 0) {
+                setFd(wbc, ls, fileOps.outboundFd);
             }
 
-            return readFdResponse(fileOps, rvc, ls);
-        }
-
-        private FdResp readFdResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-            String responseStr = readMessage(rbc);
-            final FileDescriptor fd = getFd(ls);
-
-            if (fd == null && "READY".equals(responseStr)) { // unlikely, but..
-                responseStr = "Received no file descriptor from helper";
-            }
-
-            return new FdResp(fileOps, responseStr, fd);
+            return fileOps.readResponse(fileOps, rvc, ls);
         }
 
         private String readMessage(ReadableByteChannel channel) throws IOException {
@@ -533,26 +653,84 @@ public final class SyscallFactory implements Closeable {
 
         private FileDescriptor[] descriptors = new FileDescriptor[1];
 
-        private void setFd(ParcelFileDescriptor pfd, WritableByteChannel wbc, LocalSocket ls) throws IOException {
-            if (pfd == null || pfd.getFd() < 0) {
+        private void setFd(WritableByteChannel wbc, LocalSocket ls, ParcelFileDescriptor... pfds) throws IOException {
+            if (pfds.length == 0) {
                 return;
             }
 
-            final FileDescriptor descriptor = pfd.getFileDescriptor();
-
-            descriptors[0] = descriptor;
-
-            ls.setFileDescriptorsForSend(descriptors);
-
-            statusMsg.limit(1);
-            statusMsg.position(0);
-            wbc.write(statusMsg);
+            // see https://code.google.com/p/android/issues/detail?id=231609
+            for (final ParcelFileDescriptor p : pfds) {
+                descriptors[0] = p.getFileDescriptor();
+                Log.e("Sending !!!", "sending " + p.getFd());
+                ls.setFileDescriptorsForSend(descriptors);
+                statusMsg.limit(1).position(0);
+                wbc.write(statusMsg);
+            }
         }
 
         private FileDescriptor getFd(LocalSocket ls) throws IOException {
             final FileDescriptor[] fds = ls.getAncillaryFileDescriptors();
 
             return fds != null && fds.length == 1 && fds[0] != null ? fds[0] : null;
+        }
+
+        final class OpenReq extends FdReq {
+            static final int TYPE_OPEN = 1;
+
+            public OpenReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+                super(TYPE_OPEN, fileName, mode, outboundFd);
+            }
+
+            @Override
+            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                String responseStr = readMessage(rbc);
+                final FileDescriptor fd = getFd(ls);
+
+                if (fd == null && "READY".equals(responseStr)) { // unlikely, but..
+                    responseStr = "Received no file descriptor from helper";
+                }
+
+                return new FdResp(fileOps, responseStr, fd);
+            }
+        }
+
+        final class MkdirReq extends FdReq {
+            static final int TYPE_MKDIR = 2;
+
+            public MkdirReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+                super(TYPE_MKDIR, fileName, mode, outboundFd);
+            }
+
+            @Override
+            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(fileOps, readMessage(rbc), null);
+            }
+        }
+
+        final class UnlinkReq extends FdReq {
+            static final int TYPE_UNLINK = 3;
+
+            public UnlinkReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+                super(TYPE_UNLINK, fileName, mode, outboundFd);
+            }
+
+            @Override
+            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(fileOps, readMessage(rbc), null);
+            }
+        }
+
+        final class AddWatch extends FdReq {
+            static final int TYPE_ADD_WATCH = 4;
+
+            public AddWatch(ParcelFileDescriptor outboundFd, ParcelFileDescriptor pathnameFd) {
+                super(TYPE_ADD_WATCH, "whatever", 0, outboundFd, pathnameFd);
+            }
+
+            @Override
+            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(fileOps, readMessage(rbc), null);
+            }
         }
     }
 
@@ -601,25 +779,53 @@ public final class SyscallFactory implements Closeable {
         }
     }
 
-    private static final class FdReq {
-        static FdReq STOP = new FdReq(null, null, 0);
+    private static class FdReq {
+        static FdReq STOP = new FdReq(0, null, 0);
 
-        static FdReq PLACEHOLDER = new FdReq(null, null, 0);
+        static FdReq PLACEHOLDER = new FdReq(0, null, 0);
 
-        final ParcelFileDescriptor outboundFd;
+        final int reqType;
+        final ParcelFileDescriptor[] outboundFd;
         final String fileName;
         final int mode;
 
-        public FdReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+        public FdReq(int reqType, String fileName, int mode) {
+            this.reqType = reqType;
+            this.fileName = fileName;
+            this.mode = mode;
+            this.outboundFd = null;
+        }
+
+        public FdReq(int reqType, String fileName, int mode, ParcelFileDescriptor outboundFd) {
+            this.reqType = reqType;
+            this.fileName = fileName;
+            this.mode = mode;
+
+            this.outboundFd = outboundFd != null && outboundFd.getFd() >= 0 ?
+                    new ParcelFileDescriptor[] { outboundFd } : null;
+        }
+
+        public FdReq(int reqType, String fileName, int mode, ParcelFileDescriptor... outboundFd) {
+            this.reqType = reqType;
             this.outboundFd = outboundFd;
             this.fileName = fileName;
             this.mode = mode;
+        }
+
+        public void close() {
+            if (outboundFd != null) {
+                for (ParcelFileDescriptor fd : outboundFd) {
+                    try { fd.close(); } catch (IOException ignored) {}
+                }
+            }
         }
 
         @Override
         public String toString() {
             return fileName + ',' + mode;
         }
+
+        public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException { return null; }
     }
 
     private static final class FdResp {
@@ -641,7 +847,7 @@ public final class SyscallFactory implements Closeable {
 
     // workaround for some stupid bug in annotations extractor
     private static class CloseableSocket implements Closeable {
-        private final LocalServerSocket lss;
+        final LocalServerSocket lss;
 
         public CloseableSocket(LocalServerSocket lss) {
             this.lss = lss;
@@ -649,6 +855,14 @@ public final class SyscallFactory implements Closeable {
 
         @Override
         public void close() throws IOException {
+            if (Build.VERSION.SDK_INT >= 21) {
+                try {
+                    Os.shutdown(lss.getFileDescriptor(), 0);
+                } catch (Exception e) {
+                    // ignore
+                }
+            }
+
             lss.close();
         }
     }

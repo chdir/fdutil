@@ -54,7 +54,7 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_InotifyImpl_nativeRelease(JNIEnv *env, 
     free(reinterpret_cast<void*>(pointer));
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_fdlib_InotifyImpl_addSubscription(JNIEnv *env, jclass type, jint fd, jint watchedFd) {
+JNIEXPORT jint JNICALL Java_net_sf_fdlib_InotifyImpl_addSubscription(JNIEnv *env, jobject self, jint fd, jint watchedFd) {
     char procFile[25];
 
     sprintf(procFile, "/proc/self/fd/%d", watchedFd);
