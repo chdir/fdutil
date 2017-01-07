@@ -68,9 +68,15 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     }
 
     public @DirFd int swapDirectoryDescriptor(@DirFd int dirFd) {
+        return swapDirectoryDescriptor(dirFd, true);
+    }
+
+    public @DirFd int swapDirectoryDescriptor(@DirFd int dirFd, boolean useCachingWrapper) {
         if (this.dirFd == dirFd) {
             return DirFd.NIL;
         }
+
+        LogUtil.logCautiously("Switching directories; fd: %d, useCachingWrapper: %s", dirFd, useCachingWrapper);
 
         int oldFd = DirFd.NIL;
 
@@ -90,7 +96,12 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         }
 
         if (dirFd >= 0) {
-            if (directory != null) {
+            if (directory != null && (directory instanceof CrappyDirectory) != useCachingWrapper) {
+                directory.close();
+                directory = null;
+            }
+
+            if (oldFd >= 0) {
                 try {
                     os.dup2(dirFd, oldFd);
                 } catch (IOException e) {
@@ -99,9 +110,13 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
                     return swapDirectoryDescriptor(DirFd.ERROR);
                 }
             } else {
-                directory = new CrappyDirectory(os.list(dirFd));
-
                 this.dirFd = dirFd;
+            }
+
+            if (directory == null) {
+                final Directory newDir = os.list(this.dirFd);
+
+                directory = useCachingWrapper ? new CrappyDirectory(newDir) : newDir;
             }
 
             iterator = directory.iterator();

@@ -7,6 +7,7 @@ import com.carrotsearch.hppc.CharArrayList;
 
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.util.Locale;
 
 @SuppressWarnings("WeakerAccess")
 public class LogUtil {
@@ -95,9 +96,15 @@ public class LogUtil {
         }
     }
 
+    public static void logCautiously(String message, Object... parts) {
+        if (VERBOSE) {
+            Log.println(Log.INFO, TAG, String.format(Locale.US, message, parts));
+        }
+    }
+
     /** Log a small-deal Exception, that does not endanger bright future of overall application */
     public static void logCautiously(String message, Throwable t) {
-        final int priority = VERBOSE ? Log.ERROR : Log.VERBOSE;
+        final int priority = VERBOSE ? Log.ERROR : Log.DEBUG;
 
         logInner(message, t, priority, VERBOSE);
     }

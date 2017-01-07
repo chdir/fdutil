@@ -64,7 +64,7 @@ public abstract class OS {
     public abstract @InotifyFd int inotify_init() throws IOException;
 
     @CheckResult
-    public abstract Directory list(@Fd int fd);
+    public abstract Directory list(@DirFd int fd);
 
     @CheckResult
     public abstract Inotify observe(@InotifyFd int inotifyDescriptor);

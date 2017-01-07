@@ -147,6 +147,30 @@ public class BaseDirLayout extends ContextWrapper {
         }
     }
 
+    public MountInfo.Mount getFs(long dev_t) {
+        return mountInfo.mountMap.get(dev_t);
+    }
+
+    /**
+     * @return {@code true} if filesystem is in list of filesystems, known to support telldir, {@code false} otherwise
+     */
+    public static boolean isRewindSafe(String filesystemName) {
+        switch (filesystemName) {
+            case "ext3":
+            case "ext4":
+            case "xfs":
+            case "f2fS":
+            case "procfs":
+            case "sysfs":
+            case "tmpfs":
+            case "devpts":
+            case "rootfs":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public File getHome() {
         return home;
     }

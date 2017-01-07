@@ -42,6 +42,7 @@ import net.sf.fdlib.Directory;
 import net.sf.fdlib.ErrnoException;
 import net.sf.fdlib.FsType;
 import net.sf.fdlib.LogUtil;
+import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.Stat;
 
@@ -244,7 +245,11 @@ public class MainActivity extends BaseActivity implements
                 return;
             }
 
-            prev = state.adapter.swapDirectoryDescriptor(newFd);
+            final MountInfo.Mount m = layout.getFs(stat.st_dev);
+
+            final boolean canUseTellDir = m != null && BaseDirLayout.isRewindSafe(m.fstype);
+
+            prev = state.adapter.swapDirectoryDescriptor(newFd, !canUseTellDir);
 
             layoutManager.scrollToPosition(0);
 
@@ -255,12 +260,12 @@ public class MainActivity extends BaseActivity implements
             LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
 
             if (e.code() != ErrnoException.ENOTDIR) {
-                toast("Unable to open directory: " + e.getMessage());
+                toast("Unable to open a directory. " + e.getMessage());
             }
         } catch (IOException e) {
             LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
 
-            toast("Unable to open directory: " + e.getMessage());
+            toast("Unable to open a directory. " + e.getMessage());
         } finally {
             if (newFd != DirFd.NIL && prev != DirFd.NIL) {
                 state.os.dispose(newFd);
@@ -304,7 +309,7 @@ public class MainActivity extends BaseActivity implements
                     state.os.unlinkat(info.parentDir, info.fileInfo.name,
                             info.fileInfo.type == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
                 } catch (IOException e) {
-                    toast("Failed to remove: " + e.getMessage());
+                    toast("Unable to perform removal. " + e.getMessage());
                 }
                 break;
             case R.id.menu_fifo:
@@ -345,7 +350,7 @@ public class MainActivity extends BaseActivity implements
                 } catch (IOException e) {
                     LogUtil.logCautiously("Failed to create a directory", e);
 
-                    toast("Failed to create a directory: " + e.getMessage());
+                    toast("Unable to create a directory. " + e.getMessage());
                 }
                 return;
             case R.id.menu_file:
@@ -359,7 +364,7 @@ public class MainActivity extends BaseActivity implements
         } catch (IOException e) {
             LogUtil.logCautiously("Failed to create a file", e);
 
-            toast("Failed to create a file: " + e.getMessage());
+            toast("Unable to create a file. " + e.getMessage());
         }
     }
 

@@ -334,7 +334,7 @@ int main(int argc, char *argv[]) {
 
                     LOG("Error: failed to open a file - %s\n", errmsg);
 
-                    fprintf(stderr, "failed to open a file - %s\n", errmsg);
+                    fprintf(stderr, "open error - %s\n", errmsg);
                 }
 
                 close(targetFd);
@@ -354,7 +354,7 @@ int main(int argc, char *argv[]) {
 
                     LOG("Error: failed to open a file - %s\n", errmsg);
 
-                    fprintf(stderr, "failed to create a directory - %s\n", errmsg);
+                    fprintf(stderr, "directory creation error - %s\n", errmsg);
                 } else {
                     fprintf(stderr, "READY");
                 }
@@ -374,7 +374,7 @@ int main(int argc, char *argv[]) {
 
                     LOG("Error: failed to unlink - %s\n", errmsg);
 
-                    fprintf(stderr, "failed to invoke unlink - %s\n", errmsg);
+                    fprintf(stderr, "unlink error  - %s\n", errmsg);
                 } else {
                     fprintf(stderr, "READY");
                 }
@@ -411,7 +411,7 @@ int main(int argc, char *argv[]) {
 
                         LOG("failed to readlink - %s\n", errmsg);
 
-                        fprintf(stderr, "failed to invoke readlink - %s\n", errmsg);
+                        fprintf(stderr, "readlink error - %s\n", errmsg);
 
                         free(readLinkBuf);
                         readLinkBuf = NULL;
@@ -457,7 +457,7 @@ int main(int argc, char *argv[]) {
 
                         LOG("failed to add watch - %s\n", errmsg);
 
-                        fprintf(stderr, "failed to invoke inotify_add_watch - %s\n", errmsg);
+                        fprintf(stderr, "inotify error - %s\n", errmsg);
                     } else {
                         fprintf(stderr, "%d", addedWatch);
                     }
