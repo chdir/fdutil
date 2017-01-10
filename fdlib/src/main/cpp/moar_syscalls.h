@@ -16,4 +16,15 @@ static inline int sys_mkdirat(int target, const char *name, mode_t mode) {
     return syscall(__NR_mkdirat, target, name, mode);
 }
 
+static inline int sys_lstat64(const char *name, kernel_stat64* stat) {
+    return syscall(__NR_lstat64, name, stat);
+}
+
+static inline int sys_readlinkat(int fd, const char *name, char* buffer, size_t bufferSize) {
+    return syscall(__NR_readlinkat, fd, name, buffer, bufferSize);
+}
+
+static inline int sys_fstatat64_fixed(int dirfd, const char *filename, kernel_stat64* statbuf, int flags) {
+    return syscall(__NR_fstatat64, dirfd, filename, statbuf, flags);
+}
 #endif

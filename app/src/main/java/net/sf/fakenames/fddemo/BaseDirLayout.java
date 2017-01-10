@@ -1,5 +1,8 @@
 package net.sf.fakenames.fddemo;
 
+import android.content.ClipboardManager;
+import android.content.ContentProvider;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.os.Build;

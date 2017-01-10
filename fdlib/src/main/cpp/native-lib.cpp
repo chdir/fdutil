@@ -5,6 +5,8 @@
 
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <stdio.h>
+
 
 inline static jclass saveClassRef(const char* name, JNIEnv *env) {
     jclass found = env -> FindClass(name);
@@ -142,67 +144,176 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_BlockingGuards_free(JNIEnv *env, jclass
     free(reinterpret_cast<void*>(pointer));
 }
 
-JNIEXPORT jworkaroundstr JNICALL Java_net_sf_fdlib_Android_nativeReadlink(JNIEnv *env, jclass type, jworkaroundstr path) {
-    const char* utf8Path = getUtf8(env, path);
+const size_t RLINK_INITIAL_BUFFER_SIZE = 1000;
 
-    if (utf8Path == NULL) {
+const size_t RLINK_MAX_BUFFER_SIZE = 16 * 1024 * 1024;
+
+static char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize, size_t *finalStringSize);
+
+static char* resolve_with_buffer(int base, const char *linkpath, void* buffer, size_t bufferSize, size_t *finalStringSize) {
+    LOG("calling readlink() for %s with buffer size %u", linkpath, bufferSize);
+
+    int resolvedNameLength = TEMP_FAILURE_RETRY(sys_readlinkat(base, linkpath, static_cast<char*>(buffer), bufferSize));
+    int err = errno;
+
+    if (resolvedNameLength != -1) {
+        if (resolvedNameLength < bufferSize) {
+            *finalStringSize = (size_t) resolvedNameLength;
+            return static_cast<char*>(buffer);
+        }
+
+        if ((bufferSize = bufferSize * 2) < RLINK_MAX_BUFFER_SIZE) {
+            LOG("The length is %d, trying to realloc", resolvedNameLength);
+
+            void* newBuffer = realloc(buffer, bufferSize);
+            if (newBuffer != NULL) {
+                buffer = newBuffer;
+
+                return resolve_with_buffer(base, linkpath, buffer, bufferSize, finalStringSize);
+            } else {
+                err = errno;
+            }
+        } else {
+            err = ENAMETOOLONG;
+        }
+    }
+
+    free(buffer);
+    errno = err;
+    return NULL;
+}
+
+static char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize, size_t *finalStringSize) {
+    void* buffer = realloc(NULL, bufferSize);
+
+    if (buffer == NULL) {
         return NULL;
     }
 
+    return resolve_with_buffer(base, linkpath, buffer, bufferSize, finalStringSize);
+}
+
+static const char* resolve_contcat(int base, const char* linkpath, size_t *stringSize, size_t nameSize) {
     kernel_stat64 dirStat;
 
-    if (TEMP_FAILURE_RETRY(sys_stat64(utf8Path, &dirStat)) < 0) {
-        handleError(env);
+    char fdBuf[25];
+    sprintf(fdBuf, "/proc/self/fd/%d", base);
+
+    if (TEMP_FAILURE_RETRY(sys_lstat64(fdBuf, &dirStat))) {
+        return NULL;
+    }
+
+    size_t initialBufferSize;
+
+    if (dirStat.st_size > 0) {
+        initialBufferSize = (size_t) dirStat.st_size + 1 + nameSize;
+    } else {
+        initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
+    }
+
+    char *resolved = resolve_with_buffer_size(-1, fdBuf, initialBufferSize, stringSize);
+    if (resolved == NULL) {
+        return NULL;
+    }
+
+    size_t totalSize = *stringSize + nameSize + 1;
+
+    if (totalSize >= initialBufferSize) {
+        void* newBuf = realloc(resolved, totalSize + 1);
+        int err = errno;
+
+        if (newBuf == NULL) {
+            free(resolved);
+            errno = err;
+
+            return NULL;
+        }
+
+        resolved = static_cast<char*>(newBuf);
+    }
+
+    resolved[*stringSize] = '/';
+    resolved[*stringSize + 1] = '\0';
+
+    *stringSize = totalSize;
+
+    strncat(resolved, linkpath, nameSize);
+
+    return resolved;
+}
+
+static const char *resolve_link(int base, const char* linkpath, size_t *stringSize) {
+    kernel_stat64 dirStat;
+
+    if (TEMP_FAILURE_RETRY(sys_fstatat64_fixed(base, linkpath, &dirStat, AT_SYMLINK_NOFOLLOW)) < 0) {
         return NULL;
     }
 
     if (!S_ISLNK(dirStat.st_mode)) {
-        return path;
+        size_t nameSize = strlen(linkpath);
+
+        if (base < 0) {
+            *stringSize = nameSize;
+
+            return linkpath;
+        }
+
+        return resolve_contcat(base, linkpath, stringSize, nameSize);
     }
 
-    const size_t RLINK_INITIAL_BUFFER_SIZE = 1024;
-
-    const size_t RLINK_MAX_BUFFER_SIZE = 2 * 1024 * 1024;
-
-    size_t bufferSize;
+    size_t initialBufferSize;
 
     if (dirStat.st_size > 0) {
-        bufferSize = (size_t) dirStat.st_size;
+        initialBufferSize = (size_t) dirStat.st_size + 1;
     } else {
-        bufferSize = RLINK_INITIAL_BUFFER_SIZE;
+        initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
     }
 
-    void* buffer = (char *) malloc(bufferSize);
+    const char* resolved = resolve_with_buffer_size(base, linkpath, initialBufferSize, stringSize);
 
-    while(true) {
-        int resolvedNameLength = sys_readlink(utf8Path, (char *) buffer, bufferSize);
+    if (resolved == NULL) {
+        return NULL;
+    }
 
-        if (resolvedNameLength < 0) {
-            int readlinkErrno = errno;
+    if (resolved[0] == '/') {
+        return resolved;
+    } else {
+        const char* concatenated = resolve_contcat(base, resolved, stringSize, *stringSize);
+        int err = errno;
 
-            if (errno != ENAMETOOLONG || (bufferSize = bufferSize * 2) > RLINK_MAX_BUFFER_SIZE) {
-                free(buffer);
-                freeUtf8(env, path, utf8Path);
-                handleError(env, readlinkErrno);
-                return NULL;
-            }
+        free((void *) resolved);
 
-            // try with bigger buffer
-            void* newBuffer = realloc(buffer, bufferSize);
-            if (newBuffer == NULL) {
-                // failed to prolong existing buffer, get a new one
-                free(buffer);
-                buffer = malloc(bufferSize);
-            }
-
-            continue;
-        } else {
-            freeUtf8(env, path, utf8Path);
-            jworkaroundstr result = toString(env, static_cast<char*>(buffer), bufferSize, resolvedNameLength);
-            free(buffer);
-            return result;
+        if (concatenated == NULL) {
+            errno = err;
+            return NULL;
         }
+
+        return concatenated;
     }
+}
+
+JNIEXPORT jworkaroundstr JNICALL Java_net_sf_fdlib_Android_nativeReadlink(JNIEnv *env, jclass type, jint fd, jworkaroundstr pathname) {
+    const char* utfName = getUtf8(env, pathname);
+
+    size_t stringSize;
+
+    const char* resolved = resolve_link(fd, utfName, &stringSize);
+
+    if (resolved == utfName) {
+        freeUtf8(env, pathname, utfName);
+        return pathname;
+    }
+
+    if (stringSize < 0 || resolved == NULL) {
+        handleError(env);
+        return NULL;
+    }
+
+    jworkaroundstr result = toString(env, const_cast<char*>(resolved), RLINK_MAX_BUFFER_SIZE, stringSize);
+
+    free((void *) resolved);
+
+    return result;
 }
 
 JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeSymlinkAt(JNIEnv *env, jobject instance, jworkaroundstr name_, jint target, jworkaroundstr newpath_) {

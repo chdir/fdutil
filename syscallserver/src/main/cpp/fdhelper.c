@@ -42,6 +42,10 @@
 #define REQ_TYPE_MKDIR 2
 #define REQ_TYPE_UNLINK 3
 #define REQ_TYPE_ADD_WATCH 4
+#define REQ_TYPE_MKNOD 5
+#define REQ_TYPE_READLINK 6
+
+#define INVALID_FD -1
 
 #define INOTIFY_FLAGS (IN_ATTRIB | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE | IN_MOVE_SELF)
 
@@ -53,7 +57,7 @@ static void DieWithError(const char *errorMessage)  /* Error handling function *
 {
     const char* errDesc = strerror(errno);
     __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Failure: %s errno %s(%d)", errorMessage, errDesc, errno);
-    fprintf(stderr, "Error: %s - %s\n", errorMessage, errDesc);
+    fprintf(stderr, "Error: %s - %s%c", errorMessage, errDesc, '\0');
     exit(errno);
 }
 
@@ -64,11 +68,11 @@ static int ancil_send_fds_with_buffer(int sock, int fd)
     msghdr.msg_namelen = 0;
     msghdr.msg_flags = 0;
 
-    const char* success = "READY";
+    const char success[] = "READY";
 
     struct iovec iovec;
     iovec.iov_base = (void*) success;
-    iovec.iov_len = sizeof(success) + 1;
+    iovec.iov_len = sizeof(success);
 
     msghdr.msg_iov = &iovec;
     msghdr.msg_iovlen = 1;
@@ -121,7 +125,7 @@ static int ancil_recv_fds_with_buffer(int sock, int fdCount, int *fds)
     cmsg->cmsg_type = SCM_RIGHTS;
 
     for(int i = 0; i < fdCount; i++) {
-        ((int *) CMSG_DATA(cmsg))[0] = AT_FDCWD;
+        ((int *) CMSG_DATA(cmsg))[0] = INVALID_FD;
 
         if (verbose) {
             LOG("Invoking recvmsg()");
@@ -178,7 +182,7 @@ static int GetTTY() {
 
     if (pid) {
         // tell creator the PID of forked process
-        printf("PID:%d", pid);
+        fprintf(stderr, "PID:%d%c", pid, '\0');
         exit(0);
     } else {
         int pts;
@@ -208,6 +212,16 @@ static int Bootstrap(char *socket_name) {
 
     if ((sock = socket(PF_LOCAL, SOCK_STREAM, 0)) < 0)
         DieWithError("socket() failed");
+
+    struct timeval timeout;
+    timeout.tv_sec = 20;
+    timeout.tv_usec = 0;
+
+    if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
+        DieWithError("setting ingoing timeout failed");
+
+    if (setsockopt (sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
+        DieWithError("setting outgoing timeout failed");
 
     struct sockaddr_un echoServAddr;
 
@@ -271,6 +285,420 @@ static void initFileContext(const char* context) {
     }
 }
 
+static char* read_filepath(size_t nameLength) {
+    char* filepath;
+
+    if ((filepath = (char*) calloc(nameLength + 1, sizeof(char))) == NULL)
+        DieWithError("calloc() failed");
+
+    if (verbose) LOG("Allocated %d - sized buffer", nameLength + 1);
+
+    if (fgets(filepath, nameLength + 1, stdin) == NULL)
+        DieWithError("reading filepath failed");
+
+    return filepath;
+}
+
+static void invoke_mkdirat(int sock) {
+    int fdCount = -1;
+    int32_t mode = -1;
+    size_t nameLength;
+
+    if (scanf("%u %d %u ", &fdCount, &mode, &nameLength) != 3)
+        DieWithError("reading mkdirat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to mknod %s", filepath);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    if (sys_mkdirat(receivedFd, filepath, *(mode_t*)&mode) != 0) {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to create a directory - %s\n", errmsg);
+
+        fprintf(stderr, "directory creation error - %s%c", errmsg, '\0');
+    } else {
+        fprintf(stderr, "READY%c", '\0');
+    }
+
+    free(filepath);
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
+static void invoke_mknodat(int sock) {
+    int fdCount = -1;
+    int32_t mode, device = -1;
+    size_t nameLength;
+
+    if (scanf("%u %d %d %u ", &fdCount, &mode, &device, &nameLength) != 4)
+        DieWithError("reading mknodat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to mknod %s", filepath);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    if (sys_mknodat(receivedFd, filepath, *(mode_t*)&mode, *(dev_t*)&device)) {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to open a file - %s\n", errmsg);
+
+        fprintf(stderr, "mknod error - %s%c", errmsg, '\0');
+    } else {
+        fprintf(stderr, "READY%c", '\0');
+    }
+
+    free(filepath);
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
+static void invoke_unlinkat(int sock) {
+    int fdCount = -1;
+    int32_t flags = -1;
+    size_t nameLength;
+
+    if (scanf("%u %d %u ", &fdCount, &flags, &nameLength) != 3)
+        DieWithError("reading unlinkat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to unlink %s", filepath);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    if (sys_unlinkat(receivedFd, filepath, flags)) {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to unlink - %s\n", errmsg);
+
+        fprintf(stderr, "unlink error  - %s%c", errmsg, '\0');
+    } else {
+        fprintf(stderr, "READY%c", '\0');
+    }
+
+    free(filepath);
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
+static void invoke_openat(int sock) {
+    int fdCount = -1;
+    int32_t flags = -1;
+    size_t nameLength;
+
+    if (scanf("%u %d %u ", &fdCount, &flags, &nameLength) != 3)
+        DieWithError("reading openat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to open %s", filepath);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    int targetFd = sys_openat(receivedFd, filepath, flags, S_IRWXU | S_IRWXG);
+
+    if (targetFd > 0) {
+        if (ancil_send_fds_with_buffer(sock, targetFd))
+            DieWithError("sending file descriptor failed");
+    } else {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to open a file - %s\n", errmsg);
+
+        fprintf(stderr, "open error - %s%c", errmsg, '\0');
+    }
+
+    free(filepath);
+
+    if (targetFd > 0) {
+        close(targetFd);
+    }
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
+static void invoke_add_watch(int sock) {
+    int fds[2];
+
+    ancil_recv_fds_with_buffer(sock, 2, fds);
+
+    char addWatchBuff[25];
+
+    sprintf(addWatchBuff, "/proc/self/fd/%d", fds[1]);
+
+    LOG("Resolving %s", addWatchBuff);
+
+    size_t filenameSize = 1024 * 4;
+    char* readLinkBuf;
+
+    if ((readLinkBuf = (char*) calloc(filenameSize + 1, 1)) == NULL)
+        DieWithError("Failed to alloc readlink buffer");
+
+    while (1) {
+        int rc = sys_readlink(addWatchBuff, readLinkBuf, filenameSize);
+
+        if (rc == -1) {
+            const char *errmsg = strerror(errno);
+
+            LOG("failed to readlink - %s\n", errmsg);
+
+            fprintf(stderr, "readlink error - %s%c", errmsg, '\0');
+
+            free(readLinkBuf);
+            readLinkBuf = NULL;
+
+            break;
+        } else if (rc >= filenameSize) {
+            filenameSize *= 2;
+
+            LOG("unable to fit filename, expanding to %d", filenameSize);
+
+            char* newBuf = realloc((void*) readLinkBuf, filenameSize);
+
+            if (newBuf == NULL) {
+                free(readLinkBuf);
+                newBuf = calloc(filenameSize + 1, 1);
+                if (newBuf == NULL) {
+                    LOG("realloc failed");
+
+                    free(readLinkBuf);
+                    readLinkBuf = NULL;
+
+                    LOG("Failed to allocate new buffer of size %d", filenameSize);
+
+                    break;
+                }
+            }
+
+            readLinkBuf = newBuf;
+            continue;
+        } else {
+            readLinkBuf[rc] = '\0';
+            break;
+        }
+    }
+
+    if (readLinkBuf != NULL) {
+        int addedWatch = inotify_add_watch(fds[0], readLinkBuf, INOTIFY_FLAGS);
+
+        free(readLinkBuf);
+
+        if (addedWatch == -1) {
+            const char *errmsg = strerror(errno);
+
+            LOG("failed to add watch - %s\n", errmsg);
+
+            fprintf(stderr, "inotify error - %s%c", errmsg, '\0');
+        } else {
+            fprintf(stderr, "%d%c", addedWatch, '\0');
+        }
+    }
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+const size_t RLINK_INITIAL_BUFFER_SIZE = 1000;
+
+const size_t RLINK_MAX_BUFFER_SIZE = 16 * 1024 * 1024;
+
+char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize, size_t *finalStringSize);
+
+char* resolve_with_buffer(int base, const char *linkpath, void* buffer, size_t bufferSize, size_t *finalStringSize) {
+    LOG("calling readlink() for %s with buffer size %u", linkpath, bufferSize);
+
+    int resolvedNameLength = TEMP_FAILURE_RETRY(sys_readlinkat(base, linkpath, buffer, bufferSize));
+    int err = errno;
+
+    if (resolvedNameLength != -1) {
+        if (resolvedNameLength < bufferSize) {
+            *finalStringSize = (size_t) resolvedNameLength;
+            return buffer;
+        }
+
+        if ((bufferSize = bufferSize * 2) < RLINK_MAX_BUFFER_SIZE) {
+            LOG("The length is %d, trying to realloc", resolvedNameLength);
+
+            void* newBuffer = realloc(buffer, bufferSize);
+            if (newBuffer != NULL) {
+                buffer = newBuffer;
+
+                return resolve_with_buffer(base, linkpath, buffer, bufferSize, finalStringSize);
+            } else {
+                err = errno;
+            }
+        } else {
+            err = ENAMETOOLONG;
+        }
+    }
+
+    free(buffer);
+    errno = err;
+    return NULL;
+}
+
+char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize, size_t *finalStringSize) {
+    void* buffer = realloc(NULL, bufferSize);
+
+    if (buffer == NULL) {
+        return NULL;
+    }
+
+    return resolve_with_buffer(base, linkpath, buffer, bufferSize, finalStringSize);
+}
+
+char *resolve_link(int base, char* linkpath, size_t *stringSize) {
+    struct kernel_stat64 dirStat;
+
+    if (TEMP_FAILURE_RETRY(sys_fstatat64_fixed(base, linkpath, &dirStat, AT_SYMLINK_NOFOLLOW)) < 0) {
+        return NULL;
+    }
+
+    if (!S_ISLNK(dirStat.st_mode)) {
+        size_t nameSize = strlen(linkpath);
+
+        if (base < 0) {
+            *stringSize = nameSize;
+
+            return linkpath;
+        }
+
+        char fdBuf[25];
+        sprintf(fdBuf, "/proc/self/fd/%d", base);
+
+        if (TEMP_FAILURE_RETRY(sys_lstat64(fdBuf, &dirStat))) {
+            return NULL;
+        }
+
+        size_t initialBufferSize;
+
+        if (dirStat.st_size > 0) {
+            initialBufferSize = (size_t) dirStat.st_size + 1 + nameSize;
+        } else {
+            initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
+        }
+
+        char *resolved = resolve_with_buffer_size(INVALID_FD, fdBuf, initialBufferSize, stringSize);
+        if (resolved == NULL) {
+            return NULL;
+        }
+
+        size_t totalSize = *stringSize + nameSize + 1;
+
+        if (totalSize >= initialBufferSize) {
+            void* newBuf = realloc(resolved, totalSize + 1);
+            if (newBuf == NULL) {
+                free(resolved);
+                return NULL;
+            }
+
+            resolved = newBuf;
+        }
+
+        resolved[*stringSize] = '/';
+        resolved[*stringSize + 1] = '\0';
+
+        *stringSize = totalSize;
+
+        strncat(resolved, linkpath, nameSize);
+
+        return resolved;
+    }
+
+    size_t initialBufferSize;
+
+    if (dirStat.st_size > 0) {
+        initialBufferSize = (size_t) dirStat.st_size + 1;
+    } else {
+        initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
+    }
+
+    return resolve_with_buffer_size(base, linkpath, initialBufferSize, stringSize);
+}
+
+static void invoke_readlink(int sock) {
+    int fdCount = -1;
+    size_t nameLength;
+
+    if (scanf("%u %u ", &fdCount, &nameLength) != 2)
+        DieWithError("reading readlinkat arguments failed");
+
+    char *filepath = read_filepath(nameLength);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    size_t stringSize;
+
+    char *resolved = resolve_link(receivedFd, filepath, &stringSize);
+
+    if (stringSize <= 0 || resolved == NULL) {
+        char *errmsg = strerror(errno);
+
+        LOG("failed to resolve symlink, - %s\n", errmsg);
+
+        fprintf(stderr, "symlink resolution error, - %s%c", errmsg, '\0');
+
+        return;
+    }
+
+    resolved[stringSize] = '\0';
+
+    fprintf(stderr, "%s%c", resolved, '\0');
+
+    free(resolved);
+
+    if (filepath != resolved) {
+        free(filepath);
+    }
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         // root test, just check out uid
@@ -289,194 +717,35 @@ int main(int argc, char *argv[]) {
     }
 
     // process requests infinitely (we will be killed when done)
-    char status[3];
-
     while(1) {
-        int reqType, nameLength, mode, fdCount, receivedFd = -1;
+        int reqType;
 
-        if (scanf("%d %d %d %d ", &reqType, &nameLength, &mode, &fdCount) != 4)
-            DieWithError("reading a filename length, mode and fd count failed");
+        if (scanf("%d", &reqType) != 1)
+            DieWithError("reading a request type failed");
 
-        if (verbose) {
-            LOG("Length: %d mode: %d fds: %d", nameLength, mode, fdCount);
-        }
-
-        char* filename;
-        if ((filename = (char*) calloc(nameLength + 1, 1)) == NULL)
-            DieWithError("calloc() failed");
-
-        if (verbose) {
-            LOG("Allocated %d - sized buffer", nameLength + 1);
-        }
-
-        if (fgets(filename, nameLength + 1, stdin) == NULL)
-            DieWithError("reading filename failed");
-
-        if (verbose) {
-            LOG("Attempting to open %s", filename);
-        }
+        LOG("Request type is %d", reqType);
 
         switch (reqType) {
-            case REQ_TYPE_OPEN: {
-                if (fdCount > 0) {
-                    ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
-                } else {
-                    receivedFd = AT_FDCWD;
-                }
-
-                int targetFd = sys_openat(receivedFd, filename, mode, S_IRWXU | S_IRWXG);
-
-                if (targetFd > 0) {
-                    if (ancil_send_fds_with_buffer(sock, targetFd))
-                        DieWithError("sending file descriptor failed");
-                } else {
-                    const char *errmsg = strerror(errno);
-
-                    LOG("Error: failed to open a file - %s\n", errmsg);
-
-                    fprintf(stderr, "open error - %s\n", errmsg);
-                }
-
-                close(targetFd);
-
+            case REQ_TYPE_OPEN:
+                invoke_openat(sock);
                 break;
-            }
-
-            case REQ_TYPE_MKDIR: {
-                if (fdCount > 0) {
-                    ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
-                } else {
-                    receivedFd = AT_FDCWD;
-                }
-
-                if (sys_mkdirat(receivedFd, filename, (mode_t) mode) != 0) {
-                    const char *errmsg = strerror(errno);
-
-                    LOG("Error: failed to open a file - %s\n", errmsg);
-
-                    fprintf(stderr, "directory creation error - %s\n", errmsg);
-                } else {
-                    fprintf(stderr, "READY");
-                }
-
+            case REQ_TYPE_UNLINK:
+                invoke_unlinkat(sock);
                 break;
-            }
-
-            case REQ_TYPE_UNLINK: {
-                if (fdCount > 0) {
-                    ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
-                } else {
-                    receivedFd = AT_FDCWD;
-                }
-
-                if (sys_unlinkat(receivedFd, filename, mode) != 0) {
-                    const char *errmsg = strerror(errno);
-
-                    LOG("Error: failed to unlink - %s\n", errmsg);
-
-                    fprintf(stderr, "unlink error  - %s\n", errmsg);
-                } else {
-                    fprintf(stderr, "READY");
-                }
-
+            case REQ_TYPE_ADD_WATCH:
+                invoke_add_watch(sock);
                 break;
-            }
-
-            case REQ_TYPE_ADD_WATCH: {
-                if (fdCount != 2) {
-                    DieWithError("Unexpected number of descriptors");
-                }
-
-                int fds[2];
-
-                ancil_recv_fds_with_buffer(sock, 2, fds);
-
-                char addWatchBuff[25];
-
-                sprintf(addWatchBuff, "/proc/self/fd/%d", fds[1]);
-
-                LOG("Resolving %s", addWatchBuff);
-
-                size_t filenameSize = 1024 * 4;
-                char* readLinkBuf;
-
-                if ((readLinkBuf = (char*) calloc(filenameSize + 1, 1)) == NULL)
-                    DieWithError("Failed to alloc readlink buffer");
-
-                while (1) {
-                    int rc = sys_readlink(addWatchBuff, readLinkBuf, filenameSize);
-
-                    if (rc == -1) {
-                        const char *errmsg = strerror(errno);
-
-                        LOG("failed to readlink - %s\n", errmsg);
-
-                        fprintf(stderr, "readlink error - %s\n", errmsg);
-
-                        free(readLinkBuf);
-                        readLinkBuf = NULL;
-
-                        break;
-                    } else if (rc >= filenameSize) {
-                        filenameSize *= 2;
-
-                        LOG("unable to fit filename, expanding to %d", filenameSize);
-
-                        char* newBuf = realloc((void*) readLinkBuf, filenameSize);
-
-                        if (newBuf == NULL) {
-                            free(readLinkBuf);
-                            newBuf = calloc(filenameSize + 1, 1);
-                            if (newBuf == NULL) {
-                                LOG("realloc failed");
-
-                                free(readLinkBuf);
-                                readLinkBuf = NULL;
-
-                                LOG("Failed to allocate new buffer of size %d", filenameSize);
-
-                                break;
-                            }
-                        }
-
-                        readLinkBuf = newBuf;
-                        continue;
-                    } else {
-                        readLinkBuf[rc] = '\0';
-                        break;
-                    }
-                }
-
-                if (readLinkBuf != NULL) {
-                    int addedWatch = inotify_add_watch(fds[0], readLinkBuf, INOTIFY_FLAGS);
-
-                    free(readLinkBuf);
-
-                    if (addedWatch == -1) {
-                        const char *errmsg = strerror(errno);
-
-                        LOG("failed to add watch - %s\n", errmsg);
-
-                        fprintf(stderr, "inotify error - %s\n", errmsg);
-                    } else {
-                        fprintf(stderr, "%d", addedWatch);
-                    }
-                }
-
-                close(fds[0]);
-                close(fds[1]);
-
+            case REQ_TYPE_MKDIR:
+                invoke_mkdirat(sock);
                 break;
-            }
-
+            case REQ_TYPE_MKNOD:
+                invoke_mknodat(sock);
+                break;
+            case REQ_TYPE_READLINK:
+                invoke_readlink(sock);
+                break;
             default:
-                DieWithError("unknown request type");
-        }
-
-        free(filename);
-
-        if (receivedFd > 0) {
-            close(receivedFd);
+                DieWithError("Unknown request type");
         }
     }
 }

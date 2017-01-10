@@ -58,7 +58,7 @@ public abstract class OS {
     public abstract @DirFd int opendirat(@DirFd int fd, String name, int flags, int mode) throws IOException;
 
     @CheckResult
-    public abstract @NonNull String readlink(String path) throws IOException;
+    public abstract @NonNull String readlinkat(@DirFd int fd, String pathname) throws IOException;
 
     @CheckResult
     public abstract @InotifyFd int inotify_init() throws IOException;

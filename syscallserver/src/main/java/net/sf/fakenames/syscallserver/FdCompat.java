@@ -9,6 +9,7 @@ import android.system.Os;
 import android.util.Log;
 
 import net.sf.fdlib.Fd;
+import net.sf.fdlib.OS;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -18,6 +19,8 @@ import static android.os.Build.VERSION_CODES.LOLLIPOP;
 
 final class FdCompat {
     static void closeDescriptor(@NonNull FileDescriptor fd) throws IOException {
+        if (!fd.valid()) return;
+
         if (Build.VERSION.SDK_INT >= LOLLIPOP) {
             lollipopOsClose(fd);
         } else {
@@ -31,7 +34,8 @@ final class FdCompat {
         try {
             readCachedField();
             integer = integerField.getInt(donor);
-            Rooted.getInstance().close(integer);
+            ParcelFileDescriptor.adoptFd(integer).close();
+            integerField.setInt(donor, -1);
         } catch (Exception e) {
             Log.e("error", "Can not obtain descriptor on this Android version: " + e.getMessage());
         }

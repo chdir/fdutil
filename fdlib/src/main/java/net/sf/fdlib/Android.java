@@ -45,8 +45,8 @@ final class Android extends OS {
 
     @NonNull
     @Override
-    public String readlink(String path) throws IOException {
-        return fromNative(nativeReadlink(toNative(path)));
+    public String readlinkat(@DirFd int fd, String pathname) throws IOException {
+        return fromNative(nativeReadlink(fd, toNative(pathname)));
     }
 
     @Override
@@ -126,7 +126,7 @@ final class Android extends OS {
 
     private static native @DirFd int nativeOpenDirAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
 
-    private static native Object nativeReadlink(Object path) throws IOException;
+    private static native Object nativeReadlink(@DirFd int fd, Object pathname) throws IOException;
 
     private static native void nativeClose(int fd) throws ErrnoException;
 }

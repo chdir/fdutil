@@ -6,6 +6,8 @@ android {
     compileSdkVersion 24
     buildToolsVersion "25.0.2"
 
+    publishNonDefault true
+
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion 24
@@ -45,7 +47,7 @@ dependencies {
     })
 
 
-    compile project(':fdlib')
+    compile project(path: ':fdlib', configuration: 'debug')
 
     testCompile 'junit:junit:4.12'
 }

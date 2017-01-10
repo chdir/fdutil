@@ -1,8 +1,13 @@
 package net.sf.fakenames.fddemo;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.CursorLoader;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -65,7 +70,6 @@ public class MainActivity extends BaseActivity implements
 
     private RecyclerView.ItemDecoration decoration;
 
-    private BaseDirLayout layout;
     private GuardedState state;
     private RecyclerView.LayoutManager layoutManager;
 
@@ -109,23 +113,14 @@ public class MainActivity extends BaseActivity implements
             }
 
             try {
-                state = GuardedState.create(os);
+                state = GuardedState.create(os, this);
             } catch (IOException e) {
                 Toast.makeText(this, "failed to create inotify descriptor, exiting", Toast.LENGTH_SHORT).show();
                 finish();
                 return;
             }
 
-            File home;
-            layout = new BaseDirLayout(unpriv, this);
-            try {
-                layout.init();
-                home = layout.getHome();
-            } catch (IOException e) {
-                Toast.makeText(this, "failed to create storage links, exiting", Toast.LENGTH_SHORT).show();
-                finish();
-                return;
-            }
+            final File home = state.layout.getHome();
 
             @DirFd int directory;
             try {
@@ -231,7 +226,7 @@ public class MainActivity extends BaseActivity implements
     }
 
     private void openHomeDir() {
-        opendir(DirFd.NIL, layout.getHome().getAbsolutePath());
+        opendir(DirFd.NIL, state.layout.getHome().getAbsolutePath());
     }
 
     private void opendir(@DirFd int base, String path) {
@@ -245,7 +240,7 @@ public class MainActivity extends BaseActivity implements
                 return;
             }
 
-            final MountInfo.Mount m = layout.getFs(stat.st_dev);
+            final MountInfo.Mount m = state.layout.getFs(stat.st_dev);
 
             final boolean canUseTellDir = m != null && BaseDirLayout.isRewindSafe(m.fstype);
 
@@ -293,9 +288,17 @@ public class MainActivity extends BaseActivity implements
 
     @Override
     public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
-        final MenuItem addItem = menu.add(Menu.NONE, R.id.menu_item_delete, Menu.CATEGORY_ALTERNATIVE, "Delete");
+        if (!(menuInfo instanceof FileMenuInfo)) {
+            return;
+        }
 
-        addItem.setOnMenuItemClickListener(this);
+        FileMenuInfo info = (FileMenuInfo) menuInfo;
+
+        final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE, "Copy full path");
+        bufferItem.setOnMenuItemClickListener(this);
+
+        final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, Menu.CATEGORY_ALTERNATIVE, "Delete");
+        delItem.setOnMenuItemClickListener(this);
     }
 
     @Override
@@ -310,6 +313,19 @@ public class MainActivity extends BaseActivity implements
                             info.fileInfo.type == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
                 } catch (IOException e) {
                     toast("Unable to perform removal. " + e.getMessage());
+                }
+                break;
+            case R.id.menu_copy_path:
+                try {
+                    final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
+
+                    ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+
+                    ClipData data = ClipData.newPlainText("Selected File Path", path);
+
+                    cpm.setPrimaryClip(data);
+                } catch (IOException e) {
+                    toast("Unable to resolve full path. "  + e.getMessage());
                 }
                 break;
             case R.id.menu_fifo:

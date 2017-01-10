@@ -108,8 +108,16 @@ public final class Rooted extends net.sf.fdlib.OS {
 
     @NonNull
     @Override
-    public String readlink(String path) throws IOException {
-        return delegate.readlink(path);
+    public String readlinkat(int fd, String pathname) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            return factory.readlinkat(fd, pathname);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("readlink() failed, unable to access privileged process", e);
+        }
     }
 
     @Override
@@ -156,8 +164,16 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
-    public void mknodat(@DirFd int target, String name, @FileTypeFlag int mode, int device) throws IOException {
-        delegate.mknodat(target, name, mode, device);
+    public void mknodat(@DirFd int target, String pathname, @FileTypeFlag int mode, int device) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            factory.mknodat(target, pathname, mode, device);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("mknod() failed, unable to access privileged process", e);
+        }
     }
 
     @Override

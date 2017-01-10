@@ -43,9 +43,17 @@ import java.io.File;
  *
  * Not all filesystems properly support readdir/getdents API. Many poorly-written FUSE/unionfs
  * plugins, including infamous Android FUSE Daemon (aka "sdcard"), return garbage {@code telldir}
- * values or randomly fail during directory seeking, making backward iteration impossible. If the
- * underlying filesystem supportes rewinddir, it may still be possible to iterate over it without
- * string all of it in memory by using a sliding buffer of contents.
+ * values or randomly fail during directory seeking, making backward iteration impossible. FAT
+ * and some exotic kernel filesystems may not have appropriate on-disk data structures and often end
+ * up incurring substantial overhead or implementing {@code telldir} incorrectly.
+ *
+ * See {@link CrappyDirectory} for reference implementation, that lazily caches directory contents
+ * and works around some limitations of FAT-like filesystems.
+ *
+ * Even filesystems with token support for {@code telldir} rarely implement it flawlessly.
+ * For example, ext3/4 use hashing to generate opaque indexes (which creates possibility of collisions)
+ * and still do not guarantee flawless backward iteration after directory changes (e.g. a file or two
+ * may be missing and duplicates may appear).
  *
  * <p/>
  *
@@ -53,7 +61,11 @@ import java.io.File;
  *
  * <p/>
  *
- * See also https://android.googlesource.com/platform/system/core/+/75e17a8908d52e32f5de85b90b74e156265c60c6^!/
+ * See also:<br/>
+ *
+ * https://android.googlesource.com/platform/system/core/+/75e17a8908d52e32f5de85b90b74e156265c60c6^!/
+ * <br/>
+ * http://lkml.iu.edu/hypermail/linux/kernel/0704.1/1243.html
  */
 public interface Directory extends Iterable<Directory.Entry>, Closeable {
     /**
@@ -90,13 +102,18 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable {
      * Opaque indexes are 64-bit unsigned values, assigned to each entry in a directory.
      * They are unique within the directory.
      *
-     * Opaque indexes are cached after advancing towards new position in order to implement
-     * movement backwards in the directory stream.
+     * This class caches opaque indexes after every advancement towards new position. This is done
+     * in order to implement movement backwards in the directory stream.
      *
-     * <b/>
+     * <p/>
      *
      * {@code -1L} and {@code 0L} are reserved values (the later one corresponds to the first entry
      * in the directory).
+     *
+     * <p/>
+     *
+     * Opaque indexes may be persistent until/after reboot, but aren't guaranteed to. They are
+     * guaranteed to remain stable until closing or rewinding the directory.
      *
      * @return opaque filesystem indexes, corresponding to given logical position or {@code -1L}, if the position has not been visited yet
      */
@@ -114,6 +131,15 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable {
          * <i>"truly" unique</i> within directory, while same inode number can be shared by
          * multiple files (also known as "hard links") or even have specific meaning for filesystem
          * (usually the case for 0 and other small numbers).
+         *
+         * <p/>
+         *
+         * Some filesystems of old are known to return {@code 0} inode number to userspace
+         * in order to indicate a deleted file (e.g. an empty space in directory structure, that
+         * hasn't been filled yet). It seems, that such behavior is not seen in modern
+         * Linux filesystems anymore — https://bugzilla.redhat.com/show_bug.cgi?id=1066751, but
+         * callers are advised to avoid filtering out such entries early in low-level code, because
+         * they may still appear because of bugs, hash collisions or changes to current behavior.
          */
         public long ino;
 

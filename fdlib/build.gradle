@@ -8,6 +8,8 @@ android {
     compileSdkVersion 24
     buildToolsVersion "25.0.1"
 
+    publishNonDefault true
+
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion 24
@@ -20,7 +22,7 @@ android {
             cmake {
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
                 arguments "-DCOREIO_NATIVE_VER:STRING=$nativeVersionCode"
-                cppFlags '-std=c++11', '-Wall', '-Werror=all'
+                cppFlags '-d', '-std=c++11', '-Wall', '-Werror=all'
             }
         }
     }

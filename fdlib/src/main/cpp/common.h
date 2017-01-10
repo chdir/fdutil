@@ -5,6 +5,7 @@
 
 #include <jni.h>
 #include <unistd.h>
+#include <android/log.h>
 
 #define MARSHMALLOW 23
 
@@ -31,5 +32,7 @@ extern void handleError(JNIEnv *env, int lastError);
 extern const char* getUtf8(JNIEnv* env, jworkaroundstr string);
 extern void freeUtf8(JNIEnv *env, jworkaroundstr string, const char* str);
 extern jworkaroundstr toString(JNIEnv *env, char* linuxString, int bufferSize, jsize stringByteCount);
+
+#define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "fdlib", __VA_ARGS__))
 
 #endif

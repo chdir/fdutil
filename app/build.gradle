@@ -47,7 +47,8 @@ dependencies {
     })
     testCompile 'junit:junit:4.12'
 
-    compile project(':syscallserver')
+    debugCompile project(path: ':syscallserver', configuration: 'debug')
+    releaseCompile project(path: ':syscallserver', configuration: 'release')
 
     androidTestCompile 'com.google.truth:truth:0.30'
     androidTestCompile project(':fdlib')
