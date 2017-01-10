@@ -10,6 +10,7 @@ import net.sf.fdlib.Inotify;
 import net.sf.fdlib.InotifyFd;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.SelectorThread;
+import net.sf.fdlib.WrappedIOException;
 
 import java.io.IOException;
 
@@ -54,6 +55,8 @@ public final class GuardedState extends CloseableGuard {
 
     @Override
     public void close() {
+        super.close();
+
         inotify.close();
         os.dispose(inotifyFd);
 

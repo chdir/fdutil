@@ -1,5 +1,6 @@
 package net.sf.fdlib;
 
+import android.support.annotation.CallSuper;
 import android.util.Log;
 
 import java.io.Closeable;
@@ -15,7 +16,7 @@ public abstract class CloseableGuard extends PhantomReference<Closeable> impleme
 
     private static final ReferenceQueue<Closeable> queue = new ReferenceQueue<>();
 
-    volatile boolean closed;
+    private volatile boolean closed;
 
     protected CloseableGuard(Closeable r) {
         super(r, queue);
@@ -24,6 +25,7 @@ public abstract class CloseableGuard extends PhantomReference<Closeable> impleme
     protected abstract void trigger();
 
     @Override
+    @CallSuper
     public void close() {
         closed = true;
     }
