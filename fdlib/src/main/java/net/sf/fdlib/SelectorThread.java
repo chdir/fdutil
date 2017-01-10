@@ -1,5 +1,7 @@
 package net.sf.fdlib;
 
+import android.util.Log;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.nio.channels.CancelledKeyException;
@@ -25,7 +27,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * uses a pipe for interruption, which may filled up if {@code select()} isn't called frequently enough.
  */
 public class SelectorThread extends Thread implements Closeable {
-    private final AtomicBoolean done;
+    private volatile boolean done;
 
     private final Selector selector;
 
@@ -36,8 +38,6 @@ public class SelectorThread extends Thread implements Closeable {
     public SelectorThread() throws IOException {
         super("Selector thread");
 
-        done = new AtomicBoolean();
-
         selector = Selector.open();
     }
 
@@ -45,7 +45,7 @@ public class SelectorThread extends Thread implements Closeable {
 
     @Override
     public void run() {
-        try (Closeable cleanup = this) {
+        try (SelectorThread selfCleanup = this) {
             final Set<SelectionKey> selected = selector.selectedKeys();
 
             SelectionKey key;
@@ -58,7 +58,7 @@ public class SelectorThread extends Thread implements Closeable {
                 hasPendingKeys = false;
 
                 while (selectedKeys.hasNext()) {
-                    if (done.get()) {
+                    if (done) {
                         return;
                     }
 
@@ -85,20 +85,17 @@ public class SelectorThread extends Thread implements Closeable {
 
                 while (true) {
                     try {
-                        int selectedCount;
+                        int selectedCount = 0;
 
                         // make a window for register()
                         selectorLock.lock();
                         try {
-                            // let the selection operation perform 1st-stage cleanup of unregistered channels
-                            selectedCount = selector.selectNow();
-
-                            if (epollCleanupPending) {
-                                epollCleanupPending = false;
+                            if (done) {
+                                return;
                             }
 
-                            // epoll_ctl cleanup is complete, let unregister() know
-                            epollCleanupComplete.signalAll();
+                            // let the selection operation perform 1st-stage cleanup of unregistered channels
+                            selectedCount = cleanupNow();
                         } finally {
                             selectorLock.unlock();
                         }
@@ -112,8 +109,12 @@ public class SelectorThread extends Thread implements Closeable {
                         }
                     } catch (IOException ioe) {
                         // as explained in http://bugs.java.com/bugdatabase/view_bug.do?bug_id=4619326,
-                        // sometimes a pipe buffer may overflow and prevent select() from working
+                        // sometimes a pipe buffer may overflow and prevent select() from working.
+                        // Or the descriptor may be closed. Or something. Either way, we are in no
+                        // condition to retry from there.
                         LogUtil.logCautiously("Received exception from epoll", ioe);
+
+                        return;
                     } catch (CancelledKeyException e) {
                         // ignore, that's a normal operation mode for this crappy API
                         LogUtil.logCautiously("Cancelled", e);
@@ -126,14 +127,19 @@ public class SelectorThread extends Thread implements Closeable {
         } catch (IOException ioe) {
             LogUtil.logCautiously("Failed to close selector", ioe);
         }
+    }
 
-        selectorLock.lock();
-        try {
-            // send off any threads, that may still await de-registration
-            epollCleanupComplete.signalAll();
-        } finally {
-            selectorLock.unlock();
+    private int cleanupNow() throws IOException {
+        final int selected = selector.selectNow();
+
+        if (epollCleanupPending) {
+            epollCleanupPending = false;
         }
+
+        // epoll_ctl cleanup is complete, let unregister() know
+        epollCleanupComplete.signalAll();
+
+        return selected;
     }
 
     /**
@@ -188,10 +194,33 @@ public class SelectorThread extends Thread implements Closeable {
 
     @Override
     public void close() throws IOException {
-        if (done.compareAndSet(false, true)) {
-            selector.close();
+        selectorLock.lock();
+        try {
+            if (!done) {
+                done = true;
 
-            interrupt();
+                if (!selector.isOpen()) {
+                    return;
+                }
+
+                epollCleanupPending = true;
+
+                final Set<SelectionKey> keys = selector.keys();
+
+                if (!keys.isEmpty()) {
+                    for (SelectionKey key : keys) {
+                        key.cancel();
+                    }
+
+                    selector.wakeup();
+
+                    cleanupNow();
+                }
+
+                selector.close();
+            }
+        } finally {
+            selectorLock.unlock();
         }
     }
 

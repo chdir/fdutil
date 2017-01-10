@@ -64,5 +64,11 @@ public final class GuardedState extends CloseableGuard {
         if (prev >= 0) {
             os.dispose(prev);
         }
+
+        try {
+            selThread.close();
+        } catch (IOException e) {
+            throw new WrappedIOException(e);
+        }
     }
 }
