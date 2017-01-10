@@ -539,9 +539,9 @@ const size_t RLINK_INITIAL_BUFFER_SIZE = 1000;
 
 const size_t RLINK_MAX_BUFFER_SIZE = 16 * 1024 * 1024;
 
-char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize, size_t *finalStringSize);
+static char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize, size_t *finalStringSize);
 
-char* resolve_with_buffer(int base, const char *linkpath, void* buffer, size_t bufferSize, size_t *finalStringSize) {
+static char* resolve_with_buffer(int base, const char *linkpath, void* buffer, size_t bufferSize, size_t *finalStringSize) {
     LOG("calling readlink() for %s with buffer size %u", linkpath, bufferSize);
 
     int resolvedNameLength = TEMP_FAILURE_RETRY(sys_readlinkat(base, linkpath, buffer, bufferSize));
@@ -584,7 +584,56 @@ char *resolve_with_buffer_size(int base, const char *linkpath, size_t bufferSize
     return resolve_with_buffer(base, linkpath, buffer, bufferSize, finalStringSize);
 }
 
-char *resolve_link(int base, char* linkpath, size_t *stringSize) {
+static const char* resolve_contcat(int base, const char* linkpath, size_t *stringSize, size_t nameSize) {
+    struct kernel_stat64 dirStat;
+
+    char fdBuf[25];
+    sprintf(fdBuf, "/proc/self/fd/%d", base);
+
+    if (TEMP_FAILURE_RETRY(sys_lstat64(fdBuf, &dirStat))) {
+        return NULL;
+    }
+
+    size_t initialBufferSize;
+
+    if (dirStat.st_size > 0) {
+        initialBufferSize = (size_t) dirStat.st_size + 1 + nameSize;
+    } else {
+        initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
+    }
+
+    char *resolved = resolve_with_buffer_size(-1, fdBuf, initialBufferSize, stringSize);
+    if (resolved == NULL) {
+        return NULL;
+    }
+
+    size_t totalSize = *stringSize + nameSize + 1;
+
+    if (totalSize >= initialBufferSize) {
+        void* newBuf = realloc(resolved, totalSize + 1);
+        int err = errno;
+
+        if (newBuf == NULL) {
+            free(resolved);
+            errno = err;
+
+            return NULL;
+        }
+
+        resolved = newBuf;
+    }
+
+    resolved[*stringSize] = '/';
+    resolved[*stringSize + 1] = '\0';
+
+    *stringSize = totalSize;
+
+    strncat(resolved, linkpath, nameSize);
+
+    return resolved;
+}
+
+static const char *resolve_link(int base, const char* linkpath, size_t *stringSize) {
     struct kernel_stat64 dirStat;
 
     if (TEMP_FAILURE_RETRY(sys_fstatat64_fixed(base, linkpath, &dirStat, AT_SYMLINK_NOFOLLOW)) < 0) {
@@ -600,46 +649,7 @@ char *resolve_link(int base, char* linkpath, size_t *stringSize) {
             return linkpath;
         }
 
-        char fdBuf[25];
-        sprintf(fdBuf, "/proc/self/fd/%d", base);
-
-        if (TEMP_FAILURE_RETRY(sys_lstat64(fdBuf, &dirStat))) {
-            return NULL;
-        }
-
-        size_t initialBufferSize;
-
-        if (dirStat.st_size > 0) {
-            initialBufferSize = (size_t) dirStat.st_size + 1 + nameSize;
-        } else {
-            initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
-        }
-
-        char *resolved = resolve_with_buffer_size(INVALID_FD, fdBuf, initialBufferSize, stringSize);
-        if (resolved == NULL) {
-            return NULL;
-        }
-
-        size_t totalSize = *stringSize + nameSize + 1;
-
-        if (totalSize >= initialBufferSize) {
-            void* newBuf = realloc(resolved, totalSize + 1);
-            if (newBuf == NULL) {
-                free(resolved);
-                return NULL;
-            }
-
-            resolved = newBuf;
-        }
-
-        resolved[*stringSize] = '/';
-        resolved[*stringSize + 1] = '\0';
-
-        *stringSize = totalSize;
-
-        strncat(resolved, linkpath, nameSize);
-
-        return resolved;
+        return resolve_contcat(base, linkpath, stringSize, nameSize);
     }
 
     size_t initialBufferSize;
@@ -650,7 +660,27 @@ char *resolve_link(int base, char* linkpath, size_t *stringSize) {
         initialBufferSize = RLINK_INITIAL_BUFFER_SIZE;
     }
 
-    return resolve_with_buffer_size(base, linkpath, initialBufferSize, stringSize);
+    const char* resolved = resolve_with_buffer_size(base, linkpath, initialBufferSize, stringSize);
+
+    if (resolved == NULL) {
+        return NULL;
+    }
+
+    if (resolved[0] == '/') {
+        return resolved;
+    } else {
+        const char* concatenated = resolve_contcat(base, resolved, stringSize, *stringSize);
+        int err = errno;
+
+        free((void *) resolved);
+
+        if (concatenated == NULL) {
+            errno = err;
+            return NULL;
+        }
+
+        return concatenated;
+    }
 }
 
 static void invoke_readlink(int sock) {
@@ -672,23 +702,21 @@ static void invoke_readlink(int sock) {
 
     size_t stringSize;
 
-    char *resolved = resolve_link(receivedFd, filepath, &stringSize);
+    char *resolved = (char *) resolve_link(receivedFd, filepath, &stringSize);
 
-    if (stringSize <= 0 || resolved == NULL) {
+    if (stringSize < 0 || resolved == NULL) {
         char *errmsg = strerror(errno);
 
         LOG("failed to resolve symlink, - %s\n", errmsg);
 
         fprintf(stderr, "symlink resolution error, - %s%c", errmsg, '\0');
+    } else {
+        resolved[stringSize] = '\0';
 
-        return;
+        fprintf(stderr, "%s%c", resolved, '\0');
+
+        free(resolved);
     }
-
-    resolved[stringSize] = '\0';
-
-    fprintf(stderr, "%s%c", resolved, '\0');
-
-    free(resolved);
 
     if (filepath != resolved) {
         free(filepath);
