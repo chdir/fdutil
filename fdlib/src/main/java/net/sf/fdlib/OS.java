@@ -51,6 +51,10 @@ public abstract class OS {
 
     @CheckResult
     @WorkerThread
+    public abstract @Fd int openat(@DirFd int fd, String name, int flags, int mode) throws IOException;
+
+    @CheckResult
+    @WorkerThread
     public abstract @DirFd int opendir(String path, @OpenFlag int flags, int mode) throws IOException;
 
     @CheckResult
@@ -72,8 +76,7 @@ public abstract class OS {
     @CheckResult
     public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper);
 
-    @CheckResult
-    public abstract Stat fstat(@DirFd int dir);
+    public abstract void fstat(int dir, Stat stat) throws IOException;
 
     public abstract void symlinkat(String name, @DirFd int target, String newpath) throws IOException;
 

@@ -50,7 +50,7 @@ public class SelectorThread extends Thread implements Closeable {
 
             SelectionKey key;
 
-            boolean hasPendingKeys = false;
+            boolean hasPendingKeys;
 
             while (true) {
                 final Iterator<SelectionKey> selectedKeys = selected.iterator();
@@ -205,14 +205,13 @@ public class SelectorThread extends Thread implements Closeable {
 
                 epollCleanupPending = true;
 
-                final Set<SelectionKey> keys = selector.keys();
+                selector.wakeup();
 
+                final Set<SelectionKey> keys = selector.keys();
                 if (!keys.isEmpty()) {
                     for (SelectionKey key : keys) {
                         key.cancel();
                     }
-
-                    selector.wakeup();
 
                     cleanupNow();
                 }

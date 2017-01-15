@@ -90,7 +90,9 @@ public final class Rooted extends net.sf.fdlib.OS {
         return openat(fd, pathname, flags, mode);
     }
 
-    private int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
+    @Override
+    @WorkerThread
+    public int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -141,8 +143,8 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
-    public Stat fstat(@DirFd int fd) {
-        return delegate.fstat(fd);
+    public void fstat(int fd, Stat stat) throws IOException {
+        delegate.fstat(fd, stat);
     }
 
     @Override

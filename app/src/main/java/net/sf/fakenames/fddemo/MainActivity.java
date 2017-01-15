@@ -2,32 +2,21 @@ package net.sf.fakenames.fddemo;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.Context;
-import android.content.CursorLoader;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
-import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.renderscript.RenderScript;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
-import android.support.v7.widget.DividerItemDecoration;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.SimpleItemAnimator;
-import android.system.Os;
-import android.system.StructStat;
-import android.system.StructStatVfs;
 import android.view.ContextMenu;
-import android.view.LayoutInflater;
 import android.view.Menu;
-import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -40,8 +29,6 @@ import net.sf.fakenames.fddemo.view.DirLayoutManager;
 import net.sf.fakenames.fddemo.view.FileMenuInfo;
 import net.sf.fakenames.fddemo.view.NameInputFragment;
 import net.sf.fakenames.fddemo.view.SaneDecor;
-import net.sf.fakenames.syscallserver.Rooted;
-import net.sf.fakenames.syscallserver.SyscallFactory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
 import net.sf.fdlib.ErrnoException;
@@ -53,7 +40,6 @@ import net.sf.fdlib.Stat;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.UUID;
 
 import butterknife.BindView;
 import butterknife.OnClick;
@@ -72,6 +58,9 @@ public class MainActivity extends BaseActivity implements
 
     private GuardedState state;
     private RecyclerView.LayoutManager layoutManager;
+
+    @BindView(R.id.contentPanel)
+    ViewGroup content;
 
     @BindView(R.id.act_main_dirList)
     RecyclerView directoryList;
@@ -105,7 +94,7 @@ public class MainActivity extends BaseActivity implements
             }
 
             try {
-                os = Rooted.createWithChecks(this);
+                os = RootSingleton.get(this);
             } catch (IOException e) {
                 LogUtil.logCautiously("Failed to acquire root access, using unprivileged fallback", e);
 
@@ -162,6 +151,15 @@ public class MainActivity extends BaseActivity implements
         adapter.registerAdapterDataObserver(dirObserver);
 
         registerForContextMenu(directoryList);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+
+        if (hasFocus) {
+            getWindow().setBackgroundDrawable(null);
+        }
     }
 
     @Override
@@ -234,7 +232,9 @@ public class MainActivity extends BaseActivity implements
         try {
             newFd = state.os.opendirat(base, path, OS.O_RDONLY, 0);
 
-            final Stat stat = state.os.fstat(newFd);
+            final Stat stat = new Stat();
+
+            state.os.fstat(newFd, stat);
 
             if (stat.type != FsType.DIRECTORY) {
                 return;
@@ -265,6 +265,18 @@ public class MainActivity extends BaseActivity implements
             if (newFd != DirFd.NIL && prev != DirFd.NIL) {
                 state.os.dispose(newFd);
             }
+        }
+    }
+
+    private void openfile(@DirFd int base, String path) {
+
+
+        final Intent view = new Intent(Intent.ACTION_VIEW);
+
+        try {
+            startActivity(view);
+        } catch (Throwable t) {
+            toast("Error: " + t.getMessage());
         }
     }
 

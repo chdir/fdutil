@@ -48,6 +48,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.RandomAccessFile;
@@ -521,8 +522,13 @@ public final class SyscallFactory implements Closeable {
                 .redirectErrorStream(true)
                 .start();
 
+        final StdoutConsumer stdoutConsumer = new StdoutConsumer(shell.getInputStream());
+        stdoutConsumer.start();
+
         try {
             final int exitCode = shell.waitFor();
+
+            stdoutConsumer.quit();
 
             if (exitCode != 0) {
                 throw new IOException("Unable to confirm root: expected UID 0, but was " + exitCode);
@@ -1123,6 +1129,34 @@ public final class SyscallFactory implements Closeable {
 
             lss.close();
         }
+    }
+}
+
+final class StdoutConsumer extends Thread {
+    private final InputStream stdin;
+
+    private volatile boolean enough;
+
+    StdoutConsumer(InputStream stdin) {
+        super("stdout consumer");
+
+        this.stdin = stdin;
+    }
+
+    @Override
+    public void run() {
+        try (InputStream is = stdin) {
+            while (!enough) {
+                long skipped = is.skip(Long.MAX_VALUE);
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    void quit() {
+        enough = true;
+
+        interrupt();
     }
 }
 

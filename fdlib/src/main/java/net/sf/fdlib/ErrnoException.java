@@ -4,6 +4,7 @@ import java.io.IOException;
 
 public final class ErrnoException extends IOException {
     public static final int ENOTDIR = 20;
+    public static final int ENOENT = 2;
 
     private final int errno;
 

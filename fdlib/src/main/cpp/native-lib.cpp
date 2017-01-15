@@ -78,8 +78,8 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    statContainerConstructor = env->GetMethodID(statContainer, "<init>", "(JJJI)V");
-    if (statContainerConstructor == NULL) {
+    statContainerInit = env->GetMethodID(statContainer, "init", "(JJJI)V");
+    if (statContainerInit == NULL) {
         return -1;
     }
 
@@ -384,12 +384,12 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeMkdirAt(JNIEnv *env, jcla
 }
 
 
-JNIEXPORT jobject JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject self, jint fd) {
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject self, jint fd, jobject statStruct) {
     kernel_stat64 dirStat;
 
     if (sys_fstat64(fd, &dirStat) != 0) {
         handleError(env);
-        return NULL;
+        return;
     }
 
     jint fileTypeOrdinal = 0;
@@ -412,7 +412,7 @@ JNIEXPORT jobject JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject s
         fileTypeOrdinal = 7;
     }
 
-    return env -> NewObject(statContainer, statContainerConstructor,
+    env -> CallNonvirtualVoidMethod(statStruct, statContainer, statContainerInit,
                             dirStat.st_dev, dirStat.st_ino, dirStat.st_size, fileTypeOrdinal);
 }
 

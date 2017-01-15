@@ -13,7 +13,7 @@ public abstract class BaseActivity extends Activity {
     private AppCompatDelegate delegate;
 
     @NonNull
-    private AppCompatDelegate getDelegate() {
+    protected AppCompatDelegate getDelegate() {
         if (delegate == null) {
             delegate = AppCompatDelegate.create(this, null);
         }

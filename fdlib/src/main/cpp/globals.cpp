@@ -12,7 +12,7 @@ jclass errnoException;
 jclass statContainer;
 
 jmethodID errnoExceptionConstructor;
-jmethodID statContainerConstructor;
+jmethodID statContainerInit;
 
 size_t pageSize;
 
@@ -57,15 +57,27 @@ const char* getUtf8(JNIEnv* env, jworkaroundstr string) {
     } else {
         jbyteArray bytes = (jbyteArray) string;
         size_t pathLength = static_cast<size_t>(env -> GetArrayLength(bytes));
+
+        LOG("Size is %u", pathLength);
+
+
         void* pathChars =  env -> GetPrimitiveArrayCritical(bytes, NULL);
 
         if (pathChars == NULL) {
+            LOG("Failed to get array elements");
+
             return NULL;
         }
 
         char* pathBuffer = static_cast<char*>(malloc(pathLength + 1));
+        if (pathBuffer == NULL) {
+            LOG("Failed to malloc");
+
+            return NULL;
+        }
+
         memcpy(pathBuffer, pathChars, pathLength);
-        env -> ReleasePrimitiveArrayCritical(bytes, pathBuffer, JNI_ABORT);
+        env -> ReleasePrimitiveArrayCritical(bytes, pathChars, JNI_ABORT);
         pathBuffer[pathLength] = '\0';
         return const_cast<const char*>(pathBuffer);
     }

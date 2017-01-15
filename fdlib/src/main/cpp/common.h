@@ -19,7 +19,7 @@ extern jclass errnoException;
 extern jclass statContainer;
 
 extern jmethodID errnoExceptionConstructor;
-extern jmethodID statContainerConstructor;
+extern jmethodID statContainerInit;
 
 extern size_t pageSize;
 

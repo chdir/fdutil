@@ -34,6 +34,11 @@ final class Android extends OS {
     }
 
     @Override
+    public @Fd int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
+        return nativeOpenAt(DirFd.AT_FDCWD, toNative(pathname), flags, mode);
+    }
+
+    @Override
     public @DirFd int opendir(String path, int flags, int mode) throws IOException {
         return nativeOpenDirAt(DirFd.AT_FDCWD, toNative(path), flags, mode);
     }
@@ -86,7 +91,7 @@ final class Android extends OS {
     }
 
     @Override
-    public native Stat fstat(@DirFd int dir);
+    public native void fstat(int dir, Stat stat) throws ErrnoException;
 
     @Override
     public Directory list(@Fd int fd) {

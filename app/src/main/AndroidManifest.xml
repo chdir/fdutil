@@ -13,13 +13,37 @@
         android:supportsRtl="true"
         android:name=".FdDemoApp"
         android:theme="@style/AppTheme" >
-        <activity android:name=".MainActivity" >
+        <activity android:name=".MainActivity"
+            android:launchMode="singleTop"
+            android:taskAffinity=":main">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity>
 
+        <activity android:name=".SAFActivity"
+            android:label="File Picker"
+            android:taskAffinity=":picker"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-    </application>
 
+        <provider
+            android:authorities="net.sf.fddemo.files"
+            android:name=".provider.FileProvider"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:grantUriPermissions="true">
+            <!--suppress AndroidElementNotAllowed -->
+            <intent-filter>
+                <!--suppress AndroidElementNotAllowed -->
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER"/>
+            </intent-filter>
+        </provider>
+    </application>
 </manifest>

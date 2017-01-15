@@ -26,11 +26,13 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class BaseDirLayout extends ContextWrapper {
     private final OS os;
@@ -134,6 +136,9 @@ public class BaseDirLayout extends ContextWrapper {
             }
         }
 
+        final Set<File> current = new HashSet<>();
+        Collections.addAll(current, home.listFiles());
+
         // display all mounts with sensible descriptions
         for (LongObjectCursor<MountInfo.Mount> mount : mountInfo.mountMap) {
             if (TextUtils.isEmpty(mount.value.description)) {
@@ -143,6 +148,13 @@ public class BaseDirLayout extends ContextWrapper {
             File descFile = new File(home, mount.value.description);
 
             if (!descFile.exists()) {
+                if (current.contains(descFile)) {
+                    // a broken link...
+
+                    //noinspection ResultOfMethodCallIgnored
+                    descFile.delete();
+                }
+
                 @Fd int dir = os.opendir(home.getPath(), OS.O_RDONLY, 0);
 
                 os.symlinkat(mount.value.rootPath, dir, descFile.getName());

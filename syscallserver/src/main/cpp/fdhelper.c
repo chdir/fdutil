@@ -729,8 +729,10 @@ static void invoke_readlink(int sock) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
+        uid_t myuid= getuid();
         // root test, just check out uid
-        return getuid();
+        LOG("UID is %d", myuid);
+        exit(myuid);
     }
 
     verbose = 1;

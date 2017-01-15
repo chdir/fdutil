@@ -110,11 +110,15 @@ public class LogUtil {
     }
 
     /** Log a completely unexpected stuff, that is not supposed to happen (but we still don't want to crash on it) */
-    public static void swallowError(String message) {
-        logInner(message, new Throwable(message), Log.ERROR, true);
+    public static void swallowError(String message, Object... parts) {
+        logInner(message, new Throwable(message), Log.ERROR, true, parts);
     }
 
-    private static void logInner(String message, Throwable err, int priority, boolean trace) {
+    private static void logInner(String message, Throwable err, int priority, boolean trace, Object... args) {
+        if (args.length != 0) {
+            message = String.format(message, args);
+        }
+
         try (PrintWriter writer = new PrintWriter(new LogWriter(TAG, priority))) {
             writer.println(message);
 
