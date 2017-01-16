@@ -7,6 +7,12 @@ import java.io.Closeable;
 /**
  * Represents subscription to changes, related to a file object. When inotify file descriptor is
  * closed, all it's watches are removed.
+ *
+ * <p/>
+ *
+ * Multiple clients, subscribing to the same filesystem object (inode), are guaranteed to receive
+ * the same {@code InotifyWatch} instance — if you need to use watches in thread-safe way, you
+ * should implement a reference counting strategy to account for that.
  */
 public interface InotifyWatch extends Closeable {
     /**

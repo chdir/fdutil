@@ -1,21 +1,12 @@
 package net.sf.fakenames.fddemo.provider;
 
 import android.annotation.SuppressLint;
-import android.content.ContentProvider;
 import android.content.ContentResolver;
-import android.content.ContentUris;
-import android.content.ContentValues;
-import android.content.Intent;
-import android.content.res.AssetFileDescriptor;
-import android.database.AbstractCursor;
-import android.database.AbstractWindowedCursor;
 import android.database.CharArrayBuffer;
 import android.database.ContentObservable;
 import android.database.ContentObserver;
 import android.database.CrossProcessCursor;
-import android.database.CrossProcessCursorWrapper;
 import android.database.Cursor;
-import android.database.CursorIndexOutOfBoundsException;
 import android.database.CursorWindow;
 import android.database.DataSetObservable;
 import android.database.DataSetObserver;
@@ -28,7 +19,6 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsProvider;
-import android.support.annotation.Nullable;
 import android.support.v4.util.Pools;
 import android.text.TextUtils;
 import android.util.Log;
@@ -37,35 +27,25 @@ import android.webkit.MimeTypeMap;
 import net.sf.fakenames.fddemo.BaseDirLayout;
 import net.sf.fakenames.fddemo.R;
 import net.sf.fakenames.fddemo.RootSingleton;
-import net.sf.fakenames.syscallserver.Rooted;
 import net.sf.fdlib.CrappyDirectory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
-import net.sf.fdlib.ErrnoException;
 import net.sf.fdlib.Fd;
 import net.sf.fdlib.FsType;
-import net.sf.fdlib.GuardFactory;
 import net.sf.fdlib.Inotify;
 import net.sf.fdlib.InotifyFd;
-import net.sf.fdlib.InotifyImpl;
 import net.sf.fdlib.InotifyWatch;
 import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
+import net.sf.fdlib.SelectorThread;
 import net.sf.fdlib.Stat;
 import net.sf.fdlib.UnreliableIterator;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InterruptedIOException;
-import java.nio.channels.InterruptibleChannel;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.spi.AbstractInterruptibleChannel;
-import java.nio.channels.spi.SelectorProvider;
-import java.util.Arrays;
-import java.util.Set;
+import java.util.IdentityHashMap;
+import java.util.Map;
 
 import static android.provider.DocumentsContract.Document.*;
 import static android.provider.DocumentsContract.Root.FLAG_LOCAL_ONLY;
@@ -107,6 +87,8 @@ public class FileProvider extends DocumentsProvider {
 
     private volatile Inotify inotify;
 
+    private volatile SelectorThread selectorThread;
+
     private OS getOS() {
         if (rooted == null) {
             synchronized (this) {
@@ -133,11 +115,22 @@ public class FileProvider extends DocumentsProvider {
 
     private void reset() {
         try {
-            final OS os = OS.getInstance();
+            if (inotify != null || rooted != null) {
+                throw new AssertionError();
+            }
 
             rooted = RootSingleton.get(getContext());
 
-            inotify = new InotifyImpl(inotifyFd, Looper.getMainLooper(), rooted, GuardFactory.getInstance(os));
+            inotify = rooted.observe(inotifyFd, Looper.getMainLooper());
+
+            mainThreadHandler.post(() -> {
+                try {
+                    inotify.setSelector(selectorThread);
+                } catch (IOException e) {
+                    // too bad...
+                    e.printStackTrace();
+                }
+            });
         } catch (IOException e) {
             e.printStackTrace();
             // ok
@@ -148,6 +141,9 @@ public class FileProvider extends DocumentsProvider {
     public boolean onCreate() {
         try {
             initResources();
+
+            selectorThread = new SelectorThread();
+            selectorThread.start();
         } catch (IOException e) {
             e.printStackTrace();
 
@@ -312,12 +308,64 @@ public class FileProvider extends DocumentsProvider {
     }
 
     @Override
+    public String renameDocument(String documentId, String displayName) throws FileNotFoundException {
+        assertAbsolute(documentId);
+        assertFilename(displayName);
+
+        final OS os = getOS();
+
+        if (os == null) {
+            throw new FileNotFoundException("Failed to rename a document, unable to acquire root access");
+        }
+
+        try {
+            final String canonPath = canonString(documentId);
+
+            os.renameat(DirFd.NIL, canonPath, DirFd.NIL, canonPath);
+
+            return replacePathPart(canonPath, documentId);
+        } catch (IOException e) {
+            throw new FileNotFoundException("Failed to rename a document. " + e.getMessage());
+        }
+    }
+
+    @Override
+    public String createDocument(String parentDocumentId, String mimeType, String displayName) throws FileNotFoundException {
+        assertAbsolute(parentDocumentId);
+        assertFilename(displayName);
+
+        final OS os = getOS();
+
+        if (os == null) {
+            throw new FileNotFoundException("Failed to create a document, unable to acquire root access");
+        }
+
+        try {
+            final String canonParent = canonString(parentDocumentId);
+
+            final @DirFd int parentFd = os.opendir(canonParent, OS.O_RDONLY, 0);
+
+            if (mimeType.equals(MIME_TYPE_DIR)) {
+                os.mkdirat(parentFd, displayName, 0);
+            } else {
+                os.mknodat(parentFd, displayName, OS.S_IFREG, 0);
+            }
+
+            return appendPathPart(canonParent, displayName);
+        } catch (IOException e) {
+            throw new FileNotFoundException("Failed to create a document. " + e.getMessage());
+        }
+    }
+
+    @Override
     public void removeDocument(String documentId, String parentDocumentId) throws FileNotFoundException {
         deleteDocument(documentId);
     }
 
     @Override
     public void deleteDocument(String documentId) throws FileNotFoundException {
+        assertAbsolute(documentId);
+
         final OS os = getOS();
 
         if (os != null) {
@@ -429,6 +477,8 @@ public class FileProvider extends DocumentsProvider {
 
     @Override
     public ParcelFileDescriptor openDocument(String documentId, String mode, CancellationSignal signal) throws FileNotFoundException {
+        assertAbsolute(documentId);
+
         final int readableMode = ParcelFileDescriptor.parseMode(mode);
 
         if (signal != null) {
@@ -470,6 +520,18 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
+    private static void assertAbsolute(String nameStr) throws FileNotFoundException {
+        if (nameStr.charAt(0) != '/') {
+            throw new FileNotFoundException(nameStr + " is invalid in this context, must be absolute");
+        }
+    }
+
+    private static void assertFilename(String nameStr) throws FileNotFoundException {
+        if (nameStr.indexOf('/') != -1) {
+            throw new FileNotFoundException(nameStr + " is not a valid filename, must not contain '/'");
+        }
+    }
+
     public static String extractName(String chars) {
         final int lastSlash = chars.lastIndexOf('/');
 
@@ -484,6 +546,52 @@ public class FileProvider extends DocumentsProvider {
             default:
                 return chars.substring(lastSlash, chars.length());
         }
+    }
+
+    private static String replacePathPart(String parent, String displayName) {
+        final String result;
+
+        StringBuilder builder = builderPool.acquire();
+
+        if (builder == null) {
+            builder = new StringBuilder(parent.length() + displayName.length() + 1);
+        }
+
+        try {
+            final int lastSlash = parent.lastIndexOf('/');
+
+            builder.append(parent, 0, lastSlash - 1).append(displayName);
+
+            result = builder.toString();
+        } finally {
+            builder.setLength(0);
+
+            builderPool.release(builder);
+        }
+
+        return result;
+    }
+
+    private static String appendPathPart(String parent, String displayName) {
+        final String result;
+
+        StringBuilder builder = builderPool.acquire();
+
+        if (builder == null) {
+            builder = new StringBuilder(parent.length() + displayName.length() + 1);
+        }
+
+        try {
+            builder.append(parent).append('/').append(displayName);
+
+            result = builder.toString();
+        } finally {
+            builder.setLength(0);
+
+            builderPool.release(builder);
+        }
+
+        return result;
     }
 
     private static void stripSlashes(StringBuilder chars) {
@@ -721,7 +829,7 @@ public class FileProvider extends DocumentsProvider {
         private final DataSetObservable dataSetObservable = new DataSetObservable();
         private final ContentObservable contentObservable = new ContentObservable();
 
-        private volatile InotifyWatch inotifySub;
+        private volatile RefCountedWatch inotifySub;
         private volatile int count = -1;
         private volatile Uri notificationUri;
         private volatile ContentResolver resolver;
@@ -767,7 +875,9 @@ public class FileProvider extends DocumentsProvider {
 
             if (notificationUri != null && inotifySub == null) {
                 try {
-                    inotifySub = inotify.subscribe(dirFd, this);
+                    InotifyWatch newWatch = inotify.subscribe(dirFd, this);
+
+                    inotifySub = RefCountedWatch.get(newWatch);
                 } catch (IOException e) {
                     // ok
                     e.printStackTrace();
@@ -1183,7 +1293,7 @@ public class FileProvider extends DocumentsProvider {
             window.close();
 
             if (inotifySub != null) {
-                inotifySub.close();
+                inotifySub.decCount();
             }
 
             directory.close();
@@ -1220,6 +1330,8 @@ public class FileProvider extends DocumentsProvider {
 
         @Override
         public synchronized void onChanges() {
+            contentObservable.dispatchChange(false, notificationUri);
+
             resolver.notifyChange(notificationUri, null, false);
 
             dataSetObservable.notifyChanged();
@@ -1238,8 +1350,14 @@ public class FileProvider extends DocumentsProvider {
                 return;
             }
 
+            if (inotifySub != null) {
+                inotifySub.close();
+            }
+
             try {
-                inotifySub = inotify.subscribe(dirFd, this);
+                InotifyWatch newWatch = inotify.subscribe(dirFd, this);
+
+                inotifySub = RefCountedWatch.get(newWatch);
             } catch (IOException e) {
                 e.printStackTrace();
 
@@ -1248,4 +1366,51 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
+}
+
+final class RefCountedWatch implements InotifyWatch {
+    private static Map<InotifyWatch, RefCountedWatch> map = new IdentityHashMap<>();
+
+    private int counter = 1;
+
+    private final InotifyWatch delegate;
+
+    private RefCountedWatch(InotifyWatch delegate) {
+        this.delegate = delegate;
+    }
+
+    public static synchronized RefCountedWatch get(InotifyWatch watch) {
+        final RefCountedWatch rcw = map.get(watch);
+
+        if (rcw == null) {
+            final RefCountedWatch newRcf = new RefCountedWatch(watch);
+
+            map.put(watch, newRcf);
+
+            return newRcf;
+        } else {
+            rcw.incCount();
+
+            return rcw;
+        }
+    }
+
+    @Override
+    public synchronized void close() {
+        map.remove(delegate);
+
+        delegate.close();
+    }
+
+    public synchronized void incCount() {
+        ++counter;
+    }
+
+    public synchronized void decCount() {
+        --counter;
+
+        if (counter == 0) {
+            close();
+        }
+    }
 }
