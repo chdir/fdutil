@@ -94,6 +94,11 @@ final class Android extends OS {
     public native void fstat(int dir, Stat stat) throws ErrnoException;
 
     @Override
+    public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
+        nativeRenameAt(fd, toNative(name), fd2, toNative(name2));
+    }
+
+    @Override
     public Directory list(@Fd int fd) {
         return new DirectoryImpl(fd, GuardFactory.getInstance(this));
     }
@@ -118,6 +123,8 @@ final class Android extends OS {
     private static String fromNative(Object string) {
         return Build.VERSION.SDK_INT >= 23 ? (String) string : new String((byte[]) string, StandardCharsets.UTF_8);
     }
+
+    private static native void nativeRenameAt(@DirFd int fd, Object o, @DirFd int fd2, Object o1) throws ErrnoException;
 
     private static native void nativeMkdirAt(@DirFd int target, Object name, int mode) throws ErrnoException;
 

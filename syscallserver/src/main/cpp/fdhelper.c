@@ -44,6 +44,7 @@
 #define REQ_TYPE_ADD_WATCH 4
 #define REQ_TYPE_MKNOD 5
 #define REQ_TYPE_READLINK 6
+#define REQ_TYPE_RENAME 7
 
 #define INVALID_FD -1
 
@@ -727,6 +728,44 @@ static void invoke_readlink(int sock) {
     }
 }
 
+static void invoke_rename(int sock) {
+    int fds[2] = { -1 };
+
+    int fdCount = -1;
+    size_t nameLength1, nameLength2;
+
+    if (scanf("%u %u %u ", &fdCount, &nameLength1, &nameLength2) != 3)
+        DieWithError("reading renameat arguments failed");
+
+    char *filepath1 = read_filepath(nameLength1);
+    char *filepath2 = read_filepath(nameLength2);
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, fdCount, fds);
+    }
+
+    if (sys_renameat(fds[0], filepath1, fds[1], filepath2)) {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to rename - %s\n", errmsg);
+
+        fprintf(stderr, "rename error  - %s%c", errmsg, '\0');
+    } else {
+        fprintf(stderr, "READY%c", '\0');
+    }
+
+    free(filepath1);
+    free(filepath2);
+
+    if (fds[0] > 0) {
+        close(fds[0]);
+    }
+
+    if (fds[1] > 0) {
+        close(fds[1]);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         uid_t myuid= getuid();
@@ -773,6 +812,9 @@ int main(int argc, char *argv[]) {
                 break;
             case REQ_TYPE_READLINK:
                 invoke_readlink(sock);
+                break;
+            case REQ_TYPE_RENAME:
+                invoke_rename(sock);
                 break;
             default:
                 DieWithError("Unknown request type");

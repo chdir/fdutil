@@ -258,6 +258,25 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
+    public void renameat(@DirFd int from, String pathname1, @DirFd int to, String pathname2) throws IOException, FactoryBrokenException {
+        try (ParcelFileDescriptor pfd1 = ParcelFileDescriptor.fromFd(from)) {
+            ParcelFileDescriptor pfd2;
+
+            if (from == to) {
+                pfd2 = pfd1;
+            } else {
+                pfd2 = ParcelFileDescriptor.fromFd(to);
+            }
+
+            try {
+                renameInternal(pfd1, pathname1, pfd2, pathname2);
+            } finally {
+                if (pfd2 != pfd1) shut(pfd2);
+            }
+        }
+    }
+
+    @WorkerThread
     public void mknodat(int fd, String pathname, int mode, int device) throws IOException, FactoryBrokenException {
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
         try {
@@ -345,6 +364,37 @@ public final class SyscallFactory implements Closeable {
                     LogUtil.swallowError(response.message);
 
                     throw new IOException("Failed to delete: " + response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private void renameInternal(ParcelFileDescriptor pfd1, String pathname1, ParcelFileDescriptor pfd2, String pathname2) throws FactoryBrokenException, IOException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new RenameReq(pfd1, pathname1, pfd2, pathname2);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    if ("READY".equals(response.message)) {
+                        return;
+                    }
+
+                    LogUtil.swallowError(response.message);
+
+                    throw new IOException("Failed to rename: " + response.message);
                 }
             }
         } catch (InterruptedException e) {
@@ -969,6 +1019,41 @@ public final class SyscallFactory implements Closeable {
                         .append(' ');
 
                 reqWriter.append(fileName).append("\n").flush();
+
+                if (outboundFd != null && outboundFd.length != 0) {
+                    setFd(wbc, ls, outboundFd);
+                }
+            }
+
+            @Override
+            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(fileOps, readMessage(rbc), null);
+            }
+        }
+
+        final class RenameReq extends FdReq {
+            static final int TYPE_UNLINK = 7;
+
+            final String fileName2;
+
+            public RenameReq(ParcelFileDescriptor fd1, String fileName1, ParcelFileDescriptor fd2, String fileName2) {
+                super(TYPE_UNLINK, fileName1, 0, fd1, fd2);
+
+                this.fileName2 = fileName2;
+            }
+
+            @Override
+            public void writeRequest(CachingWriter reqWriter, WritableByteChannel wbc, LocalSocket ls) throws IOException {
+                super.writeRequest(reqWriter, wbc, ls);
+
+                reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
+                        .append(' ')
+                        .append(fileName.getBytes().length)
+                        .append(' ')
+                        .append(fileName2.getBytes().length)
+                        .append(' ');
+
+                reqWriter.append(fileName).append(fileName2).append("\n").flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);

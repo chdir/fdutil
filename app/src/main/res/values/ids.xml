@@ -3,4 +3,7 @@
     <item name="expectingLayout" type="id" />
     <item name="menu_item_delete" type="id" />
     <item name="menu_copy_path" type="id" />
+    <item name="menu_item_edit" type="id" />
+    <item name="menu_item_share" type="id" />
+    <item name="menu_item_rename" type="id" />
 </resources>

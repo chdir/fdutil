@@ -78,6 +78,8 @@ public abstract class OS {
 
     public abstract void fstat(int dir, Stat stat) throws IOException;
 
+    public abstract void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException;
+
     public abstract void symlinkat(String name, @DirFd int target, String newpath) throws IOException;
 
     public abstract void unlinkat(@DirFd int target, String name, @UnlinkAtFlags int flags) throws IOException;

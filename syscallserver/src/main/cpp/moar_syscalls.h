@@ -28,4 +28,7 @@ static inline int sys_fstatat64_fixed(int dirfd, const char *filename, struct ke
     return syscall(__NR_fstatat64, dirfd, filename, statbuf, flags);
 }
 
+static inline int sys_renameat(int dirfd, const char *filename, int dirfd2, const char *filename2) {
+    return syscall(__NR_renameat, dirfd, filename, dirfd2, filename2);
+}
 #endif

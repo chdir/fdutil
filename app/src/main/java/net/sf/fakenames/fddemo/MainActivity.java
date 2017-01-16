@@ -5,9 +5,11 @@ import android.content.ClipboardManager;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.DocumentsContract;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
@@ -22,12 +24,14 @@ import android.widget.Toast;
 
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
+import net.sf.fakenames.fddemo.provider.FileProvider;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
 import net.sf.fakenames.fddemo.view.DirItemHolder;
 import net.sf.fakenames.fddemo.view.DirLayoutManager;
 import net.sf.fakenames.fddemo.view.FileMenuInfo;
 import net.sf.fakenames.fddemo.view.NameInputFragment;
+import net.sf.fakenames.fddemo.view.RenameNameInputFragment;
 import net.sf.fakenames.fddemo.view.SaneDecor;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
@@ -48,6 +52,7 @@ public class MainActivity extends BaseActivity implements
         View.OnClickListener,
         MenuItem.OnMenuItemClickListener,
         NameInputFragment.FileNameReceiver,
+        RenameNameInputFragment.FileNameReceiver,
         PopupMenu.OnMenuItemClickListener {
     private final RecyclerView.ItemAnimator animator = new DefaultItemAnimator();
 
@@ -218,7 +223,9 @@ public class MainActivity extends BaseActivity implements
 
         final Directory.Entry dirInfo = dirItemHolder.getDirInfo();
 
-        if (dirInfo.type == null || !dirInfo.type.isNotDir()) {
+        if (dirInfo.type != null && dirInfo.type.isNotDir()) {
+            openfile(state.adapter.getFd(), dirInfo.name);
+        } else {
             opendir(state.adapter.getFd(), dirInfo.name);
         }
     }
@@ -228,15 +235,16 @@ public class MainActivity extends BaseActivity implements
     }
 
     private void opendir(@DirFd int base, String path) {
-        @DirFd int newFd = DirFd.NIL, prev = DirFd.NIL;
+        int newFd = DirFd.NIL, prev = DirFd.NIL;
         try {
-            newFd = state.os.opendirat(base, path, OS.O_RDONLY, 0);
+            newFd = state.os.openat(base, path, OS.O_RDONLY, 0);
 
             final Stat stat = new Stat();
 
             state.os.fstat(newFd, stat);
 
             if (stat.type != FsType.DIRECTORY) {
+                openfile(base, path);
                 return;
             }
 
@@ -269,14 +277,54 @@ public class MainActivity extends BaseActivity implements
     }
 
     private void openfile(@DirFd int base, String path) {
-
-
-        final Intent view = new Intent(Intent.ACTION_VIEW);
-
         try {
+            final String resolved = state.os.readlinkat(base, path);
+
+            final Uri uri = DocumentsContract.buildDocumentUri(FileProvider.AUTHORITY, resolved);
+
+            final Intent view = new Intent(Intent.ACTION_VIEW, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
             startActivity(view);
-        } catch (Throwable t) {
-            toast("Error: " + t.getMessage());
+        } catch (Throwable e) {
+            toast("Error: " + e.getMessage());
+        }
+    }
+
+    private void editfile(int parentDir, String name) {
+        try {
+            final String resolved = state.os.readlinkat(parentDir, name);
+
+            final Uri uri = DocumentsContract.buildDocumentUri(FileProvider.AUTHORITY, resolved);
+
+            final Intent view = new Intent(Intent.ACTION_EDIT, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+            startActivity(view);
+        } catch (Throwable e) {
+            toast("Error: " + e.getMessage());
+        }
+    }
+
+    private void sharefile(int parentDir, String name) {
+        try {
+            final String resolved = state.os.readlinkat(parentDir, name);
+
+            final Uri uri = DocumentsContract.buildDocumentUri(FileProvider.AUTHORITY, resolved);
+
+            String type = getContentResolver().getType(uri);
+            if (type == null) {
+                type = FileProvider.DEFAULT_MIME;
+            }
+
+            final Intent view = new Intent(Intent.ACTION_SEND)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .setType(type);
+
+            startActivity(view);
+        } catch (Throwable e) {
+            toast("Error: " + e.getMessage());
         }
     }
 
@@ -309,8 +357,19 @@ public class MainActivity extends BaseActivity implements
         final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE, "Copy full path");
         bufferItem.setOnMenuItemClickListener(this);
 
+        final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, Menu.CATEGORY_ALTERNATIVE, "Rename");
+        renameItem.setOnMenuItemClickListener(this);
+
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, Menu.CATEGORY_ALTERNATIVE, "Delete");
         delItem.setOnMenuItemClickListener(this);
+
+        if (info.fileInfo.type != null && info.fileInfo.type.isNotDir()) {
+            final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, Menu.CATEGORY_ALTERNATIVE, "Edit");
+            editItem.setOnMenuItemClickListener(this);
+
+            final MenuItem shareItem = menu.add(Menu.NONE, R.id.menu_item_share, Menu.CATEGORY_ALTERNATIVE, "Share");
+            shareItem.setOnMenuItemClickListener(this);
+        }
     }
 
     @Override
@@ -340,6 +399,15 @@ public class MainActivity extends BaseActivity implements
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
                 break;
+            case R.id.menu_item_edit:
+                editfile(info.parentDir, info.fileInfo.name);
+                break;
+            case R.id.menu_item_share:
+                sharefile(info.parentDir, info.fileInfo.name);
+                break;
+            case R.id.menu_item_rename:
+                showRenameDialog(info.fileInfo.name);
+                break;
             case R.id.menu_fifo:
                 showCreateNewDialog(getString(R.string.fifo), item.getItemId());
                 break;
@@ -357,8 +425,24 @@ public class MainActivity extends BaseActivity implements
         return true;
     }
 
+    private void showRenameDialog(String name) {
+        new RenameNameInputFragment(name).show(getFragmentManager(), null);
+    }
+
     private void showCreateNewDialog(String name, int type) {
         new NameInputFragment(name, type).show(getFragmentManager(), null);
+    }
+
+    @Override
+    public void onNewNameChosen(String oldName, String newName) {
+        if (oldName.equals(newName)) return;
+
+        final @DirFd int dirFd = state.adapter.getFd();
+        try {
+            state.os.renameat(dirFd, oldName, dirFd, newName);
+        } catch (IOException e) {
+            toast("Failed to rename " + oldName + ". " + e.getMessage());
+        }
     }
 
     @Override

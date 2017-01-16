@@ -74,7 +74,9 @@ import static android.provider.DocumentsContract.Root.FLAG_SUPPORTS_IS_CHILD;
 
 @SuppressLint("InlinedApi")
 public class FileProvider extends DocumentsProvider {
-    private static final String authority = "net.sf.fddemo.files";
+    public static final String DEFAULT_MIME = "application/octet-stream";
+
+    public static final String AUTHORITY = "net.sf.fddemo.files";
 
     private static final int FILE_DEFAULT_FLAGS = FLAG_SUPPORTS_RENAME | FLAG_SUPPORTS_WRITE | FLAG_SUPPORTS_DELETE | FLAG_SUPPORTS_REMOVE;
 
@@ -177,7 +179,7 @@ public class FileProvider extends DocumentsProvider {
 
         assert getContext() != null;
 
-        getContext().getContentResolver().notifyChange(DocumentsContract.buildRootsUri(authority), null);
+        getContext().getContentResolver().notifyChange(DocumentsContract.buildRootsUri(AUTHORITY), null);
     }
 
     @Override
@@ -237,7 +239,7 @@ public class FileProvider extends DocumentsProvider {
             }
         }
 
-        return "application/octet-stream";
+        return DEFAULT_MIME;
     }
 
     @Override
@@ -420,7 +422,7 @@ public class FileProvider extends DocumentsProvider {
 
         final ContentResolver cr = getContext().getContentResolver();
 
-        mainThreadHandler.post(() -> cursor.setNotificationUri(cr, DocumentsContract.buildDocumentUri(authority, canonDocumentId)));
+        mainThreadHandler.post(() -> cursor.setNotificationUri(cr, DocumentsContract.buildDocumentUri(AUTHORITY, canonDocumentId)));
 
         return cursor;
     }
@@ -468,7 +470,7 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
-    private static String extractName(String chars) {
+    public static String extractName(String chars) {
         final int lastSlash = chars.lastIndexOf('/');
 
         switch (lastSlash) {
@@ -627,7 +629,7 @@ public class FileProvider extends DocumentsProvider {
 
     @Override
     public Uri canonicalize(Uri uri) {
-        if (authority.equals(uri.getAuthority())) {
+        if (AUTHORITY.equals(uri.getAuthority())) {
             return null;
         }
 
@@ -653,7 +655,7 @@ public class FileProvider extends DocumentsProvider {
             return tree;
         }
 
-        return DocumentsContract.buildTreeDocumentUri(authority, canonId);
+        return DocumentsContract.buildTreeDocumentUri(AUTHORITY, canonId);
     }
 
     private Uri canonDocument(Uri tree) {
@@ -665,7 +667,7 @@ public class FileProvider extends DocumentsProvider {
             return tree;
         }
 
-        return DocumentsContract.buildDocumentUri(authority, canonId);
+        return DocumentsContract.buildDocumentUri(AUTHORITY, canonId);
     }
 
     private static String canonString(String path) {

@@ -123,6 +123,19 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            factory.renameat(fd, name, fd2, name2);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("rename() failed, unable to access privileged process", e);
+        }
+    }
+
+    @Override
     public int inotify_init() throws IOException {
         return delegate.inotify_init();
     }

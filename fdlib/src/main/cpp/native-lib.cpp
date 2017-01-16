@@ -416,4 +416,23 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject self
                             dirStat.st_dev, dirStat.st_ino, dirStat.st_size, fileTypeOrdinal);
 }
 
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeRenameAt(JNIEnv *env, jclass type, jint fd, jworkaroundstr o, jint fd2, jworkaroundstr o1) {
+    const char* name_ = getUtf8(env, o);
+    if (name_ == NULL) {
+        return;
+    }
+
+    const char* name1_ = getUtf8(env, o1);
+
+    if (name1_ != NULL) {
+        if (sys_renameat(fd, name_, fd2, name1_) == -1) {
+            handleError(env);
+        }
+
+        freeUtf8(env, o1, name1_);
+    }
+
+    freeUtf8(env, o, name_);
+}
+
 }
