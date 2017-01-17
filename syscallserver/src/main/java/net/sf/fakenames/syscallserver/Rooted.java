@@ -22,6 +22,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Scanner;
+import java.util.regex.Pattern;
 
 import static android.os.Process.myPid;
 
@@ -54,21 +55,33 @@ public final class Rooted extends net.sf.fdlib.OS {
     private SyscallFactory getFactory() throws IOException {
         if (factoryInstance == null) {
             synchronized (this) {
-                String contextStr = null;
-
-                final String contextFileName = String.format(Locale.ENGLISH, "/proc/%d/attr/current", myPid());
-
-                try (Scanner s = new Scanner(new FileInputStream(contextFileName))) {
-                    contextStr = s.nextLine();
-                } catch (FileNotFoundException ok) {
-                    // either there is no SELinux, or we are simply powerless to do anything
+                if (factoryInstance == null) {
+                    factoryInstance = SyscallFactory.create(context, getContext());
                 }
-
-                factoryInstance = SyscallFactory.create(context, contextStr);
             }
         }
 
         return factoryInstance;
+    }
+
+    private String getContext() {
+        String contextFileName = String.format(Locale.ENGLISH, "/proc/%d/attr/current", myPid());
+
+        try (Scanner s = new Scanner(new FileInputStream(contextFileName))) {
+            s.useDelimiter("(:|\\Z)");
+
+            // skip user and object type
+            if (s.hasNext()) s.next(); else return null;
+            if (s.hasNext()) s.next(); else return null;
+
+            if (s.hasNext()) {
+                return s.next();
+            }
+        } catch (FileNotFoundException ok) {
+            // either there is no SELinux, or we are simply powerless to do anything
+        }
+
+        return null;
     }
 
     @Override

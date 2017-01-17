@@ -9,10 +9,10 @@ public class SAFActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        final Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+        final Intent intent1 = new Intent(Intent.ACTION_CREATE_DOCUMENT)
                 .setType("*/*");
 
-        startActivity(intent);
+        startActivity(intent1);
 
         finish();
     }

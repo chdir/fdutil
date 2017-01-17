@@ -256,7 +256,17 @@ static int Bootstrap(char *socket_name) {
     return sock;
 }
 
-static void initFileContext(const char* context) {
+static void initFileContext(int sock, const char* context) {
+    struct ucred creds;
+    socklen_t szCreds = sizeof(creds);
+
+    if (getsockopt(sock, SOL_SOCKET, SO_PEERCRED, &creds, &szCreds) < 0 || szCreds == 0) {
+        DieWithError("failed to retrieve peer credentials");
+    }
+
+    sys_setfsuid(creds.uid);
+    sys_setfsgid(creds.gid);
+
     char fsCreatePathBuf[42];
 
     int threadId = gettid();
@@ -705,7 +715,7 @@ static void invoke_readlink(int sock) {
 
     char *resolved = (char *) resolve_link(receivedFd, filepath, &stringSize);
 
-    if (stringSize < 0 || resolved == NULL) {
+    if (resolved == NULL) {
         char *errmsg = strerror(errno);
 
         LOG("failed to resolve symlink, - %s\n", errmsg);
@@ -782,7 +792,7 @@ int main(int argc, char *argv[]) {
     // Use the context of calling app for file manipulation (this ensures. that our files
     // are created with same context as if they were created by the calling app)
     if (argc > 2) {
-        initFileContext(argv[2]);
+        initFileContext(sock, argv[2]);
     }
 
     // process requests infinitely (we will be killed when done)
