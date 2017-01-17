@@ -10,9 +10,10 @@ import java.io.Closeable;
  *
  * <p/>
  *
- * Multiple clients, subscribing to the same filesystem object (inode), are guaranteed to receive
- * the same {@code InotifyWatch} instance — if you need to use watches in thread-safe way, you
- * should implement a reference counting strategy to account for that.
+ * This class is thread-safe. Note, that multiple clients, subscribing to the same filesystem
+ * object (inode), are guaranteed to receive the same {@code InotifyWatch} instance — if you need
+ * to use watches in thread-safe way, you should implement a reference counting strategy
+ * to account for that.
  */
 public interface InotifyWatch extends Closeable {
     /**

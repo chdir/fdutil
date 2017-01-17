@@ -237,7 +237,7 @@ public class MainActivity extends BaseActivity implements
     private void opendir(@DirFd int base, String path) {
         int newFd = DirFd.NIL, prev = DirFd.NIL;
         try {
-            newFd = state.os.openat(base, path, OS.O_RDONLY, 0);
+            newFd = state.os.opendirat(base, path, OS.O_RDONLY, 0);
 
             final Stat stat = new Stat();
 
@@ -264,6 +264,8 @@ public class MainActivity extends BaseActivity implements
 
             if (e.code() != ErrnoException.ENOTDIR) {
                 toast("Unable to open a directory. " + e.getMessage());
+            } else {
+                openfile(base, path);
             }
         } catch (IOException e) {
             LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
