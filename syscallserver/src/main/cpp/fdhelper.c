@@ -24,14 +24,21 @@
 #include <sys/uio.h>
 #include <sys/un.h>
 #include <sys/inotify.h>
+#include <sys/mman.h>
 
 #include <stdlib.h> // exit
 #include <stdio.h> // printf
 
 #include <android/log.h>
+#include <sepol/policydb/symtab.h>
 
 #include "linux_syscall_support.h"
 #include "moar_syscalls.h"
+#include "sepol/policydb/policydb.h"
+#include "sepol/policydb/services.h"
+#include "sepol/policydb/constraint.h"
+#include "sepol/sepol.h"
+#include "common.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-noreturn"
@@ -218,11 +225,11 @@ static int Bootstrap(char *socket_name) {
     timeout.tv_sec = 20;
     timeout.tv_usec = 0;
 
-    if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
-        DieWithError("setting ingoing timeout failed");
+    //if (setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
+    //    DieWithError("setting ingoing timeout failed");
 
-    if (setsockopt (sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
-        DieWithError("setting outgoing timeout failed");
+    //if (setsockopt (sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) < 0)
+    //    DieWithError("setting outgoing timeout failed");
 
     struct sockaddr_un echoServAddr;
 
@@ -256,7 +263,55 @@ static int Bootstrap(char *socket_name) {
     return sock;
 }
 
+static void fixPolicy(const char* context) {
+    struct policy_file pf;
+    struct policy_file fp;
+
+    int outFd = load_policy_from_kernel(&pf);
+    if (outFd < 0) {
+        LOG("could not load SELinux policy");
+        return;
+    }
+
+    size_t newSize = pf.size * 3/2;
+    void* newPolicy = malloc(newSize);
+    if (newPolicy == NULL) {
+        LOG("Unable to reserve space for new policy");
+        return;
+    }
+
+    policy_file_init(&fp);
+
+    fp.type = PF_USE_MEMORY;
+    fp.data = newPolicy;
+    fp.size = newSize;
+    fp.len = fp.size;
+
+    patch_state_t ret = issue_indulgence(context, &pf, &fp);
+
+    munmap(newPolicy, pf.size);
+    close(outFd);
+
+    switch (ret) {
+        case PATCH_DONE:
+            if (load_policy_into_kernel(&fp)) {
+                LOG("failed to load policy into kernel");
+            } else {
+                LOG("Yay!");
+            }
+        case ALREADY_PATCHED:
+            LOG("policy is already suitable, nothing to do");
+        default:
+            break;
+    }
+
+    free(newPolicy);
+    return;
+}
+
 static void initFileContext(int sock, const char* context) {
+    umask(0);
+
     struct ucred creds;
     socklen_t szCreds = sizeof(creds);
 
@@ -264,8 +319,10 @@ static void initFileContext(int sock, const char* context) {
         DieWithError("failed to retrieve peer credentials");
     }
 
-    sys_setfsuid(creds.uid);
-    sys_setfsgid(creds.gid);
+    fixPolicy(context);
+
+    //sys_setfsuid(creds.uid);
+    //sys_setfsgid(creds.gid);
 
     char fsCreatePathBuf[42];
 
@@ -441,7 +498,12 @@ static void invoke_openat(int sock) {
         receivedFd = INVALID_FD;
     }
 
-    int targetFd = sys_openat(receivedFd, filepath, flags, S_IRWXU | S_IRWXG);
+    int targetFd;
+    if (filepath[0] == '/') {
+        targetFd = sys_open(filepath, flags, S_IRWXU | S_IRWXG);
+    } else {
+        targetFd = sys_openat(receivedFd, filepath, flags, S_IRWXU | S_IRWXG);
+    }
 
     if (targetFd > 0) {
         if (ancil_send_fds_with_buffer(sock, targetFd))
