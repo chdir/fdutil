@@ -122,8 +122,8 @@ public interface Inotify extends Closeable {
     interface InotifyListener {
         /**
          * Notifies of changes, related to renaming, creation and deletion of files. This callback
-         * corresponds to IN_CREATE, IN_DELETE, IN_MOVED_FROM and IN_MOVED_TO events of native
-         * {@code inotify (7)} API.
+         * corresponds to IN_ATTR, IN_CREATE, IN_DELETE, IN_MOVED_FROM and IN_MOVED_TO events of
+         * native {@code inotify (7)} API.
          */
         void onChanges();
 

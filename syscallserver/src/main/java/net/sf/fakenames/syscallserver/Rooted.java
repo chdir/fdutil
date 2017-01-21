@@ -123,6 +123,7 @@ public final class Rooted extends net.sf.fdlib.OS {
 
     @NonNull
     @Override
+    @WorkerThread
     public String readlinkat(int fd, String pathname) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
@@ -136,6 +137,7 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    @WorkerThread
     public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
@@ -153,16 +155,19 @@ public final class Rooted extends net.sf.fdlib.OS {
         return delegate.inotify_init();
     }
 
+    @NonNull
     @Override
     public Directory list(@Fd int fd) {
         return delegate.list(fd);
     }
 
+    @NonNull
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor) {
         return observe(inotifyDescriptor, Looper.myLooper());
     }
 
+    @NonNull
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) {
         return new RootInotify(inotifyDescriptor, looper);
@@ -179,6 +184,7 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    @WorkerThread
     public void unlinkat(@DirFd int target, String pathname, @UnlinkAtFlags int flags) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
@@ -192,6 +198,7 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    @WorkerThread
     public void mknodat(@DirFd int target, String pathname, @FileTypeFlag int mode, int device) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
@@ -205,6 +212,7 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    @WorkerThread
     public void mkdirat(@DirFd int target, String pathname, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
@@ -238,11 +246,12 @@ public final class Rooted extends net.sf.fdlib.OS {
         }
 
         @Override
+        @WorkerThread
         protected int addSubscription(@InotifyFd int fd, int watchedFd) throws IOException {
             try {
                 final SyscallFactory factory = getFactory();
 
-                return factory.inotify_add_watch(fd, watchedFd);
+                return factory.inotify_add_watch(this, fd, watchedFd);
             } catch (FactoryBrokenException e) {
                 factoryInstance = null;
 

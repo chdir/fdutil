@@ -80,11 +80,13 @@ final class Android extends OS {
     @Override
     public native int inotify_init() throws IOException;
 
+    @NonNull
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor) {
         return observe(inotifyDescriptor, Looper.myLooper());
     }
 
+    @NonNull
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) {
         return new InotifyImpl(inotifyDescriptor, looper, this, GuardFactory.getInstance(this));
@@ -98,6 +100,7 @@ final class Android extends OS {
         nativeRenameAt(fd, toNative(name), fd2, toNative(name2));
     }
 
+    @NonNull
     @Override
     public Directory list(@Fd int fd) {
         return new DirectoryImpl(fd, GuardFactory.getInstance(this));

@@ -15,21 +15,15 @@
  */
 package net.sf.fakenames.syscallserver;
 
-import android.content.ContentProvider;
 import android.content.Context;
-import android.database.CrossProcessCursorWrapper;
-import android.database.CursorWindow;
-import android.database.CursorWrapper;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.*;
-import android.provider.DocumentsContract;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.VisibleForTesting;
 import android.support.annotation.WorkerThread;
-import android.system.ErrnoException;
 import android.system.Os;
 import android.text.TextUtils;
 import android.util.Log;
@@ -37,50 +31,33 @@ import android.util.Log;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
 import net.sf.fdlib.InotifyFd;
+import net.sf.fdlib.InotifyImpl;
 import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.OS;
 
-import java.io.BufferedReader;
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
-import java.io.PrintWriter;
-import java.io.RandomAccessFile;
 import java.io.Writer;
 import java.lang.Process;
-import java.net.DatagramSocket;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Locale;
-import java.util.Scanner;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import static android.os.Process.myPid;
 
 /**
  * A factory object, that can be used to create {@link ParcelFileDescriptor} instances for files, inaccessible to
@@ -234,7 +211,7 @@ public final class SyscallFactory implements Closeable {
         try {
             mkdirInternal(pfd, filepath, mode);
         } finally {
-            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+            shut(pfd);
         }
     }
 
@@ -244,16 +221,16 @@ public final class SyscallFactory implements Closeable {
         try {
             unlinkInternal(pfd, filepath, mode);
         } finally {
-            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+            shut(pfd);
         }
     }
 
     @CheckResult
     @WorkerThread
-    public int inotify_add_watch(@InotifyFd int target, @Fd int pathnameFd) throws IOException, FactoryBrokenException {
+    public int inotify_add_watch(InotifyImpl inotify, @InotifyFd int target, @Fd int pathnameFd) throws IOException, FactoryBrokenException {
         try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(target);
              ParcelFileDescriptor pfd2 = ParcelFileDescriptor.fromFd(pathnameFd)) {
-            return addWatchInternal(pfd, pfd2);
+            return addWatchInternal(inotify, pfd, pfd2);
         }
     }
 
@@ -271,7 +248,7 @@ public final class SyscallFactory implements Closeable {
             try {
                 renameInternal(pfd1, pathname1, pfd2, pathname2);
             } finally {
-                if (pfd2 != pfd1) shut(pfd2);
+                shut(pfd2);
             }
         }
     }
@@ -286,6 +263,7 @@ public final class SyscallFactory implements Closeable {
         }
     }
 
+    @NonNull
     @CheckResult
     @WorkerThread
     public String readlinkat(int target, String name) throws IOException, FactoryBrokenException {
@@ -305,7 +283,7 @@ public final class SyscallFactory implements Closeable {
         try {
             return FdCompat.adopt(openInternal(pfd, filepath, mode));
         } finally {
-            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+            shut(pfd);
         }
     }
 
@@ -313,11 +291,11 @@ public final class SyscallFactory implements Closeable {
         return openInternal(null, file.getPath(), mode);
     }
 
-    private int addWatchInternal(ParcelFileDescriptor pfd, ParcelFileDescriptor pathnameFd) throws FactoryBrokenException, IOException {
+    private int addWatchInternal(InotifyImpl inotify, ParcelFileDescriptor pfd, ParcelFileDescriptor pathnameFd) throws FactoryBrokenException, IOException {
         if (closedStatus.get())
             throw new FactoryBrokenException("Already closed");
 
-        final FdReq request = serverThread.new AddWatch(pfd, pathnameFd);
+        final FdReq request = serverThread.new AddWatch(inotify, pfd, pathnameFd);
 
         FdResp response;
         try {
@@ -327,11 +305,13 @@ public final class SyscallFactory implements Closeable {
                     try {
                         return Integer.parseInt(response.message);
                     } catch (NumberFormatException nfe) {
-                        LogUtil.swallowError(response.message);
-
                         throw new IOException("Failed to add inotify watch: " + response.message);
                     }
                 }
+
+                response.close();
+
+                LogUtil.swallowError(response.message);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -361,9 +341,11 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    LogUtil.swallowError(response.message);
-
                     throw new IOException("Failed to delete: " + response.message);
+                }
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
                 }
             }
         } catch (InterruptedException e) {
@@ -392,9 +374,11 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    LogUtil.swallowError(response.message);
-
                     throw new IOException("Failed to rename: " + response.message);
+                }
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
                 }
             }
         } catch (InterruptedException e) {
@@ -423,9 +407,11 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    LogUtil.swallowError(response.message);
-
                     throw new IOException("Failed to create a node: " + response.message);
+                }
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
                 }
             }
         } catch (InterruptedException e) {
@@ -454,9 +440,11 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    LogUtil.swallowError(response.message);
-
                     throw new IOException("Failed to create directory: " + response.message);
+                }
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
                 }
             }
         } catch (InterruptedException e) {
@@ -485,14 +473,14 @@ public final class SyscallFactory implements Closeable {
                         return response.fd;
                     }
 
-                    FdCompat.closeDescriptor(response.fd);
+                    response.close();
                 }
 
                 if (response.message != null) {
-                    LogUtil.swallowError(response.message);
-
                     if (response.request == request) {
                         throw new IOException("Failed to open file: " + response.message);
+                    } else {
+                        LogUtil.swallowError(response.message);
                     }
                 }
             }
@@ -522,9 +510,11 @@ public final class SyscallFactory implements Closeable {
                         return response.message;
                     }
 
-                    LogUtil.swallowError(response.message);
-
-                    throw new IOException("Failed to resolve link path: " + response.message);
+                    if (response.request == request) {
+                        throw new IOException("Failed to resolve link path: " + response.message);
+                    } else {
+                        LogUtil.swallowError(response.message);
+                    }
                 }
             }
         } catch (InterruptedException e) {
@@ -650,7 +640,7 @@ public final class SyscallFactory implements Closeable {
                         req.close();
                     }
 
-                    final FdResp error = new FdResp(FdReq.STOP, message, null);
+                    final FdResp error = new FdResp(FdReq.STOP, message);
 
                     if (!responses.offer(error, 5, TimeUnit.MILLISECONDS)) {
                         break;
@@ -719,14 +709,18 @@ public final class SyscallFactory implements Closeable {
 
                             logTrace(Log.DEBUG, "Response to " + oomFile + " request: " + oomFileTestResp);
 
-                            if (oomFileTestResp.fd != null) {
-                                try (OutputStreamWriter oow = new OutputStreamWriter(new FileOutputStream(oomFileTestResp.fd))) {
-                                    oow.append("-1000");
+                            if (oomFileTestResp.fd == null) {
+                                throw new IOException("Failed to obtain " + oomFile + " descriptor: " + oomFileTestResp.message);
+                            }
 
-                                    logTrace(Log.DEBUG, "Successfully adjusted helper's OOM score to -1000");
-                                } catch (IOException ok) {
-                                    logException("Write to " + oomFile + " failed", ok);
-                                }
+                            try (OutputStreamWriter oow = new OutputStreamWriter(new FileOutputStream(oomFileTestResp.fd))) {
+                                oow.append("-1000").flush();
+
+                                logTrace(Log.DEBUG, "Successfully adjusted helper's OOM score to -1000");
+                            } catch (Exception e) {
+                                logException("Write to " + oomFile + " failed", e);
+                            } finally {
+                                oomFileTestResp.close();
                             }
 
                             if (intake.take() == FdReq.STOP)
@@ -756,20 +750,19 @@ public final class SyscallFactory implements Closeable {
 
                         if (!responses.offer(response, IO_TIMEOUT, TimeUnit.MILLISECONDS)) {
                             // the calling thread may have been aborted or something, do the cleanup
-                            if (response.fd != null) {
-                                FdCompat.closeDescriptor(response.fd);
-                            }
+                            response.close();
                         }
                     } catch (IOException ioe) {
                         logException("Error during data exchange", ioe);
 
-                        responses.offer(new FdResp(fileOps, ioe.getMessage(), null), IO_TIMEOUT, TimeUnit.MILLISECONDS);
+                        responses.offer(new FdResp(fileOps, ioe.getMessage()), IO_TIMEOUT, TimeUnit.MILLISECONDS);
 
                         throw ioe;
                     }
                 } catch (Throwable t) {
-                    if (response != null && response.fd != null)
-                        FdCompat.closeDescriptor(response.fd);
+                    if (response != null) {
+                        response.close();
+                    }
 
                     throw t;
                 }
@@ -779,7 +772,7 @@ public final class SyscallFactory implements Closeable {
         private FdResp sendFdRequest(FdReq fileOps, CachingWriter req, ReadableByteChannel rvc, WritableByteChannel wbc, LocalSocket ls) throws IOException {
             fileOps.writeRequest(req, wbc, ls);
 
-            return fileOps.readResponse(fileOps, rvc, ls);
+            return fileOps.readResponse(rvc, ls);
         }
 
         private String readMessage(ReadableByteChannel channel) throws IOException {
@@ -869,7 +862,7 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
                 String responseStr = readMessage(rbc);
                 final FileDescriptor fd = getFd(ls);
 
@@ -877,7 +870,7 @@ public final class SyscallFactory implements Closeable {
                     responseStr = "Received no file descriptor from helper";
                 }
 
-                return new FdResp(fileOps, responseStr, fd);
+                return new FdResp(this, responseStr, fd);
             }
         }
 
@@ -907,8 +900,8 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-                return new FdResp(fileOps, readMessage(rbc), null);
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
             }
         }
 
@@ -938,16 +931,20 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-                return new FdResp(fileOps, readMessage(rbc), null);
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
             }
         }
 
         final class AddWatch extends FdReq {
             static final int TYPE_ADD_WATCH = 4;
 
-            public AddWatch(ParcelFileDescriptor outboundFd, ParcelFileDescriptor pathnameFd) {
+            final InotifyImpl inotify;
+
+            public AddWatch(InotifyImpl inotify, ParcelFileDescriptor outboundFd, ParcelFileDescriptor pathnameFd) {
                 super(TYPE_ADD_WATCH, "whatever", 0, outboundFd, pathnameFd);
+
+                this.inotify = inotify;
             }
 
             @Override
@@ -960,8 +957,8 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-                return new FdResp(fileOps, readMessage(rbc), null);
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new InotifyResp(this, readMessage(rbc));
             }
         }
 
@@ -997,8 +994,8 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-                return new FdResp(fileOps, readMessage(rbc), null);
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
             }
         }
 
@@ -1026,8 +1023,8 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-                return new FdResp(fileOps, readMessage(rbc), null);
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
             }
         }
 
@@ -1061,8 +1058,8 @@ public final class SyscallFactory implements Closeable {
             }
 
             @Override
-            public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
-                return new FdResp(fileOps, readMessage(rbc), null);
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
             }
         }
     }
@@ -1087,7 +1084,7 @@ public final class SyscallFactory implements Closeable {
             if (closeable != null)
                 closeable.close();
         } catch (IOException e) {
-            // just as planned
+            logException("Failed to close " + closeable, e);
         }
     }
 
@@ -1097,7 +1094,7 @@ public final class SyscallFactory implements Closeable {
                 FdCompat.closeDescriptor(fd);
             }
         } catch (IOException e) {
-            // just as planned
+            logException("Failed to close descriptor", e);
         }
     }
 
@@ -1156,11 +1153,7 @@ public final class SyscallFactory implements Closeable {
         }
 
         public void close() {
-            if (outboundFd != null) {
-                for (ParcelFileDescriptor fd : outboundFd) {
-                    try { fd.close(); } catch (IOException ignored) {}
-                }
-            }
+            // nothing, callers must take care of closing everything themselves
         }
 
         @Override
@@ -1172,15 +1165,19 @@ public final class SyscallFactory implements Closeable {
             reqWriter.append(reqType).append('\n').flush();
         }
 
-        public FdResp readResponse(FdReq fileOps, ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+        public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
             return null;
         }
     }
 
-    private static final class FdResp {
+    private static class FdResp {
         final FdReq request;
         final String message;
         @Nullable final FileDescriptor fd;
+
+        public FdResp(FdReq request, String message) {
+            this(request, message, null);
+        }
 
         public FdResp(FdReq request, String message, @Nullable FileDescriptor fd) {
             this.request = request;
@@ -1191,6 +1188,34 @@ public final class SyscallFactory implements Closeable {
         @Override
         public String toString() {
             return "Request: " + request + ". Helper response: '" + message + "', descriptor: " + fd;
+        }
+
+        public void close() {
+            shut(fd);
+        }
+    }
+
+    private static class InotifyResp extends FdResp {
+        private final InotifyImpl inotify;
+
+        public InotifyResp(Server.AddWatch request, String message) {
+            super(request, message);
+
+            this.inotify = request.inotify;
+        }
+
+        @Override
+        public void close() {
+            super.close();
+
+            try {
+                final int sub = Integer.parseInt(message);
+
+                inotify.removeSubscriptionInternal(sub);
+            } catch (IOException e) {
+                logException("Failed to close watch", e);
+            } catch (NumberFormatException ignored) {
+            }
         }
     }
 

@@ -85,7 +85,17 @@ public class InotifyImpl implements Inotify {
 
     // bindings for inotify_add_watch/inotify_rm_watch
     protected native int addSubscription(@InotifyFd int fd, int watchedFd) throws IOException;
-    private static native void removeSubscription(@InotifyFd int fd, int watchDesc) throws ErrnoException;
+    protected native void removeSubscription(@InotifyFd int fd, int watchDesc) throws ErrnoException;
+
+    public void removeSubscriptionInternal(int subcription) throws IOException {
+        synchronized (this) {
+            if (done) {
+                return;
+            }
+
+            removeSubscription(fd, subcription);
+        }
+    }
 
     // a specialized binding for read (2), that can handle EAGAIN/EWOULDBLOCK without throwing
     private static native int read(@InotifyFd int fd, long memAddress, int byteCount) throws ErrnoException;
@@ -243,7 +253,7 @@ public class InotifyImpl implements Inotify {
 
     @Override
     @SuppressWarnings("SynchronizeOnNonFinalField")
-    public void close() {
+    public synchronized void close() {
         primaryLock.lock();
         try {
             if (!done) {

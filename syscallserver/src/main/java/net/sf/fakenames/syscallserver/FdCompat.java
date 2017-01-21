@@ -4,12 +4,10 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
-import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
 
 import net.sf.fdlib.Fd;
-import net.sf.fdlib.OS;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -45,7 +43,7 @@ final class FdCompat {
     private static void lollipopOsClose(FileDescriptor fd) throws IOException {
         try {
             Os.close(fd);
-        } catch (ErrnoException e) {
+        } catch (Exception e) {
             throw new IOException(e);
         }
     }
@@ -64,7 +62,7 @@ final class FdCompat {
         try {
             Os.close(donor);
             return result;
-        } catch (ErrnoException e) {
+        } catch (Exception e) {
             throw new IOException(e);
         }
     }

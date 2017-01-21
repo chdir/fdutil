@@ -1,0 +1,3 @@
+[submodule "syscallserver/src/main/cpp/util"]
+	path = syscallserver/src/main/cpp/util
+	url = git@github.com:chdir/util.git
