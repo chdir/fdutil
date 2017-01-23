@@ -6,15 +6,16 @@
         android:id="@+id/scroll_bar"
         android:layout_width="2px"
         android:layout_height="match_parent"
-        android:layout_gravity="center"
+        android:layout_gravity="start"
+        android:layout_marginStart="8dp"
         tools:ignore="PxUsage" />
 
     <View
         style="?attr/rfs_handleStyle"
         android:id="@+id/scroll_handle"
         android:clickable="true"
-        android:layout_width="26dp"
+        android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_gravity="center_horizontal"
+        android:layout_gravity="start"
         />
 </merge>

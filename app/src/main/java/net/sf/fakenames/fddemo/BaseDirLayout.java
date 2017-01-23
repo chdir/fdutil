@@ -167,9 +167,9 @@ public class BaseDirLayout extends ContextWrapper {
     }
 
     /**
-     * @return {@code true} if filesystem is in list of filesystems, known to support telldir, {@code false} otherwise
+     * @return {@code true} if filesystem is in list of filesystems, known to support telldir, Linux filename conventions etc. {@code false} otherwise
      */
-    public static boolean isRewindSafe(String filesystemName) {
+    public static boolean isPosix(String filesystemName) {
         switch (filesystemName) {
             case "ext3":
             case "ext4":

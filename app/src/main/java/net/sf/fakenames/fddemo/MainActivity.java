@@ -2,14 +2,16 @@ package net.sf.fakenames.fddemo;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.DocumentsContract;
+import android.os.ParcelFileDescriptor;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
@@ -25,6 +27,7 @@ import android.widget.Toast;
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
 import net.sf.fakenames.fddemo.provider.FileProvider;
+import net.sf.fakenames.fddemo.provider.PublicProvider;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
 import net.sf.fakenames.fddemo.view.DirItemHolder;
@@ -42,6 +45,7 @@ import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.Stat;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 
@@ -250,7 +254,7 @@ public class MainActivity extends BaseActivity implements
 
             final MountInfo.Mount m = state.layout.getFs(stat.st_dev);
 
-            final boolean canUseTellDir = m != null && BaseDirLayout.isRewindSafe(m.fstype);
+            final boolean canUseTellDir = m != null && BaseDirLayout.isPosix(m.fstype);
 
             prev = state.adapter.swapDirectoryDescriptor(newFd, !canUseTellDir);
 
@@ -282,10 +286,9 @@ public class MainActivity extends BaseActivity implements
         try {
             final String resolved = state.os.readlinkat(base, path);
 
-            final Uri uri = DocumentsContract.buildDocumentUri(FileProvider.AUTHORITY, resolved);
+            final Uri uri = PublicProvider.publicUri(this, resolved);
 
-            final Intent view = new Intent(Intent.ACTION_VIEW, uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            final Intent view = new Intent(Intent.ACTION_VIEW, uri);
 
             startActivity(view);
         } catch (Throwable e) {
@@ -297,10 +300,9 @@ public class MainActivity extends BaseActivity implements
         try {
             final String resolved = state.os.readlinkat(parentDir, name);
 
-            final Uri uri = DocumentsContract.buildDocumentUri(FileProvider.AUTHORITY, resolved);
+            final Uri uri = PublicProvider.publicUri(this, resolved);
 
-            final Intent view = new Intent(Intent.ACTION_EDIT, uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            final Intent view = new Intent(Intent.ACTION_EDIT, uri);
 
             startActivity(view);
         } catch (Throwable e) {
@@ -312,7 +314,12 @@ public class MainActivity extends BaseActivity implements
         try {
             final String resolved = state.os.readlinkat(parentDir, name);
 
-            final Uri uri = DocumentsContract.buildDocumentUri(FileProvider.AUTHORITY, resolved);
+            final Uri uri = PublicProvider.publicUri(this, resolved);
+
+            if (uri == null) {
+                toast("Failed to generate shareable uri");
+                return;
+            }
 
             String type = getContentResolver().getType(uri);
             if (type == null) {
@@ -320,7 +327,6 @@ public class MainActivity extends BaseActivity implements
             }
 
             final Intent view = new Intent(Intent.ACTION_SEND)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     .putExtra(Intent.EXTRA_STREAM, uri)
                     .setType(type);
 
@@ -366,6 +372,9 @@ public class MainActivity extends BaseActivity implements
         delItem.setOnMenuItemClickListener(this);
 
         if (info.fileInfo.type != null && info.fileInfo.type.isNotDir()) {
+            final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, Menu.CATEGORY_ALTERNATIVE, "Copy");
+            copyItem.setOnMenuItemClickListener(this);
+
             final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, Menu.CATEGORY_ALTERNATIVE, "Edit");
             editItem.setOnMenuItemClickListener(this);
 
@@ -401,6 +410,26 @@ public class MainActivity extends BaseActivity implements
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
                 break;
+            case R.id.menu_item_copy:
+                try {
+                    final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
+
+                    final Uri uri = PublicProvider.publicUri(this, path);
+
+                    if (uri == null) {
+                        toast("Failed to generate shareable uri");
+                        return true;
+                    }
+
+                    ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+
+                    ClipData data = ClipData.newRawUri(info.fileInfo.name, uri);
+
+                    cpm.setPrimaryClip(data);
+                } catch (IOException e) {
+                    toast("Unable to resolve full path. "  + e.getMessage());
+                }
+                break;
             case R.id.menu_item_edit:
                 editfile(info.parentDir, info.fileInfo.name);
                 break;
@@ -425,6 +454,91 @@ public class MainActivity extends BaseActivity implements
         }
 
         return true;
+    }
+
+    private AsyncTask<ParcelFileDescriptor, ?, String> asyncTask;
+
+    private void pasteFile(FileObject sourceFile) throws IOException {
+        if (asyncTask != null) {
+            toast("Unable to preform a copy: busy");
+            return;
+        }
+
+        final OS os = state.os;
+
+        final Context context = getApplicationContext();
+
+        final ParcelFileDescriptor targetDir = ParcelFileDescriptor.fromFd(state.adapter.getFd());
+
+        final @DirFd int dir = targetDir.getFd();
+
+        final Stat stat = new Stat();
+
+        os.fstat(dir, stat);
+
+        final MountInfo.Mount m = state.layout.getFs(stat.st_dev);
+
+        final boolean canUseExtChars = m != null && BaseDirLayout.isPosix(m.fstype);
+
+        asyncTask = new AsyncTask<ParcelFileDescriptor, Void, String>() {
+            @Override
+            protected String doInBackground(ParcelFileDescriptor... params) {
+                String created = null;
+                boolean copied = false;
+                try (Closeable fd = params[0]; Closeable c = sourceFile) {
+                    final String desc = sourceFile.getDescription();
+
+                    final String fileName = canUseExtChars
+                            ? FilenameUtil.sanitize(desc)
+                            : FilenameUtil.sanitizeCompat(desc);
+
+                    os.mknodat(dir, fileName, OS.S_IFREG | OS.DEF_FILE_MODE, 0);
+
+                    created = os.readlinkat(dir, fileName);
+
+                    try (FileObject targetFile = FileObject.fromFile(os, context, new File(created))) {
+                        copied = sourceFile.copyTo(targetFile);
+
+                        return copied ? null : "Copy failed";
+                    }
+                } catch (Throwable t) {
+                    t.printStackTrace();
+
+                    final String result = t.getMessage();
+
+                    return result == null ? t.getClass().getSimpleName() : result;
+                } finally {
+                    if (!copied && created != null) {
+                        try {
+                            os.unlinkat(DirFd.NIL, created, 0);
+                        } catch (IOException ioe) {
+                            LogUtil.logCautiously("Failed to remove target file", ioe);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            protected void onPostExecute(String s) {
+                asyncTask = null;
+
+                toast(s == null ? "Copy complete" : s);
+            }
+
+            @Override
+            protected void onCancelled() {
+                asyncTask = null;
+
+                try {
+                    sourceFile.close();
+                } catch (IOException e) {
+                    LogUtil.logCautiously("Failed to cancel a task", e);
+                }
+            }
+        };
+
+        //noinspection unchecked
+        asyncTask.execute(targetDir);
     }
 
     private void showRenameDialog(String name) {
@@ -460,7 +574,7 @@ public class MainActivity extends BaseActivity implements
                 break;
             case R.id.menu_dir:
                 try {
-                    state.os.mkdirat(state.adapter.getFd(), name, 0);
+                    state.os.mkdirat(state.adapter.getFd(), name, OS.DEF_DIR_MODE);
                 } catch (IOException e) {
                     LogUtil.logCautiously("Failed to create a directory", e);
 
@@ -474,7 +588,7 @@ public class MainActivity extends BaseActivity implements
         }
 
         try {
-            state.os.mknodat(state.adapter.getFd(), name, fileType, 0);
+            state.os.mknodat(state.adapter.getFd(), name, fileType | OS.DEF_FILE_MODE, 0);
         } catch (IOException e) {
             LogUtil.logCautiously("Failed to create a file", e);
 
@@ -494,6 +608,14 @@ public class MainActivity extends BaseActivity implements
 
         home.setIcon(icon);
 
+        MenuItem paste = menu.findItem(R.id.menu_paste);
+
+        Drawable pasteIcon = new IconFontDrawable(this, Icons.PASTE)
+                .color(Color.WHITE)
+                .actionBar();
+
+        paste.setIcon(pasteIcon);
+
         return super.onCreateOptionsMenu(menu);
     }
 
@@ -502,6 +624,33 @@ public class MainActivity extends BaseActivity implements
         switch (item.getItemId()) {
             case R.id.menu_home:
                 openHomeDir();
+                return true;
+            case R.id.menu_paste:
+                ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+
+                ClipData clip = cpm.getPrimaryClip();
+
+                if (clip == null || clip.getItemCount() == 0) {
+                    toast("The clipboard is empty");
+                    return true;
+                }
+
+                if (clip.getItemCount() > 1) {
+                    toast("Multi-item paste is not supported yet");
+                    return true;
+                }
+
+                FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
+                if (fileObject == null) {
+                    toast("Unsupported data type");
+                }
+
+                try {
+                    pasteFile(fileObject);
+                } catch (IOException e) {
+                    toast(e.getMessage());
+                }
+
                 return true;
         }
 

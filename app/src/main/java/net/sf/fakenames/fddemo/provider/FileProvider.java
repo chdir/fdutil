@@ -2,6 +2,7 @@ package net.sf.fakenames.fddemo.provider;
 
 import android.annotation.SuppressLint;
 import android.content.ContentResolver;
+import android.content.res.AssetFileDescriptor;
 import android.database.CharArrayBuffer;
 import android.database.ContentObservable;
 import android.database.ContentObserver;
@@ -19,6 +20,8 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsProvider;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.v4.util.Pools;
 import android.text.TextUtils;
 import android.util.Log;
@@ -42,8 +45,11 @@ import net.sf.fdlib.SelectorThread;
 import net.sf.fdlib.Stat;
 import net.sf.fdlib.UnreliableIterator;
 
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.util.IdentityHashMap;
 import java.util.Map;
 
@@ -58,7 +64,8 @@ public class FileProvider extends DocumentsProvider {
 
     public static final String AUTHORITY = "net.sf.fddemo.files";
 
-    private static final int FILE_DEFAULT_FLAGS = FLAG_SUPPORTS_RENAME | FLAG_SUPPORTS_WRITE | FLAG_SUPPORTS_DELETE | FLAG_SUPPORTS_REMOVE;
+    private static final int FILE_DEFAULT_FLAGS = FLAG_SUPPORTS_RENAME | FLAG_SUPPORTS_WRITE |
+            FLAG_SUPPORTS_DELETE | FLAG_SUPPORTS_REMOVE | FLAG_SUPPORTS_COPY | FLAG_SUPPORTS_MOVE;
 
     private static final int DIR_DEFAULT_FLAGS = FILE_DEFAULT_FLAGS | FLAG_DIR_SUPPORTS_CREATE;
 
@@ -307,6 +314,7 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
+    @Nullable
     @Override
     public String renameDocument(String documentId, String displayName) throws FileNotFoundException {
         assertAbsolute(documentId);
@@ -318,42 +326,198 @@ public class FileProvider extends DocumentsProvider {
             throw new FileNotFoundException("Failed to rename a document, unable to acquire root access");
         }
 
+        final String canonPath = canonString(documentId);
+
+        if (canonPath.length() < 2) {
+            throw new FileNotFoundException("Attempting to rename '" + canonPath + '\'');
+        }
+
         try {
-            final String canonPath = canonString(documentId);
+            final int slashAt = canonPath.lastIndexOf('/');
 
-            os.renameat(DirFd.NIL, canonPath, DirFd.NIL, canonPath);
+            final String filename = canonPath.substring(slashAt + 1, canonPath.length());
+            if (filename.equals(displayName)) {
+                return null;
+            }
 
-            return replacePathPart(canonPath, documentId);
+            final String parent = canonPath.substring(0, slashAt + 1);
+
+            final @DirFd int parentFd = os.opendir(parent, OS.O_RDONLY, 0);
+            try {
+                os.renameat(parentFd, filename, parentFd, displayName);
+
+                return appendPathPart(parent, displayName);
+            } finally {
+                rooted.dispose(parentFd);
+            }
         } catch (IOException e) {
             throw new FileNotFoundException("Failed to rename a document. " + e.getMessage());
         }
     }
 
+    @NonNull
     @Override
     public String createDocument(String parentDocumentId, String mimeType, String displayName) throws FileNotFoundException {
         assertAbsolute(parentDocumentId);
         assertFilename(displayName);
 
-        final OS os = getOS();
+        final OS rooted = getOS();
 
-        if (os == null) {
+        if (rooted == null) {
             throw new FileNotFoundException("Failed to create a document, unable to acquire root access");
         }
 
+        parentDocumentId = canonString(parentDocumentId);
+
         try {
-            final String canonParent = canonString(parentDocumentId);
 
-            final @DirFd int parentFd = os.opendir(canonParent, OS.O_RDONLY, 0);
-
-            if (mimeType.equals(MIME_TYPE_DIR)) {
-                os.mkdirat(parentFd, displayName, 0);
-            } else {
-                os.mknodat(parentFd, displayName, OS.S_IFREG, 0);
+            final @DirFd int parentFd = rooted.opendir(parentDocumentId, OS.O_RDONLY, 0);
+            try {
+                if (mimeType.equals(MIME_TYPE_DIR)) {
+                    rooted.mkdirat(parentFd, displayName, 0);
+                } else {
+                    rooted.mknodat(parentFd, displayName, OS.S_IFREG, 0);
+                }
+            } finally {
+                rooted.dispose(parentFd);
             }
 
-            return appendPathPart(canonParent, displayName);
+            return appendPathPart(parentDocumentId, displayName);
         } catch (IOException e) {
             throw new FileNotFoundException("Failed to create a document. " + e.getMessage());
+        }
+    }
+
+    @NonNull
+    @Override
+    public String moveDocument(String sourceDocumentId, String sourceParentDocumentId, String targetParentDocumentId) throws FileNotFoundException {
+        assertAbsolute(sourceDocumentId);
+        assertAbsolute(sourceParentDocumentId);
+        assertAbsolute(targetParentDocumentId);
+
+        final OS rooted = getOS();
+
+        if (rooted == null) {
+            throw new FileNotFoundException("Unable to copy " + sourceDocumentId + ": can not acquire superuser access");
+        }
+
+        sourceParentDocumentId = canonString(sourceParentDocumentId);
+        targetParentDocumentId = canonString(targetParentDocumentId);
+        sourceDocumentId = canonString(sourceDocumentId);
+
+        final String fileName = extractName(sourceDocumentId);
+
+        try {
+            @DirFd int fd1 = rooted.opendir(sourceParentDocumentId, OS.O_RDONLY, 0);
+            try {
+                @DirFd int fd2 = rooted.opendir(targetParentDocumentId, OS.O_RDONLY, 0);
+                try {
+                    final long fs1, fs2;
+
+                    final Stat stat = new Stat();
+
+                    rooted.fstat(fd1, stat);
+                    fs1 = stat.st_dev;
+
+                    rooted.fstat(fd2, stat);
+                    fs2 = stat.st_dev;
+
+                    final String resultingDocument = appendPathPart(targetParentDocumentId, fileName);
+
+                    if (fs1 == fs2) {
+                        rooted.renameat(fd1, fileName, fd2, fileName);
+                    } else {
+                        copyImpl(rooted, sourceDocumentId, targetParentDocumentId);
+
+                        try {
+                            rooted.unlinkat(fd1, fileName, 0);
+                        } catch (IOException e) {
+                            LogUtil.logCautiously("Failed to remove original", e);
+                        }
+                    }
+
+                    return resultingDocument;
+                } finally {
+                    rooted.dispose(fd2);
+                }
+            } finally {
+                rooted.dispose(fd1);
+            }
+        } catch (IOException e) {
+            throw new FileNotFoundException("Failed to move: " + e.getMessage());
+        }
+    }
+
+    @NonNull
+    @Override
+    public String copyDocument(String sourceDocumentId, String targetParentDocumentId) throws FileNotFoundException {
+        assertAbsolute(sourceDocumentId);
+        assertAbsolute(targetParentDocumentId);
+
+        final OS rooted = getOS();
+
+        if (rooted == null) {
+            throw new FileNotFoundException("Unable to copy " + sourceDocumentId + ": can not acquire superuser access");
+        }
+
+        sourceDocumentId = canonString(sourceDocumentId);
+        targetParentDocumentId = canonString(targetParentDocumentId);
+
+        return copyImpl(rooted, sourceDocumentId, targetParentDocumentId);
+    }
+
+    private String copyImpl(OS rooted, String sourceDocumentId, String targetParentDocumentId) throws FileNotFoundException {
+        try {
+            @Fd int fd = rooted.open(sourceDocumentId, OS.O_RDONLY, 0);
+            try {
+                final Stat stat = new Stat();
+
+                rooted.fstat(fd, stat);
+
+                if (stat.type == FsType.DIRECTORY) {
+                    throw new FileNotFoundException("Copying directories is not supported yet");
+                }
+
+                final String sourceName = extractName(sourceDocumentId);
+                final String targetPath = appendPathPart(targetParentDocumentId, sourceName);
+
+                rooted.mknodat(DirFd.NIL, targetPath, OS.S_IFREG, 0);
+
+                if (stat.st_size == 0) {
+                    return targetPath;
+                }
+
+                @Fd int targetFd = rooted.open(targetPath, OS.O_RDONLY, 0);
+                try {
+                    long offset = 0;
+                    long limit = stat.st_size;
+                    long remaining = limit < 0 ? limit : Long.MAX_VALUE;
+
+                    try (ParcelFileDescriptor pfd1 = ParcelFileDescriptor.adoptFd(fd);
+                         ParcelFileDescriptor pfd2 = ParcelFileDescriptor.adoptFd(targetFd)) {
+                        try (FileChannel fc1 = new FileInputStream(pfd1.getFileDescriptor()).getChannel();
+                             FileChannel fc2 = new FileOutputStream(pfd2.getFileDescriptor()).getChannel()) {
+                            long sent = -1;
+                            while (sent != 0 && (limit < 0 || (remaining -= sent) > 0)) {
+                                sent = fc2.transferFrom(fc1, offset, 1024 * 1024 * 4);
+
+                                offset += sent;
+                            }
+                        } finally {
+                            pfd1.detachFd();
+                            pfd2.detachFd();
+                        }
+                    }
+
+                    return targetPath;
+                } finally {
+                    rooted.dispose(targetFd);
+                }
+            } finally {
+                rooted.dispose(fd);
+            }
+        } catch (IOException e) {
+            throw new FileNotFoundException("Unable to copy " + sourceDocumentId + ": " + e.getMessage());
         }
     }
 
@@ -389,6 +553,53 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
+    public static boolean isCanon(String s) {
+        int l = s.length();
+
+        // check for dots at the end
+        if (s.charAt(l - 1) == '.') {
+            final int i = s.lastIndexOf('/');
+
+            if (i == l - 2 || (i == l - 3 && s.charAt(l - 2) == '.')) {
+                return false;
+            }
+        }
+
+        // detect slash-dot-slash segments
+        int start = 0; int idx;
+        do {
+            idx = s.indexOf('/', start);
+
+            if (idx == -1) {
+                break;
+            }
+
+            switch (l - idx) {
+                default:
+                case 4:
+                    // at least three more chars remaining to right
+                    if (s.charAt(idx + 1) == '.' && s.charAt(idx + 2) == '.' && s.charAt(idx + 3) == '/') {
+                        return false;
+                    }
+                case 3:
+                    // at least two more chars remaining to right
+                    if (s.charAt(idx + 1) == '.' && s.charAt(idx + 2) == '/') {
+                        return false;
+                    }
+                case 2:
+                    // at least one more char remaining to right
+                    if (s.charAt(idx + 1) == '/') {
+                        return false;
+                    }
+                case 1:
+            }
+
+            start += 2;
+        } while (start < l);
+
+        return true;
+    }
+
     private static boolean isNormalized(String string) {
         return !string.isEmpty() &&
                 string.charAt(0) == '/' &&
@@ -397,31 +608,59 @@ public class FileProvider extends DocumentsProvider {
 
     @Override
     public boolean isChildDocument(String parentDocumentId, String documentId) {
-        if (!isNormalized(parentDocumentId) || !isNormalized(documentId)) {
+        try {
+            assertAbsolute(documentId);
+        } catch (FileNotFoundException e) {
             return false;
         }
 
-        final OS os = getOS();
+        StringBuilder reuse = null;
 
-        if (os != null) {
-            try {
-                final int fdParent = os.open(parentDocumentId, OS.O_RDONLY, 0);
+        try {
+            if (!isCanon(documentId)) {
+                reuse = acquire(documentId.length());
+                reuse.append(documentId);
+                documentId = canonString(reuse);
+            }
+
+            if (!isCanon(parentDocumentId)) {
+                if (reuse == null) reuse = acquire(parentDocumentId.length());
+                else reuse.setLength(0);
+                reuse.append(parentDocumentId);
+                parentDocumentId = canonString(reuse);
+            }
+
+            if (!documentId.startsWith(parentDocumentId)) {
+                return false;
+            }
+
+            final OS os = getOS();
+
+            if (os != null) {
                 try {
                     // todo: actually verify that one contains another
-                } finally {
-                    os.dispose(fdParent);
-                }
+                    // e.g. check that all additional path elements in documentId are not links
 
-                final int fdChild = os.open(parentDocumentId, OS.O_RDONLY, 0);
-                try {
-                    // todo: actually verify that one contains another
-                } finally {
-                    os.dispose(fdChild);
-                }
+                    final int fdParent = os.open(parentDocumentId, OS.O_RDONLY, 0);
+                    try {
+                    } finally {
+                        os.dispose(fdParent);
+                    }
 
-                return true;
-            } catch (IOException e) {
-                LogUtil.logCautiously("Error during invocation of isChildDocument", e);
+                    final int fdChild = os.open(parentDocumentId, OS.O_RDONLY, 0);
+                    try {
+                    } finally {
+                        os.dispose(fdChild);
+                    }
+
+                    return true;
+                } catch (IOException e) {
+                    LogUtil.logCautiously("Error during invocation of isChildDocument", e);
+                }
+            }
+        } finally {
+            if (reuse != null) {
+                release(reuse);
             }
         }
 
@@ -439,15 +678,21 @@ public class FileProvider extends DocumentsProvider {
 
         final Stat stat = new Stat();
 
-        final String canonDocumentId = canonString(parentDocumentId);
+        parentDocumentId = canonString(parentDocumentId);
 
         @DirFd int fd;
         try {
-            fd = os.opendir(canonDocumentId, OS.O_RDONLY, 0);
+            fd = os.opendir(parentDocumentId, OS.O_RDONLY, 0);
 
-            os.fstat(fd, stat);
+            try {
+                os.fstat(fd, stat);
+            } catch (Throwable t) {
+                os.dispose(fd);
+
+                throw new FileNotFoundException("Unable to stat " + parentDocumentId + ": " + t.getMessage());
+            }
         } catch (IOException e) {
-            throw new FileNotFoundException("Unable to open " + canonDocumentId + ": " + e.getMessage());
+            throw new FileNotFoundException("Unable to open " + parentDocumentId + ": " + e.getMessage());
         }
 
         if (projection == null) {
@@ -458,19 +703,21 @@ public class FileProvider extends DocumentsProvider {
 
         final MountInfo.Mount mount = mountInfo.mountMap.get(stat.st_dev);
 
-        if (mount != null && BaseDirLayout.isRewindSafe(mount.fstype)) {
+        if (mount != null && BaseDirLayout.isPosix(mount.fstype)) {
             directory = os.list(fd);
         } else {
             directory = new CrappyDirectory(os.list(fd));
         }
 
-        final DirectoryCursor cursor = DirectoryCursor.create(os, inotify, fd, directory, projection, canonDocumentId);
+        final DirectoryCursor cursor = DirectoryCursor.create(os, inotify, fd, directory, projection, parentDocumentId);
 
         assert getContext() != null;
 
         final ContentResolver cr = getContext().getContentResolver();
 
-        mainThreadHandler.post(() -> cursor.setNotificationUri(cr, DocumentsContract.buildDocumentUri(AUTHORITY, canonDocumentId)));
+        final String canonId = parentDocumentId;
+
+        mainThreadHandler.post(() -> cursor.setNotificationUri(cr, DocumentsContract.buildDocumentUri(AUTHORITY, canonId)));
 
         return cursor;
     }
@@ -491,7 +738,7 @@ public class FileProvider extends DocumentsProvider {
             final OS rooted = getOS();
 
             if (rooted == null) {
-                return null;
+                throw new FileNotFoundException("Failed to open " + documentId + ": unable to acquire access");
             }
 
             final int openFlags;
@@ -520,13 +767,29 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
-    private static void assertAbsolute(String nameStr) throws FileNotFoundException {
-        if (nameStr.charAt(0) != '/') {
-            throw new FileNotFoundException(nameStr + " is invalid in this context, must be absolute");
+    static void assertAbsolute(String pathStr) throws FileNotFoundException {
+        if (pathStr.length() == 0) {
+            throw new FileNotFoundException("The path is empty");
+        }
+
+        if (pathStr.indexOf('\0') != -1) {
+            throw new FileNotFoundException("The file path contains illegal characters");
+        }
+
+        if (pathStr.charAt(0) != '/') {
+            throw new FileNotFoundException(pathStr + " is invalid in this context, must be absolute");
         }
     }
 
     private static void assertFilename(String nameStr) throws FileNotFoundException {
+        if (nameStr.length() == 0) {
+            throw new FileNotFoundException("The name is empty");
+        }
+
+        if (nameStr.indexOf('\0') != -1) {
+            throw new FileNotFoundException("The file name contains illegal characters");
+        }
+
         if (nameStr.indexOf('/') != -1) {
             throw new FileNotFoundException(nameStr + " is not a valid filename, must not contain '/'");
         }
@@ -544,18 +807,14 @@ public class FileProvider extends DocumentsProvider {
 
                 return chars;
             default:
-                return chars.substring(lastSlash, chars.length());
+                return chars.substring(lastSlash + 1, chars.length());
         }
     }
 
     private static String replacePathPart(String parent, String displayName) {
         final String result;
 
-        StringBuilder builder = builderPool.acquire();
-
-        if (builder == null) {
-            builder = new StringBuilder(parent.length() + displayName.length() + 1);
-        }
+        final StringBuilder builder = acquire(parent.length() + displayName.length() + 1);
 
         try {
             final int lastSlash = parent.lastIndexOf('/');
@@ -564,9 +823,7 @@ public class FileProvider extends DocumentsProvider {
 
             result = builder.toString();
         } finally {
-            builder.setLength(0);
-
-            builderPool.release(builder);
+            release(builder);
         }
 
         return result;
@@ -575,20 +832,14 @@ public class FileProvider extends DocumentsProvider {
     private static String appendPathPart(String parent, String displayName) {
         final String result;
 
-        StringBuilder builder = builderPool.acquire();
-
-        if (builder == null) {
-            builder = new StringBuilder(parent.length() + displayName.length() + 1);
-        }
+        final StringBuilder builder = acquire(parent.length() + displayName.length() + 1);
 
         try {
             builder.append(parent).append('/').append(displayName);
 
             result = builder.toString();
         } finally {
-            builder.setLength(0);
-
-            builderPool.release(builder);
+            release(builder);
         }
 
         return result;
@@ -754,6 +1005,24 @@ public class FileProvider extends DocumentsProvider {
 
     private static Pools.Pool<StringBuilder> builderPool = new Pools.SynchronizedPool<>(2);
 
+    private static StringBuilder acquire(int length) {
+        StringBuilder builder = builderPool.acquire();
+
+        if (builder == null) {
+            builder = new StringBuilder(length);
+        }
+
+        builder.ensureCapacity(length);
+
+        return builder;
+    }
+
+    private static void release(StringBuilder builder) {
+        builder.setLength(0);
+
+        builderPool.release(builder);
+    }
+
     private Uri canonTree(Uri tree) {
         final String documentId = DocumentsContract.getDocumentId(tree);
 
@@ -778,12 +1047,10 @@ public class FileProvider extends DocumentsProvider {
         return DocumentsContract.buildDocumentUri(AUTHORITY, canonId);
     }
 
-    private static String canonString(String path) {
-        StringBuilder builder = builderPool.acquire();
+    static String canonString(String path) {
+        if (isCanon(path)) return path;
 
-        if (builder == null) {
-            builder = new StringBuilder(path.length());
-        }
+        final StringBuilder builder = acquire(path.length());
 
         final String result;
         try {
@@ -792,15 +1059,9 @@ public class FileProvider extends DocumentsProvider {
             stripSlashes(builder);
             removeDotSegments(builder);
 
-            if (path.contentEquals(builder)) {
-                result = path;
-            } else {
-                result = builder.toString();
-            }
+            result = builder.toString();
         } finally {
-            builder.setLength(0);
-
-            builderPool.release(builder);
+            release(builder);
         }
 
         return result;
@@ -835,7 +1096,7 @@ public class FileProvider extends DocumentsProvider {
         private volatile ContentResolver resolver;
         private volatile boolean closed;
 
-        private final StringBuilder nameBuilder = new StringBuilder();
+        private final StringBuilder nameBuilder;
 
         private int position = -1;
 
@@ -863,6 +1124,8 @@ public class FileProvider extends DocumentsProvider {
             final String name = slash == -1 ? path : path.substring(slash);
 
             this.window = new CursorWindow(name);
+
+            this.nameBuilder = acquire(path.length() + 255);
         }
 
         @Override
@@ -1286,6 +1549,10 @@ public class FileProvider extends DocumentsProvider {
 
         @Override
         public synchronized void close() {
+            if (closed) return;
+
+            release(nameBuilder);
+
             closed = true;
 
             dataSetObservable.unregisterAll();

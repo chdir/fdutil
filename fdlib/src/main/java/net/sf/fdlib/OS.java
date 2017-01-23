@@ -83,7 +83,7 @@ public abstract class OS {
     @CheckResult
     public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper);
 
-    public abstract void fstat(int dir, Stat stat) throws IOException;
+    public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
 
     @WorkerThread
     public abstract void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException;

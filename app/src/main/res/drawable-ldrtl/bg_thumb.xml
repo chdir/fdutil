@@ -6,7 +6,7 @@
         </shape>
     </item>
 
-    <item android:left="4dp" android:right="36dp">
+    <item android:left="36dp" android:right="4dp">
         <selector>
             <item android:state_pressed="true">
                 <shape android:shape="rectangle">

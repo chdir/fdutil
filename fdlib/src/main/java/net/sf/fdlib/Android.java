@@ -93,7 +93,7 @@ final class Android extends OS {
     }
 
     @Override
-    public native void fstat(int dir, Stat stat) throws ErrnoException;
+    public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
 
     @Override
     public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {

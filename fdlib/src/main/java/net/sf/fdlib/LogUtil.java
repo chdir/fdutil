@@ -111,6 +111,8 @@ public class LogUtil {
 
     /** Log a completely unexpected stuff, that is not supposed to happen (but we still don't want to crash on it) */
     public static void swallowError(String message, Object... parts) {
+        if (message == null) return;
+
         logInner(message, new Throwable(message), Log.ERROR, true, parts);
     }
 

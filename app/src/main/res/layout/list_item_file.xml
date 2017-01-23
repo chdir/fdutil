@@ -13,13 +13,15 @@
     android:clickable="true">
     <TextView
         android:id="@android:id/text1"
+        android:textDirection="locale"
         android:gravity="center_vertical|start"
+        android:textAlignment="gravity"
         android:paddingStart="16dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:singleLine="true"
-        android:ellipsize="end"
         android:textAppearance="?android:attr/textAppearanceListItem"
+        android:maxLines="2"
+        android:ellipsize="end"
         tools:text="Example File"
         tools:ignore="Deprecated,RtlSymmetry" />
 </LinearLayout>

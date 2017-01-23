@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="net.sf.fakenames.fddemo" >
 
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -44,6 +45,13 @@
                 <!--suppress AndroidElementNotAllowed -->
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER"/>
             </intent-filter>
+        </provider>
+
+        <provider
+            android:authorities="net.sf.fddemo.public"
+            android:name=".provider.PublicProvider"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider">
         </provider>
     </application>
 </manifest>

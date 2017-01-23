@@ -23,6 +23,8 @@ import android.widget.FrameLayout;
 
 import net.sf.fakenames.fddemo.R;
 
+import java.io.File;
+
 /**
  * Defines a basic widget that will allow for fast scrolling a RecyclerView using
  * the basic paradigm of a handle and a bar.
@@ -179,6 +181,11 @@ public final class DirFastScroller extends ViewGroup {
 
     // poor-man's smooth animation done android way
     public void moveHandleToPosition() {
+        // do not engage in meaningless work here
+        if (getVisibility() != VISIBLE) {
+            return;
+        }
+
         if (screenPositionCalculator == null) {
             // not laid out yet, postpone the call
             if (ViewCompat.isAttachedToWindow(this) && !ViewCompat.isLaidOut(this)) {
@@ -221,9 +228,13 @@ public final class DirFastScroller extends ViewGroup {
 
         position.y = newTop;
 
-        ViewCompat.offsetTopAndBottom(child, newTop - child.getTop());
+        final int oldTop = child.getTop();
+        final int oldBottom = child.getBottom();
 
-        ViewCompat.postInvalidateOnAnimation(this);
+        ViewCompat.offsetTopAndBottom(child, newTop - oldTop);
+
+        postInvalidateOnAnimation(0, Math.min(newTop, oldTop),
+                getMeasuredWidth(), Math.max(oldBottom, newTop + child.getMeasuredHeight()));
     }
 
     private int maxWidth;

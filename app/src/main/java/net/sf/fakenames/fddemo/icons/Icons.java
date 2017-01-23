@@ -1,6 +1,28 @@
 package net.sf.fakenames.fddemo.icons;
 
 public enum Icons implements IIcon {
+    PASTE {
+        @Override
+        public String getFormattedName() {
+            return "{Paste}";
+        }
+
+        @Override
+        public String getName() {
+            return "Paste";
+        }
+
+        @Override
+        public char getCharacter() {
+            return '\uE14F';
+        }
+
+        @Override
+        public ITypeface getTypeface() {
+            return impl;
+        }
+    },
+
     HOME {
         @Override
         public String getFormattedName() {

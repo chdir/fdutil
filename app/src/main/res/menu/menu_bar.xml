@@ -9,4 +9,12 @@
         android:showAsAction="ifRoom"
         app:showAsAction="ifRoom"
         tools:ignore="AppCompatResource" />
+
+    <item
+        android:id="@+id/menu_paste"
+        android:title="@string/paste"
+        android:titleCondensed="Paste"
+        android:showAsAction="never"
+        app:showAsAction="never"
+        tools:ignore="AppCompatResource" />
 </menu>

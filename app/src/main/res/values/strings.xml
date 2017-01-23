@@ -6,4 +6,6 @@
     <string name="socket">Socket</string>
     <string name="file">File</string>
     <string name="home">Home</string>
+    <string name="paste">Paste</string>
+    <string name="err_self_copy">Unable to copy a file to self</string>
 </resources>

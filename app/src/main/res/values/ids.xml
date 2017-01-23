@@ -6,4 +6,5 @@
     <item name="menu_item_edit" type="id" />
     <item name="menu_item_share" type="id" />
     <item name="menu_item_rename" type="id" />
+    <item name="menu_item_copy" type="id" />
 </resources>
