@@ -78,7 +78,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    statContainerInit = env->GetMethodID(statContainer, "init", "(JJJI)V");
+    statContainerInit = env->GetMethodID(statContainer, "init", "(JJJII)V");
     if (statContainerInit == NULL) {
         return -1;
     }
@@ -304,7 +304,7 @@ JNIEXPORT jworkaroundstr JNICALL Java_net_sf_fdlib_Android_nativeReadlink(JNIEnv
         return pathname;
     }
 
-    if (stringSize < 0 || resolved == NULL) {
+    if (resolved == NULL) {
         handleError(env);
         return NULL;
     }
@@ -413,7 +413,7 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fstat(JNIEnv *env, jobject self
     }
 
     env -> CallNonvirtualVoidMethod(statStruct, statContainer, statContainerInit,
-                            dirStat.st_dev, dirStat.st_ino, dirStat.st_size, fileTypeOrdinal);
+                            dirStat.st_dev, dirStat.st_ino, dirStat.st_size, dirStat.st_blksize, fileTypeOrdinal);
 }
 
 JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeRenameAt(JNIEnv *env, jclass type, jint fd, jworkaroundstr o, jint fd2, jworkaroundstr o1) {
@@ -433,6 +433,49 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeRenameAt(JNIEnv *env, jcl
     }
 
     freeUtf8(env, o, name_);
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_readahead(JNIEnv *env, jclass type, jint fd, jlong off, jint len) {
+    if (sys_readahead(fd, off, len)) {
+        if (errno == EOPNOTSUPP || errno == ENOTSUP) {
+            LOG("readahead not supported by target filesystem");
+            return;
+        }
+
+        handleError(env);
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fallocate(JNIEnv *env, jclass type, jint fd, jint mode, jlong off, jlong len) {
+    if (sys_fallocate(fd, mode, off, len)) {
+        if (errno == EOPNOTSUPP || errno == ENOTSUP) {
+            LOG("fallocate not supported by target filesystem");
+            return;
+        }
+
+        handleError(env);
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fadvise(JNIEnv *env, jclass type, jint fd, jlong off, jlong len, jint advice) {
+    if (sys_fadvise(fd, off, len, advice)) {
+        if (errno == EOPNOTSUPP || errno == ENOTSUP) {
+            LOG("fadvise not supported by target filesystem");
+            return;
+        }
+
+        handleError(env);
+    }
+}
+
+JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_dup(JNIEnv *env, jobject instance, jint source) {
+    int result = dup(source);
+
+    if (result == -1) {
+        handleError(env);
+    }
+
+    return result;
 }
 
 }

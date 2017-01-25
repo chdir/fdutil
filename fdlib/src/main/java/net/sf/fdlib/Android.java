@@ -75,7 +75,19 @@ final class Android extends OS {
     }
 
     @Override
+    public native void fallocate(@Fd int fd, int mode, long off, long length) throws IOException;
+
+    @Override
+    public native void readahead(@Fd int fd, long off, int byteCount) throws IOException;
+
+    @Override
+    public native void fadvise(@Fd int fd, long off, long length, int advice) throws IOException;
+
+    @Override
     public native void dup2(int source, int dest) throws IOException;
+
+    @Override
+    public native int dup(int source) throws IOException;
 
     @Override
     public native int inotify_init() throws IOException;
@@ -94,6 +106,11 @@ final class Android extends OS {
 
     @Override
     public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
+
+    @Override
+    public MountInfo getMounts() throws IOException {
+        return new MountInfo(open("/proc/self/mountinfo", OS.O_RDONLY, 0));
+    }
 
     @Override
     public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {

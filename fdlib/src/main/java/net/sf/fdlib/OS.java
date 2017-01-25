@@ -48,6 +48,13 @@ public abstract class OS {
     public static final int S_IFCHR =  0b0010000000000000;
     public static final int S_IFIFO =  0b0001000000000000;
 
+    public static final int POSIX_FADV_SEQUENTIAL = 2;
+
+    @IntDef(value = {POSIX_FADV_SEQUENTIAL})
+    @Documented
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface fadvice {}
+
     @CheckResult
     @WorkerThread
     public abstract @Fd int open(String path, @OpenFlag int flags, int mode) throws IOException;
@@ -85,6 +92,8 @@ public abstract class OS {
 
     public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
 
+    public abstract MountInfo getMounts() throws IOException;
+
     @WorkerThread
     public abstract void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException;
 
@@ -99,7 +108,16 @@ public abstract class OS {
     @WorkerThread
     public abstract void mkdirat(@DirFd int target, String name, int mode) throws IOException;
 
+    public abstract void fallocate(int fd, int mode, long off, long count) throws IOException;
+
+    public abstract void readahead(int fd, long off, int count) throws IOException;
+
+    public abstract void fadvise(int fd, long off, long length, @fadvice int advice) throws IOException;
+
     public abstract void dup2(@Fd int source, int dest) throws IOException;
+
+    @CheckResult
+    public abstract @Fd int dup(int source) throws IOException;
 
     public abstract void close(@Fd int fd) throws IOException;
 

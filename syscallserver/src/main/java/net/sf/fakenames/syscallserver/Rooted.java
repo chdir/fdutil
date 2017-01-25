@@ -14,6 +14,7 @@ import net.sf.fdlib.GuardFactory;
 import net.sf.fdlib.Inotify;
 import net.sf.fdlib.InotifyFd;
 import net.sf.fdlib.InotifyImpl;
+import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.Stat;
 
@@ -174,8 +175,13 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
-    public void fstat(int fd, Stat stat) throws IOException {
+    public void fstat(int fd, @NonNull Stat stat) throws IOException {
         delegate.fstat(fd, stat);
+    }
+
+    @Override
+    public MountInfo getMounts() throws IOException {
+        return delegate.getMounts();
     }
 
     @Override
@@ -226,8 +232,28 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    public void fallocate(@Fd int fd, int mode, long off, long count) throws IOException {
+        delegate.fallocate(fd, mode, off, count);
+    }
+
+    @Override
+    public void readahead(@Fd int fd, long off, int count) throws IOException {
+        delegate.readahead(fd, off, count);
+    }
+
+    @Override
+    public void fadvise(@Fd int fd, long off, long length, int advice) throws IOException {
+        delegate.fadvise(fd, off, length, advice);
+    }
+
+    @Override
     public void dup2(@Fd int source, int dest) throws IOException {
         delegate.dup2(source, dest);
+    }
+
+    @Override
+    public @Fd int dup(int source) throws IOException {
+        return delegate.dup(source);
     }
 
     @Override

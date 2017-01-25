@@ -32,4 +32,31 @@ static inline int sys_renameat(int dirfd, const char *filename, int dirfd2, cons
     return syscall(__NR_renameat, dirfd, filename, dirfd2, filename2);
 }
 
+static inline int  sys_fadvise(int fd, off64_t offset, off64_t len, int advice) {
+#if defined(__arm__)
+    return syscall(__NR_arm_fadvise64_64, fd, advice,
+#if defined(__BYTE_ORDER) && __BYTE_ORDER == __BIG_ENDIAN
+            // big-endian: high word in r2, low word in r3
+            (unsigned int)(offset >> 32),
+            (unsigned int)(offset & 0xFFFFFFFF),
+            // big-endian: high word in r4, low word in r5
+            (unsigned int)(len >> 32),
+            (unsigned int)(len & 0xFFFFFFFF));
+#else
+            // little-endian: low word in r2, high word in r3
+            (unsigned int)(offset & 0xFFFFFFFF),
+            (unsigned int)(offset >> 32),
+            // little-endian: low word in r4, high word in r5
+            (unsigned int)(len & 0xFFFFFFFF),
+            (unsigned int)(len >> 32));
+#endif
+
+#else
+    return syscall(__NR_fadvise64, fd,
+            (uint32_t) (offset >> 32), (uint32_t) (offset & 0xffffffff),
+            (uint32_t) (len >> 32), (uint32_t) (len & 0xffffffff),
+            advice);
+#endif
+}
+
 #endif

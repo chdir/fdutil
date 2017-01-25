@@ -3,6 +3,7 @@ package net.sf.fdlib;
 import java.io.IOException;
 
 public final class ErrnoException extends IOException {
+    public static final int EOPNOTSUPP = 95;
     public static final int ENOTDIR = 20;
     public static final int ENOENT = 2;
 

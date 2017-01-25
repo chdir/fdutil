@@ -795,6 +795,22 @@ public class FileProvider extends DocumentsProvider {
         }
     }
 
+    public static String extractParent(String chars) {
+        final int lastSlash = chars.lastIndexOf('/');
+
+        switch (lastSlash) {
+            case 0:
+                return chars;
+            case -1:
+                // oops
+                LogUtil.swallowError(chars + " must have at least one slash!");
+
+                return null;
+            default:
+                return chars.substring(0, lastSlash + 1);
+        }
+    }
+
     public static String extractName(String chars) {
         final int lastSlash = chars.lastIndexOf('/');
 
@@ -805,7 +821,7 @@ public class FileProvider extends DocumentsProvider {
                 // oops
                 LogUtil.swallowError(chars + " must have at least one slash!");
 
-                return chars;
+                return null;
             default:
                 return chars.substring(lastSlash + 1, chars.length());
         }
