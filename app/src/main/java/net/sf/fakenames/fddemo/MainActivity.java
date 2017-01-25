@@ -16,6 +16,7 @@ import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
+import android.text.TextUtils;
 import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -48,16 +49,20 @@ import net.sf.fdlib.Stat;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 import butterknife.BindView;
 import butterknife.OnClick;
 
 public class MainActivity extends BaseActivity implements
-        View.OnClickListener,
         MenuItem.OnMenuItemClickListener,
         NameInputFragment.FileNameReceiver,
         RenameNameInputFragment.FileNameReceiver,
         PopupMenu.OnMenuItemClickListener {
+    private Executor ioExec;
+
     private final RecyclerView.ItemAnimator animator = new DefaultItemAnimator();
 
     private DirObserver dirObserver;
@@ -137,6 +142,10 @@ public class MainActivity extends BaseActivity implements
             adapter = state.adapter;
         }
 
+        final ThreadFactory priorityFactory = r -> new Thread(r, "Odd jobs thread");
+
+        ioExec = Executors.newCachedThreadPool(priorityFactory);
+
         dirObserver = new DirObserver();
         scrollerObserver = quickScroller.getAdapterDataObserver();
 
@@ -155,7 +164,7 @@ public class MainActivity extends BaseActivity implements
 
         quickScroller.setRecyclerView(directoryList);
 
-        adapter.setItemClickListener(this);
+        adapter.setItemClickListener(clickHandler);
         adapter.registerAdapterDataObserver(scrollerObserver);
         adapter.registerAdapterDataObserver(dirObserver);
 
@@ -221,34 +230,44 @@ public class MainActivity extends BaseActivity implements
         super.onDestroy();
     }
 
-    @Override
-    public void onClick(View v) {
-        final DirItemHolder dirItemHolder = (DirItemHolder) directoryList.getChildViewHolder(v);
+    private final DebouncingOnClickListener clickHandler = new DebouncingOnClickListener() {
+        @Override
+        public void doClick(View v) {
+            if (state.adapter.isStalled()) {
+                return;
+            }
 
-        final Directory.Entry dirInfo = dirItemHolder.getDirInfo();
+            final DirItemHolder dirItemHolder = (DirItemHolder) directoryList.getChildViewHolder(v);
 
-        if (dirInfo.type != null && dirInfo.type.isNotDir()) {
-            openfile(state.adapter.getFd(), dirInfo.name);
-        } else {
-            opendir(state.adapter.getFd(), dirInfo.name);
+            if (dirItemHolder.isPlaceholder()) {
+                return;
+            }
+
+            final Directory.Entry dirInfo = dirItemHolder.getDirInfo();
+
+            if (dirInfo.type != null && dirInfo.type.isNotDir()) {
+                openfile(state.adapter.getFd(), dirInfo.name);
+            } else {
+                opendir(state.adapter.getFd(), dirInfo.name);
+            }
         }
-    }
+    };
 
     private void openHomeDir() {
         opendir(DirFd.NIL, state.layout.getHome().getAbsolutePath());
     }
 
-    private void opendir(@DirFd int base, String path) {
+    private void opendir(@DirFd int base, String pathname) {
         int newFd = DirFd.NIL, prev = DirFd.NIL;
         try {
-            newFd = state.os.opendirat(base, path, OS.O_RDONLY, 0);
+            newFd = state.os.opendirat(base, pathname, OS.O_RDONLY, 0);
 
             final Stat stat = new Stat();
 
             state.os.fstat(newFd, stat);
 
             if (stat.type != FsType.DIRECTORY) {
-                openfile(base, path);
+                openfile(base, pathname);
                 return;
             }
 
@@ -264,15 +283,15 @@ public class MainActivity extends BaseActivity implements
 
             directoryList.swapAdapter(state.adapter, true);
         } catch (ErrnoException e) {
-            LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
+            LogUtil.logCautiously("Unable to open " + pathname + ", ignoring", e);
 
             if (e.code() != ErrnoException.ENOTDIR) {
                 toast("Unable to open a directory. " + e.getMessage());
             } else {
-                openfile(base, path);
+                openfile(base, pathname);
             }
         } catch (IOException e) {
-            LogUtil.logCautiously("Unable to open " + path + ", ignoring", e);
+            LogUtil.logCautiously("Unable to open " + pathname + ", ignoring", e);
 
             toast("Unable to open a directory. " + e.getMessage());
         } finally {
@@ -360,7 +379,7 @@ public class MainActivity extends BaseActivity implements
             return;
         }
 
-        FileMenuInfo info = (FileMenuInfo) menuInfo;
+        final FileMenuInfo info = (FileMenuInfo) menuInfo;
 
         final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE, "Copy full path");
         bufferItem.setOnMenuItemClickListener(this);
@@ -472,11 +491,11 @@ public class MainActivity extends BaseActivity implements
 
         final @DirFd int dir = targetDir.getFd();
 
-        final Stat stat = new Stat();
+        final Stat targetDirStat = new Stat();
 
-        os.fstat(dir, stat);
+        os.fstat(dir, targetDirStat);
 
-        final MountInfo.Mount m = state.layout.getFs(stat.st_dev);
+        final MountInfo.Mount m = state.layout.getFs(targetDirStat.st_dev);
 
         final boolean canUseExtChars = m != null && BaseDirLayout.isPosix(m.fstype);
 
@@ -496,7 +515,7 @@ public class MainActivity extends BaseActivity implements
 
                     created = os.readlinkat(dir, fileName);
 
-                    try (FileObject targetFile = FileObject.fromFile(os, context, new File(created))) {
+                    try (FileObject targetFile = FileObject.fromFile(os, context, created, targetDirStat)) {
                         copied = sourceFile.copyTo(targetFile);
 
                         return copied ? null : "Copy failed";
@@ -538,7 +557,7 @@ public class MainActivity extends BaseActivity implements
         };
 
         //noinspection unchecked
-        asyncTask.execute(targetDir);
+        asyncTask.executeOnExecutor(ioExec, targetDir);
     }
 
     private void showRenameDialog(String name) {
@@ -551,7 +570,7 @@ public class MainActivity extends BaseActivity implements
 
     @Override
     public void onNewNameChosen(String oldName, String newName) {
-        if (oldName.equals(newName)) return;
+        if (oldName.equals(newName) || TextUtils.isEmpty(newName)) return;
 
         final @DirFd int dirFd = state.adapter.getFd();
         try {
@@ -628,7 +647,7 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_paste:
                 ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
 
-                ClipData clip = cpm.getPrimaryClip();
+                final ClipData clip = cpm.getPrimaryClip();
 
                 if (clip == null || clip.getItemCount() == 0) {
                     toast("The clipboard is empty");
@@ -641,14 +660,14 @@ public class MainActivity extends BaseActivity implements
                 }
 
                 FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
-                if (fileObject == null) {
+                if (fileObject != null) {
+                    try {
+                        pasteFile(fileObject);
+                    } catch (IOException e) {
+                        toast(e.getMessage());
+                    }
+                } else {
                     toast("Unsupported data type");
-                }
-
-                try {
-                    pasteFile(fileObject);
-                } catch (IOException e) {
-                    toast(e.getMessage());
                 }
 
                 return true;
@@ -724,5 +743,21 @@ public class MainActivity extends BaseActivity implements
                 pool.setMaxRecycledViews(0, visibleViewsNew);
             }
         }
+    }
+
+    public static abstract class DebouncingOnClickListener implements View.OnClickListener {
+        static boolean enabled = true;
+
+        private static final Runnable ENABLE_AGAIN = () -> enabled = true;
+
+        @Override public void onClick(View v) {
+            if (enabled) {
+                enabled = false;
+                v.post(ENABLE_AGAIN);
+                doClick(v);
+            }
+        }
+
+        public abstract void doClick(View v);
     }
 }
