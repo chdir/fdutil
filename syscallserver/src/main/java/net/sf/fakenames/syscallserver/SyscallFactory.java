@@ -16,6 +16,7 @@
 package net.sf.fakenames.syscallserver;
 
 import android.content.Context;
+import android.net.Credentials;
 import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.os.*;
@@ -678,8 +679,9 @@ public final class SyscallFactory implements Closeable {
             while (!isInterrupted()) {
                 try (LocalSocket localSocket = serverSocket.lss.accept())
                 {
-                    final int socketPid = localSocket.getPeerCredentials().getPid();
-                    if (socketPid != helperPid) {
+                    final Credentials credentials = localSocket.getPeerCredentials();
+
+                    if (credentials.getUid() != 0 || credentials.getPid() != helperPid) {
                         continue;
                     }
 
