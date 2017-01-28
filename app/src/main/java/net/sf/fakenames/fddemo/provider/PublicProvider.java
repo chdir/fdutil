@@ -5,25 +5,32 @@ import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.content.res.AssetFileDescriptor;
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
-import android.preference.PreferenceManager;
+import android.os.Process;
 import android.provider.BaseColumns;
 import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.util.Pools;
+import android.support.v4.os.ResultReceiver;
+import android.support.v4.util.LruCache;
 import android.text.TextUtils;
 import android.util.Base64;
-import android.webkit.MimeTypeMap;
 
+import com.carrotsearch.hppc.ObjectIntHashMap;
+import com.carrotsearch.hppc.ObjectIntMap;
+
+import net.sf.fakenames.fddemo.PermissionActivity;
 import net.sf.fakenames.fddemo.RootSingleton;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
@@ -33,29 +40,30 @@ import net.sf.fdlib.Stat;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
-import java.nio.ByteBuffer;
 import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.NoSuchAlgorithmException;
-import java.security.PrivateKey;
-import java.security.SecureRandom;
-import java.security.spec.InvalidKeySpecException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
-import javax.crypto.SecretKey;
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
 
+import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
+import static android.os.ParcelFileDescriptor.MODE_READ_WRITE;
+import static android.os.ParcelFileDescriptor.MODE_WRITE_ONLY;
 import static android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME;
+import static android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE;
 import static android.provider.DocumentsContract.Document.COLUMN_SIZE;
 import static android.util.Base64.*;
+import static net.sf.fakenames.fddemo.PermissionActivity.RESPONSE_ALLOW;
+import static net.sf.fakenames.fddemo.PermissionActivity.RESPONSE_DENY;
+import static net.sf.fakenames.fddemo.provider.FileProvider.assertAbsolute;
 
 @SuppressLint("InlinedApi")
 public final class PublicProvider extends ContentProvider {
@@ -67,6 +75,7 @@ public final class PublicProvider extends ContentProvider {
     private static final int COOKIE_SIZE = 20;
     private static final String URI_ARG_EXPIRY = "expiry";
     private static final String URI_ARG_COOKIE = "cookie";
+    private static final String URI_ARG_MODE = "mode";
 
     private volatile OS rooted;
 
@@ -166,6 +175,7 @@ public final class PublicProvider extends ContentProvider {
             BaseColumns._ID,
             OpenableColumns.DISPLAY_NAME,
             OpenableColumns.SIZE,
+            MediaStore.MediaColumns.MIME_TYPE,
     };
 
     @Nullable
@@ -177,10 +187,12 @@ public final class PublicProvider extends ContentProvider {
         }
 
         try {
-            FileProvider.assertAbsolute(path);
-
-            verifyMac(uri);
+            assertAbsolute(path);
         } catch (FileNotFoundException e) {
+            return null;
+        }
+
+        if (!checkAccess(uri, "r")) {
             return null;
         }
 
@@ -216,6 +228,9 @@ public final class PublicProvider extends ContentProvider {
                         case COLUMN_SIZE:
                             columns.add(stat.st_size);
                             break;
+                        case COLUMN_MIME_TYPE:
+                            columns.add(FileProvider.getDocType(path, stat));
+                            break;
                         default:
                             columns.add(null);
                     }
@@ -242,67 +257,148 @@ public final class PublicProvider extends ContentProvider {
     @Nullable
     @Override
     public String getType(@NonNull Uri uri) {
-        return getDocType(uri.getPath());
+        final OS os = getOS();
+
+        if (os == null) {
+            return null;
+        }
+
+        try {
+            final String filepath = uri.getPath();
+
+            assertAbsolute(filepath);
+
+            int fd = os.open(filepath, OS.O_RDONLY, 0);
+            try {
+                final Stat s = new Stat();
+
+                os.fstat(fd, s);
+
+                return FileProvider.getDocType(filepath, s);
+            } finally {
+                os.dispose(fd);
+            }
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private void initResources() throws IOException {
         final OS os = OS.getInstance();
     }
 
-    @SuppressWarnings("SimplifiableIfStatement")
-    private static boolean mimeTypeMatches(String filter, String test) {
-        if (test == null) {
-            return false;
-        } else if (filter == null || "*/*".equals(filter)) {
-            return true;
-        } else if (filter.equals(test)) {
-            return true;
-        } else if (filter.endsWith("/*")) {
-            return filter.regionMatches(0, test, 0, filter.indexOf('/'));
-        } else {
-            return false;
-        }
-    }
-
     @Nullable
     @Override
     public String[] getStreamTypes(@NonNull Uri uri, @NonNull String mimeTypeFilter) {
-        try {
-            final String docType = getType(uri);
+        final String docType = getType(uri);
 
-            if (mimeTypeMatches(mimeTypeFilter, docType)) {
-                return new String[] { docType };
-            }
-        } catch (Exception ignored) {
-            ignored.printStackTrace();
+        if (FileProvider.mimeTypeMatches(mimeTypeFilter, docType)) {
+            return new String[] { docType };
         }
 
         return null;
     }
 
-    private static String getDocType(String documentId) {
-        final int dot = documentId.lastIndexOf('.');
+    final boolean checkAccess(Uri uri, String necessaryMode) {
+        String grantMode = uri.getQueryParameter(URI_ARG_MODE);
+        if (TextUtils.isEmpty(grantMode)) {
+            grantMode = "r";
+        }
 
-        if (dot != -1) {
-            final String extension = MimeTypeMap.getFileExtensionFromUrl(documentId);
+        return checkAccess(uri, grantMode, necessaryMode);
+    }
 
-            if (!TextUtils.isEmpty(extension)) {
-                MimeTypeMap map = MimeTypeMap.getSingleton();
+    final boolean checkAccess(Uri uri, String grantMode, String necessaryMode) {
+        try {
+            verifyMac(uri, grantMode, necessaryMode);
 
-                final String foundMime = map.getMimeTypeFromExtension(extension);
+            return true;
+        } catch (FileNotFoundException fnfe) {
+            final Context context = getContext();
 
-                if (!TextUtils.isEmpty(foundMime)) {
-                    return foundMime;
+            assert context != null;
+
+            ObjectIntMap<String> decisions = null;
+
+            final String caller = getCallingPackage();
+
+            if (!TextUtils.isEmpty(caller)) {
+                decisions = accessCache.get(uri.getPath());
+                if (decisions == null) {
+                    decisions = new ObjectIntHashMap<>();
+                } else {
+                    //noinspection SynchronizationOnLocalVariableOrMethodParameter
+                    synchronized (decisions) {
+                        final int decision = decisions.get(caller);
+
+                        switch (decision) {
+                            case RESPONSE_ALLOW:
+                                return true;
+                        }
+                    }
                 }
+            }
+
+            final ArrayBlockingQueue<Bundle> queue = new ArrayBlockingQueue<>(1);
+
+            final ResultReceiver receiver = new ResultReceiver(new Handler(Looper.getMainLooper())) {
+                @Override
+                protected void onReceiveResult(int resultCode, Bundle resultData) {
+                    try {
+                        queue.offer(resultData, 4, TimeUnit.SECONDS);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+            };
+
+            try {
+                final Intent intent = new Intent(getContext(), PermissionActivity.class)
+                        .putExtra(PermissionActivity.EXTRA_MODE, necessaryMode)
+                        .putExtra(PermissionActivity.EXTRA_CALLER, caller)
+                        .putExtra(PermissionActivity.EXTRA_UID, Binder.getCallingUid())
+                        .putExtra(PermissionActivity.EXTRA_CALLBACK, receiver)
+                        .putExtra(PermissionActivity.EXTRA_PATH, uri.getPath())
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+                context.startActivity(intent);
+
+                final Bundle result = queue.poll(10, TimeUnit.SECONDS);
+
+                int decision = RESPONSE_DENY;
+
+                if (result != null) {
+                    decision = result.getInt(PermissionActivity.EXTRA_RESPONSE, -1);
+                }
+
+                if (decision == RESPONSE_ALLOW) {
+                    if (decisions != null) {
+                        //noinspection SynchronizationOnLocalVariableOrMethodParameter
+                        synchronized (decisions) {
+                            decisions.put(caller, RESPONSE_ALLOW);
+
+                            accessCache.put(uri.getPath(), decisions);
+                        }
+                    }
+
+                    return true;
+                }
+            } catch (InterruptedException ignored) {
             }
         }
 
-        return DEFAULT_MIME;
+        return false;
     }
 
-    final void verifyMac(Uri path) throws FileNotFoundException {
+    final void verifyMac(Uri path, String grantMode, String requested) throws FileNotFoundException {
+        if (Process.myUid() == Binder.getCallingUid()) {
+            return;
+        }
+
+        final int requestedMode = ParcelFileDescriptor.parseMode(requested);
+
         final String cookie = path.getQueryParameter(URI_ARG_COOKIE);
         final String expiry = path.getQueryParameter(URI_ARG_EXPIRY);
+
         if (TextUtils.isEmpty(cookie) || TextUtils.isEmpty(expiry)) {
             throw new FileNotFoundException("Invalid uri: MAC and expiry date are missing");
         }
@@ -319,17 +415,29 @@ public final class PublicProvider extends ContentProvider {
             throw new FileNotFoundException("Unable to verify hash: failed to produce key");
         }
 
+        final int modeInt = ParcelFileDescriptor.parseMode(grantMode);
+
+        if ((requestedMode & modeInt) != requestedMode) {
+            throw new FileNotFoundException("Requested mode " + requested + " but limited to " + grantMode);
+        }
+
         final byte[] encoded;
         final Mac hash;
         try {
             hash = Mac.getInstance("HmacSHA1");
-
             hash.init(key);
+
+            final byte[] modeBits = new byte[] {
+                    (byte) (modeInt >> 24), (byte) (modeInt >> 16), (byte) (modeInt >> 8), (byte) modeInt,
+            };
+            hash.update(modeBits);
+
             final byte[] expiryDate = new byte[] {
                     (byte) (l >> 56), (byte) (l >> 48), (byte) (l >> 40), (byte) (l >> 32),
                     (byte) (l >> 24), (byte) (l >> 16), (byte) (l >> 8), (byte) l,
             };
             hash.update(expiryDate);
+
             encoded = hash.doFinal(path.getPath().getBytes());
 
             final String sample = Base64.encodeToString(encoded, URL_SAFE | NO_WRAP | NO_PADDING);
@@ -352,12 +460,10 @@ public final class PublicProvider extends ContentProvider {
 
     @Nullable
     @Override
-    public ParcelFileDescriptor openFile(@NonNull Uri uri, @NonNull String mode, CancellationSignal signal) throws FileNotFoundException {
+    public ParcelFileDescriptor openFile(@NonNull Uri uri, @NonNull String requestedMode, CancellationSignal signal) throws FileNotFoundException {
         assertAbsolute(uri.getPath());
 
-        verifyMac(uri);
-
-        final int readableMode = ParcelFileDescriptor.parseMode(mode);
+        final int readableMode = ParcelFileDescriptor.parseMode(requestedMode);
 
         if (signal != null) {
             final Thread theThread = Thread.currentThread();
@@ -366,6 +472,14 @@ public final class PublicProvider extends ContentProvider {
         }
 
         try {
+            try {
+                if (!checkAccess(uri, requestedMode)) {
+                    return null;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
             final OS rooted = getOS();
 
             if (rooted == null) {
@@ -374,12 +488,12 @@ public final class PublicProvider extends ContentProvider {
 
             final int openFlags;
 
-            if ((readableMode & ParcelFileDescriptor.MODE_READ_WRITE) != 0) {
-                openFlags = OS.O_RDWR;
-            } else if ((readableMode & ParcelFileDescriptor.MODE_WRITE_ONLY) != 0) {
+            if ((readableMode & MODE_READ_ONLY) == readableMode) {
+                openFlags = OS.O_RDONLY;
+            } else if ((readableMode & MODE_WRITE_ONLY) == readableMode) {
                 openFlags = OS.O_WRONLY;
             } else {
-                openFlags = OS.O_RDONLY;
+                openFlags = OS.O_RDWR;
             }
 
             final String canonDocumentId = FileProvider.canonString(uri.getPath());
@@ -398,21 +512,9 @@ public final class PublicProvider extends ContentProvider {
         }
     }
 
-    private static void assertAbsolute(String nameStr) throws FileNotFoundException {
-        if (nameStr.charAt(0) != '/') {
-            throw new FileNotFoundException(nameStr + " is invalid in this context, must be absolute");
-        }
-    }
-
-    private static void assertFilename(String nameStr) throws FileNotFoundException {
-        if (nameStr.indexOf('/') != -1) {
-            throw new FileNotFoundException(nameStr + " is not a valid filename, must not contain '/'");
-        }
-    }
-
     @Override
     public Uri canonicalize(@NonNull Uri uri) {
-        if (AUTHORITY.equals(uri.getAuthority())) {
+        if (!AUTHORITY.equals(uri.getAuthority())) {
             return null;
         }
 
@@ -468,6 +570,12 @@ public final class PublicProvider extends ContentProvider {
     }
 
     public static @Nullable Uri publicUri(Context context, String path) {
+        return publicUri(context, path, "r");
+    }
+
+    public static @Nullable Uri publicUri(Context context, String path, String mode) {
+        final int modeInt = ParcelFileDescriptor.parseMode(mode);
+
         final Key key = getSalt(context);
 
         if (key == null) {
@@ -482,23 +590,37 @@ public final class PublicProvider extends ContentProvider {
         try {
             final Mac hash = Mac.getInstance("HmacSHA1");
             hash.init(key);
+
+            final byte[] modeBits = new byte[] {
+                    (byte) (modeInt >> 24), (byte) (modeInt >> 16), (byte) (modeInt >> 8), (byte) modeInt,
+            };
+            hash.update(modeBits);
+
             final byte[] expiryDate = new byte[] {
                     (byte) (l >> 56), (byte) (l >> 48), (byte) (l >> 40), (byte) (l >> 32),
                     (byte) (l >> 24), (byte) (l >> 16), (byte) (l >> 8), (byte) l,
             };
             hash.update(expiryDate);
+
             encoded = hash.doFinal(path.getBytes());
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             throw new AssertionError("Error while creating a hash: " + e.getMessage(), e);
         }
 
-        return new Uri.Builder()
+        final Uri.Builder b = new Uri.Builder()
                 .scheme(ContentResolver.SCHEME_CONTENT)
-                .authority(AUTHORITY)
+                .authority(AUTHORITY);
+
+        if (!"r".equals(mode)) {
+            b.appendQueryParameter(URI_ARG_MODE, mode);
+        }
+
+        return b.path(path)
                 .appendQueryParameter(URI_ARG_EXPIRY, String.valueOf(l))
                 .appendQueryParameter(URI_ARG_COOKIE, encodeToString(encoded, URL_SAFE | NO_WRAP | NO_PADDING))
-                .path(path)
                 .build();
     }
+
+    private final LruCache<String, ObjectIntMap<String>> accessCache = new LruCache<>(100);
 }
 

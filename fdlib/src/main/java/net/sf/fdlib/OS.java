@@ -4,6 +4,7 @@ import android.os.Looper;
 import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
 
 import java.io.IOException;
@@ -17,7 +18,14 @@ public abstract class OS {
     protected OS() {
     }
 
-    @IntDef({O_RDONLY, O_WRONLY, O_RDWR})
+    @IntDef(value = {F_OK}, flag = true)
+    @Documented
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface AccessFlags {}
+
+    public static final int F_OK = 0;
+
+    @IntDef(value = {O_RDONLY, O_WRONLY, O_RDWR}, flag = true)
     @Documented
     @Retention(RetentionPolicy.SOURCE)
     public @interface OpenFlag {}
@@ -28,6 +36,13 @@ public abstract class OS {
 
     public static final int DEF_DIR_MODE =  0b111111001; // 0771 aka drwxrwx--x
     public static final int DEF_FILE_MODE = 0b110110110; // 0666 aka  rw-rw-rw-
+
+    public static final int AT_SYMLINK_FOLLOW = 0x400;
+
+    @IntDef(AT_SYMLINK_FOLLOW)
+    @Documented
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface LinkAtFlags {}
 
     @IntDef(AT_REMOVEDIR)
     @Documented
@@ -54,6 +69,10 @@ public abstract class OS {
     @Documented
     @Retention(RetentionPolicy.SOURCE)
     public @interface fadvice {}
+
+    @CheckResult
+    @WorkerThread
+    public abstract @Fd int creat(@NonNull String path, int mode) throws IOException;
 
     @CheckResult
     @WorkerThread
@@ -92,12 +111,16 @@ public abstract class OS {
 
     public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
 
+    public abstract void fsync(int fd) throws IOException;
+
     public abstract MountInfo getMounts() throws IOException;
 
     @WorkerThread
     public abstract void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException;
 
     public abstract void symlinkat(String name, @DirFd int target, String newpath) throws IOException;
+
+    public abstract void linkat(@DirFd int oldDirFd, String oldName, @DirFd int newDirFd, String newName, @LinkAtFlags int flags) throws IOException;
 
     @WorkerThread
     public abstract void unlinkat(@DirFd int target, String name, @UnlinkAtFlags int flags) throws IOException;
@@ -113,6 +136,8 @@ public abstract class OS {
     public abstract void readahead(int fd, long off, int count) throws IOException;
 
     public abstract void fadvise(int fd, long off, long length, @fadvice int advice) throws IOException;
+
+    public abstract boolean faccessat(@DirFd int fd, String pathname, @AccessFlags int mode) throws IOException;
 
     public abstract void dup2(@Fd int source, int dest) throws IOException;
 

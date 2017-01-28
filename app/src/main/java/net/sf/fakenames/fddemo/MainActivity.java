@@ -1,7 +1,9 @@
 package net.sf.fakenames.fddemo;
 
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -12,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
@@ -60,7 +63,10 @@ public class MainActivity extends BaseActivity implements
         MenuItem.OnMenuItemClickListener,
         NameInputFragment.FileNameReceiver,
         RenameNameInputFragment.FileNameReceiver,
+        ClipboardManager.OnPrimaryClipChangedListener,
         PopupMenu.OnMenuItemClickListener {
+    private ClipboardManager cbm;
+
     private Executor ioExec;
 
     private final RecyclerView.ItemAnimator animator = new DefaultItemAnimator();
@@ -87,9 +93,14 @@ public class MainActivity extends BaseActivity implements
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        cbm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        cbm.addPrimaryClipChangedListener(this);
+
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.file_manager);
+
+        evaluateCurrentClip();
 
         final OS unpriv;
         final DirAdapter adapter;
@@ -208,6 +219,8 @@ public class MainActivity extends BaseActivity implements
 
     @Override
     protected void onDestroy() {
+        cbm.removePrimaryClipChangedListener(this);
+
         unregisterForContextMenu(directoryList);
 
         if (state != null) {
@@ -305,7 +318,7 @@ public class MainActivity extends BaseActivity implements
         try {
             final String resolved = state.os.readlinkat(base, path);
 
-            final Uri uri = PublicProvider.publicUri(this, resolved);
+            final Uri uri = PublicProvider.publicUri(this, resolved, "r");
 
             final Intent view = new Intent(Intent.ACTION_VIEW, uri);
 
@@ -319,7 +332,7 @@ public class MainActivity extends BaseActivity implements
         try {
             final String resolved = state.os.readlinkat(parentDir, name);
 
-            final Uri uri = PublicProvider.publicUri(this, resolved);
+            final Uri uri = PublicProvider.publicUri(this, resolved, "rw");
 
             final Intent view = new Intent(Intent.ACTION_EDIT, uri);
 
@@ -381,23 +394,23 @@ public class MainActivity extends BaseActivity implements
 
         final FileMenuInfo info = (FileMenuInfo) menuInfo;
 
-        final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE, "Copy full path");
+        final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
         bufferItem.setOnMenuItemClickListener(this);
 
-        final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, Menu.CATEGORY_ALTERNATIVE, "Rename");
+        final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, 3, "Rename");
         renameItem.setOnMenuItemClickListener(this);
 
-        final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, Menu.CATEGORY_ALTERNATIVE, "Delete");
+        final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
 
         if (info.fileInfo.type != null && info.fileInfo.type.isNotDir()) {
-            final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, Menu.CATEGORY_ALTERNATIVE, "Copy");
+            final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
             copyItem.setOnMenuItemClickListener(this);
 
-            final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, Menu.CATEGORY_ALTERNATIVE, "Edit");
+            final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, 2, "Edit");
             editItem.setOnMenuItemClickListener(this);
 
-            final MenuItem shareItem = menu.add(Menu.NONE, R.id.menu_item_share, Menu.CATEGORY_ALTERNATIVE, "Share");
+            final MenuItem shareItem = menu.add(Menu.NONE, R.id.menu_item_share, 4, "Share");
             shareItem.setOnMenuItemClickListener(this);
         }
     }
@@ -420,11 +433,9 @@ public class MainActivity extends BaseActivity implements
                 try {
                     final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
 
-                    ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    ClipData data = ClipData.newPlainText("Absolute File Path", path);
 
-                    ClipData data = ClipData.newPlainText("Selected File Path", path);
-
-                    cpm.setPrimaryClip(data);
+                    cbm.setPrimaryClip(data);
                 } catch (IOException e) {
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
@@ -440,11 +451,9 @@ public class MainActivity extends BaseActivity implements
                         return true;
                     }
 
-                    ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    final ClipData data = ClipData.newRawUri(info.fileInfo.name, uri);
 
-                    ClipData data = ClipData.newRawUri(info.fileInfo.name, uri);
-
-                    cpm.setPrimaryClip(data);
+                    cbm.setPrimaryClip(data);
                 } catch (IOException e) {
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
@@ -487,9 +496,7 @@ public class MainActivity extends BaseActivity implements
 
         final Context context = getApplicationContext();
 
-        final ParcelFileDescriptor targetDir = ParcelFileDescriptor.fromFd(state.adapter.getFd());
-
-        final @DirFd int dir = targetDir.getFd();
+        final @DirFd int dir = os.dup(state.adapter.getFd());
 
         final Stat targetDirStat = new Stat();
 
@@ -502,24 +509,26 @@ public class MainActivity extends BaseActivity implements
         asyncTask = new AsyncTask<ParcelFileDescriptor, Void, String>() {
             @Override
             protected String doInBackground(ParcelFileDescriptor... params) {
-                String created = null;
                 boolean copied = false;
-                try (Closeable fd = params[0]; Closeable c = sourceFile) {
+                FileObject targetFile = null;
+                try (Closeable c = sourceFile) {
                     final String desc = sourceFile.getDescription();
 
                     final String fileName = canUseExtChars
                             ? FilenameUtil.sanitize(desc)
                             : FilenameUtil.sanitizeCompat(desc);
 
-                    os.mknodat(dir, fileName, OS.S_IFREG | OS.DEF_FILE_MODE, 0);
-
-                    created = os.readlinkat(dir, fileName);
-
-                    try (FileObject targetFile = FileObject.fromFile(os, context, created, targetDirStat)) {
-                        copied = sourceFile.copyTo(targetFile);
-
-                        return copied ? null : "Copy failed";
+                    if (os.faccessat(dir, fileName, OS.F_OK)) {
+                        throw new IOException("File exists!");
                     }
+
+                    final FsFile tmpFileInfo = new FsFile(dir, fileName, targetDirStat);
+
+                    targetFile = FileObject.fromTempFile(os, context, tmpFileInfo);
+
+                    copied = sourceFile.copyTo(targetFile);
+
+                    return copied ? null : "Copy failed";
                 } catch (Throwable t) {
                     t.printStackTrace();
 
@@ -527,12 +536,16 @@ public class MainActivity extends BaseActivity implements
 
                     return result == null ? t.getClass().getSimpleName() : result;
                 } finally {
-                    if (!copied && created != null) {
-                        try {
-                            os.unlinkat(DirFd.NIL, created, 0);
-                        } catch (IOException ioe) {
-                            LogUtil.logCautiously("Failed to remove target file", ioe);
+                    if (targetFile != null) {
+                        if (!copied) {
+                            try {
+                                targetFile.delete();
+                            } catch (RemoteException | IOException ioe) {
+                                LogUtil.logCautiously("Failed to remove target file", ioe);
+                            }
                         }
+
+                        targetFile.close();
                     }
                 }
             }
@@ -541,23 +554,23 @@ public class MainActivity extends BaseActivity implements
             protected void onPostExecute(String s) {
                 asyncTask = null;
 
-                toast(s == null ? "Copy complete" : s);
+                if (s == null) {
+                    toast("Copy complete");
+                } else {
+                    toast(s);
+                }
             }
 
             @Override
             protected void onCancelled() {
                 asyncTask = null;
 
-                try {
-                    sourceFile.close();
-                } catch (IOException e) {
-                    LogUtil.logCautiously("Failed to cancel a task", e);
-                }
+                sourceFile.close();
             }
         };
 
         //noinspection unchecked
-        asyncTask.executeOnExecutor(ioExec, targetDir);
+        asyncTask.executeOnExecutor(ioExec);
     }
 
     private void showRenameDialog(String name) {
@@ -638,6 +651,60 @@ public class MainActivity extends BaseActivity implements
         return super.onCreateOptionsMenu(menu);
     }
 
+    private static final int NAME_MAX = 16;
+
+    public static String massageInSensibleForm(CharSequence message) {
+        final StringBuilder builder;
+
+        final boolean quoted = FilenameUtil.isQuote(message.charAt(0))
+                && FilenameUtil.isQuote(message.charAt(message.length() - 1));
+
+        if (message.length() > NAME_MAX) {
+            builder = new StringBuilder(17);
+            if (!quoted) builder.append('"');
+            builder.append(message.subSequence(0, 8));
+            builder.append('…');
+            builder.append(message.subSequence(message.length() - 5, message.length()));
+            if (!quoted) builder.append('"');
+            return builder.toString();
+        } else {
+            builder = new StringBuilder(message.length() + 2);
+            if (!quoted) builder.append('"');
+            builder.append(message);
+            builder.setCharAt(0, Character.toLowerCase(builder.charAt(0)));
+            if (!quoted) builder.append('"');
+        }
+
+        return builder.toString();
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        boolean ok = false;
+
+
+        final CharSequence label;
+        final ClipDescription clipInfo = cbm.getPrimaryClipDescription();
+        if (clipInfo != null) {
+            label = clipInfo.getLabel();
+            ok = canHandleClip && !TextUtils.isEmpty(label);
+        } else {
+            label = null;
+        }
+
+        final MenuItem paste = menu.findItem(R.id.menu_paste);
+
+        if (ok) {
+            paste.setEnabled(true);
+            paste.setTitle(getString(R.string.paste_name, massageInSensibleForm(label)));
+        } else {
+            paste.setEnabled(false);
+            paste.setTitle(getString(R.string.paste));
+        }
+
+        return super.onPrepareOptionsMenu(menu);
+    }
+
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
@@ -645,9 +712,7 @@ public class MainActivity extends BaseActivity implements
                 openHomeDir();
                 return true;
             case R.id.menu_paste:
-                ClipboardManager cpm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-
-                final ClipData clip = cpm.getPrimaryClip();
+                final ClipData clip = cbm.getPrimaryClip();
 
                 if (clip == null || clip.getItemCount() == 0) {
                     toast("The clipboard is empty");
@@ -674,6 +739,48 @@ public class MainActivity extends BaseActivity implements
         }
 
         return super.onOptionsItemSelected(item);
+    }
+
+    private boolean canHandleClip;
+
+    private void evaluateCurrentClip() {
+        boolean canHandleNew = canHandleClip();
+
+        if (canHandleNew != canHandleClip) {
+            canHandleClip = canHandleNew;
+
+            invalidateOptionsMenu();
+        }
+    }
+
+    @Override
+    public void onPrimaryClipChanged() {
+        evaluateCurrentClip();
+    }
+
+    private boolean canHandleClip() {
+        final ClipData clip = cbm.getPrimaryClip();
+
+        if (clip == null || clip.getItemCount() != 1) {
+            return false;
+        }
+
+        final ClipData.Item item = clip.getItemAt(0);
+
+        final Uri uri = item.getUri();
+        if (uri == null) {
+            return false;
+        }
+
+        final String scheme = uri.getScheme();
+        switch (scheme == null ? "" : scheme) {
+            case ContentResolver.SCHEME_FILE:
+            case ContentResolver.SCHEME_ANDROID_RESOURCE:
+            case ContentResolver.SCHEME_CONTENT:
+                return true;
+        }
+
+        return false;
     }
 
     private final class DirObserver extends RecyclerView.AdapterDataObserver implements DirLayoutManager.OnLayoutCallback {

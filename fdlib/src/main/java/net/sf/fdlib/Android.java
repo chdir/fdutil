@@ -2,7 +2,10 @@ package net.sf.fdlib;
 
 import android.os.Build;
 import android.os.Looper;
+import android.os.Process;
+import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
 import net.sf.fakenames.fdlib.BuildConfig;
 
@@ -26,6 +29,12 @@ final class Android extends OS {
         }
 
         return instance;
+    }
+
+    @Override
+    @CheckResult
+    public int creat(@NonNull String path, int mode) throws IOException {
+        return nativeCreat(toNative(path), mode);
     }
 
     @Override
@@ -60,6 +69,11 @@ final class Android extends OS {
     }
 
     @Override
+    public void linkat(@DirFd int oldDirFd, String oldName, @DirFd int newDirFd, String newName, @LinkAtFlags int flags) throws IOException {
+        nativeLinkAt(oldDirFd, toNative(oldName), newDirFd, toNative(newName), flags);
+    }
+
+    @Override
     public void unlinkat(@DirFd int target, String name, @UnlinkAtFlags int flags) throws IOException {
         nativeUnlinkAt(target, toNative(name), flags);
     }
@@ -82,6 +96,11 @@ final class Android extends OS {
 
     @Override
     public native void fadvise(@Fd int fd, long off, long length, int advice) throws IOException;
+
+    @Override
+    public boolean faccessat(int fd, String pathname, int mode) throws IOException {
+        return nativeFaccessAt(fd, toNative(pathname), mode);
+    }
 
     @Override
     public native void dup2(int source, int dest) throws IOException;
@@ -108,6 +127,9 @@ final class Android extends OS {
     public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
 
     @Override
+    public native void fsync(int fd) throws IOException;
+
+    @Override
     public MountInfo getMounts() throws IOException {
         return new MountInfo(open("/proc/self/mountinfo", OS.O_RDONLY, 0));
     }
@@ -128,7 +150,7 @@ final class Android extends OS {
     }
 
     @Override
-    public void dispose(@Fd int fd) {
+    public void dispose(int fd) {
         try {
             nativeClose(fd);
         } catch (IOException e) {
@@ -144,6 +166,10 @@ final class Android extends OS {
         return Build.VERSION.SDK_INT >= 23 ? (String) string : new String((byte[]) string, StandardCharsets.UTF_8);
     }
 
+    private static native void nativeLinkAt(@DirFd int oldDirFd, Object o, @DirFd int newDirFd, Object o1, @LinkAtFlags int flags);
+
+    private static native boolean nativeFaccessAt(int fd, Object pathname, int mode) throws ErrnoException;
+
     private static native void nativeRenameAt(@DirFd int fd, Object o, @DirFd int fd2, Object o1) throws ErrnoException;
 
     private static native void nativeMkdirAt(@DirFd int target, Object name, int mode) throws ErrnoException;
@@ -153,6 +179,8 @@ final class Android extends OS {
     private static native void nativeUnlinkAt(@DirFd int target, Object name, int flags) throws ErrnoException;
 
     private static native void nativeSymlinkAt(Object name, @DirFd int target, Object newpath) throws ErrnoException;
+
+    private static native @Fd int nativeCreat(Object pathname, int mode) throws ErrnoException;
 
     private static native @Fd int nativeOpenAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
 

@@ -28,11 +28,11 @@ inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint
 
     int newFd = TEMP_FAILURE_RETRY(sys_openat(fd, utf8Path, flags, mode));
 
-    freeUtf8(env, name, utf8Path);
-
     if (newFd < 0) {
         handleError(env);
     }
+
+    freeUtf8(env, name, utf8Path);
 
     return newFd;
 }
@@ -476,6 +476,56 @@ JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_dup(JNIEnv *env, jobject instan
     }
 
     return result;
+}
+
+JNIEXPORT jboolean JNICALL Java_net_sf_fdlib_Android_nativeFaccessAt(JNIEnv *env, jclass type, jint fd, jworkaroundstr pathname_, jint mode) {
+    const char *utf8Path = getUtf8(env, pathname_);
+
+    int ret = sys_faccessat(fd, utf8Path, mode);
+    if (ret) {
+        switch (errno) {
+            case EACCES:
+            case ELOOP:
+            case ENOENT:
+            case ENOTDIR:
+                break;
+            default:
+                handleError(env);
+        }
+    }
+
+    freeUtf8(env, pathname_, utf8Path);
+
+    return static_cast<jboolean>(ret ? JNI_FALSE : JNI_TRUE);
+}
+
+JNIEXPORT jint JNICALL Java_net_sf_fdlib_Android_nativeCreat(JNIEnv *env, jclass type, jobject pathname, jint mode) {
+    return coreio_openat(env, -1, pathname, O_CREAT | O_RDWR | O_TRUNC, mode);
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fsync(JNIEnv *env, jobject instance, jint fd) {
+    if (fsync(fd)) {
+        handleError(env);
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeLinkAt(JNIEnv *env, jclass type, jint oldDirFd, jworkaroundstr o, jint newDirFd, jworkaroundstr o1, jint flags) {
+    const char* name_ = getUtf8(env, o);
+    if (name_ == NULL) {
+        return;
+    }
+
+    const char* name1_ = getUtf8(env, o1);
+
+    if (name1_ != NULL) {
+        if (sys_linkat(oldDirFd, name_, newDirFd, name1_, flags)) {
+            handleError(env);
+        }
+
+        freeUtf8(env, o1, name1_);
+    }
+
+    freeUtf8(env, o, name_);
 }
 
 }

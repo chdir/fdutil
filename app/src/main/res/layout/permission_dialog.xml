@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:orientation="vertical"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <FrameLayout
+        android:id="@+id/contentPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:minHeight="48dp">
+
+        <View android:id="@+id/scrollIndicatorUp"
+            android:visibility="gone"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_gravity="top"
+            android:background="?attr/colorControlHighlight"/>
+
+        <android.support.v4.widget.NestedScrollView
+            android:id="@+id/scrollView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@android:id/message"
+                    style="@style/TextAppearance.AppCompat.Subhead"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingLeft="?attr/dialogPreferredPadding"
+                    android:paddingTop="@dimen/abc_dialog_padding_top_material"
+                    android:paddingRight="?attr/dialogPreferredPadding"/>
+
+                <View
+                    android:id="@+id/textSpacerNoButtons"
+                    android:visibility="gone"
+                    android:layout_width="0dp"
+                    android:layout_height="@dimen/abc_dialog_padding_top_material"/>
+            </LinearLayout>
+        </android.support.v4.widget.NestedScrollView>
+
+        <View android:id="@+id/scrollIndicatorDown"
+            android:visibility="gone"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_gravity="bottom"
+            android:background="?attr/colorControlHighlight"/>
+
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/customPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:minHeight="48dp">
+
+        <TextView
+            android:id="@+id/t"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </FrameLayout>
+
+    <include layout="@layout/abc_alert_dialog_button_bar_material"
+        tools:ignore="PrivateResource" />
+</LinearLayout>

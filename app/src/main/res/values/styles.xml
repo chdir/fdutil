@@ -8,6 +8,12 @@
         <item name="android:windowBackground">@color/white</item>
     </style>
 
+    <style name="AppDialogTheme" parent="Theme.AppCompat.Light.Dialog">
+        <!-- Customize your theme here. -->
+        <item name="windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
     <style name="FastScrollerDefault">
         <item name="rfs_fast_scroller_layout">@layout/include_fast_scroller</item>
         <item name="rfs_barStyle">@style/FastScrollerDefaultTrack</item>

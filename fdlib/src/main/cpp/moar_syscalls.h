@@ -24,12 +24,20 @@ static inline int sys_readlinkat(int fd, const char *name, char* buffer, size_t 
     return syscall(__NR_readlinkat, fd, name, buffer, bufferSize);
 }
 
+static inline int sys_faccessat(int fd, const char *name, int mode) {
+    return syscall(__NR_faccessat, fd, name, mode);
+}
+
 static inline int sys_fstatat64_fixed(int dirfd, const char *filename, kernel_stat64* statbuf, int flags) {
     return syscall(__NR_fstatat64, dirfd, filename, statbuf, flags);
 }
 
 static inline int sys_renameat(int dirfd, const char *filename, int dirfd2, const char *filename2) {
     return syscall(__NR_renameat, dirfd, filename, dirfd2, filename2);
+}
+
+static inline int sys_linkat(int dirfd, const char *filename, int dirfd2, const char *filename2, int flags) {
+    return syscall(__NR_linkat, dirfd, filename, dirfd2, filename2, flags);
 }
 
 static inline int  sys_fadvise(int fd, off64_t offset, off64_t len, int advice) {

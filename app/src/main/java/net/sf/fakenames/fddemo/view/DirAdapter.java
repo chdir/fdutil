@@ -238,6 +238,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
                     holder.itemView.setOnLongClickListener(itemLongClickListener);
                     holder.itemView.setOnClickListener(itemClickListener);
+                    holder.itemView.setOnTouchListener(itemTouchListener);
 
                     return;
                 }
@@ -337,12 +338,17 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private View.OnClickListener itemClickListener;
     private View.OnLongClickListener itemLongClickListener;
+    private View.OnTouchListener itemTouchListener;
+
+    public void setItemLongClickListener(View.OnClickListener itemClickListener) {
+        this.itemClickListener = itemClickListener;
+    }
 
     public void setItemClickListener(View.OnClickListener itemClickListener) {
         this.itemClickListener = itemClickListener;
     }
 
-    public void setItemLongClickListener(View.OnLongClickListener itemLongClickListener) {
-        this.itemLongClickListener = itemLongClickListener;
+    public void setItemTouchListener(View.OnTouchListener itemTouchListener) {
+        this.itemTouchListener = itemTouchListener;
     }
 }

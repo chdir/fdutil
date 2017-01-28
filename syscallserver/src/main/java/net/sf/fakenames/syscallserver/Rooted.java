@@ -3,6 +3,7 @@ package net.sf.fakenames.syscallserver;
 import android.content.Context;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
@@ -23,7 +24,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.Scanner;
-import java.util.regex.Pattern;
 
 import static android.os.Process.myPid;
 
@@ -83,6 +83,25 @@ public final class Rooted extends net.sf.fdlib.OS {
         }
 
         return null;
+    }
+
+    @Override
+    @CheckResult
+    @WorkerThread
+    public int creat(@NonNull String path, int mode) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            final ParcelFileDescriptor pfd = factory.creat(path, mode);
+
+            final @Fd int fdInt = pfd.detachFd();
+
+            return fdInt;
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("creat() failed, unable to access privileged process", e);
+        }
     }
 
     @Override
@@ -180,6 +199,11 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
+    public void fsync(int fd) throws IOException {
+        delegate.fsync(fd);
+    }
+
+    @Override
     public MountInfo getMounts() throws IOException {
         return delegate.getMounts();
     }
@@ -187,6 +211,19 @@ public final class Rooted extends net.sf.fdlib.OS {
     @Override
     public void symlinkat(String name, @DirFd int target, String newpath) throws IOException {
         delegate.symlinkat(name, target, newpath);
+    }
+
+    @Override
+    public void linkat(@DirFd int oldDirFd, String oldName, @DirFd int newDirFd, String newName, @LinkAtFlags int flags) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            factory.linkat(oldDirFd, oldName, newDirFd, newName, flags);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("link() failed, unable to access privileged process", e);
+        }
     }
 
     @Override
@@ -244,6 +281,11 @@ public final class Rooted extends net.sf.fdlib.OS {
     @Override
     public void fadvise(@Fd int fd, long off, long length, int advice) throws IOException {
         delegate.fadvise(fd, off, length, advice);
+    }
+
+    @Override
+    public boolean faccessat(@DirFd int fd, String pathname, int mode) throws IOException {
+        return delegate.faccessat(fd, pathname, mode);
     }
 
     @Override

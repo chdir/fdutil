@@ -237,13 +237,20 @@ public final class SyscallFactory implements Closeable {
 
     @WorkerThread
     public void renameat(@DirFd int from, String pathname1, @DirFd int to, String pathname2) throws IOException, FactoryBrokenException {
-        try (ParcelFileDescriptor pfd1 = ParcelFileDescriptor.fromFd(from)) {
-            ParcelFileDescriptor pfd2;
+        final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
+        try {
+            ParcelFileDescriptor pfd1;
 
             if (from == to) {
-                pfd2 = pfd1;
+                pfd1 = pfd2;
+            } else if (from < 0) {
+                if (to < 0) {
+                    pfd1 = null;
+                } else {
+                    pfd1 = pfd2;
+                }
             } else {
-                pfd2 = ParcelFileDescriptor.fromFd(to);
+                pfd1 = ParcelFileDescriptor.fromFd(from);
             }
 
             try {
@@ -251,6 +258,36 @@ public final class SyscallFactory implements Closeable {
             } finally {
                 shut(pfd2);
             }
+        } finally {
+            shut(pfd2);
+        }
+    }
+
+    @WorkerThread
+    public void linkat(@DirFd int from, String pathname1, @DirFd int to, String pathname2, int flags) throws IOException, FactoryBrokenException {
+        final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
+        try {
+            ParcelFileDescriptor pfd1;
+
+            if (from == to) {
+                pfd1 = pfd2;
+            } else if (from < 0) {
+                if (to < 0) {
+                    pfd1 = null;
+                } else {
+                    pfd1 = pfd2;
+                }
+            } else {
+                pfd1 = ParcelFileDescriptor.fromFd(from);
+            }
+
+            try {
+                linkInternal(pfd1, pathname1, pfd2, pathname2, flags);
+            } finally {
+                shut(pfd1);
+            }
+        } finally {
+            shut(pfd2);
         }
     }
 
@@ -286,6 +323,11 @@ public final class SyscallFactory implements Closeable {
         } finally {
             shut(pfd);
         }
+    }
+
+    @WorkerThread
+    public @NonNull ParcelFileDescriptor creat(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+        return FdCompat.adopt(creatInternal(filepath, mode));
     }
 
     @NonNull FileDescriptor openFileDescriptor(File file, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
@@ -365,6 +407,39 @@ public final class SyscallFactory implements Closeable {
             throw new FactoryBrokenException("Already closed");
 
         final FdReq request = serverThread.new RenameReq(pfd1, pathname1, pfd2, pathname2);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    if ("READY".equals(response.message)) {
+                        return;
+                    }
+
+                    throw new IOException("Failed to rename: " + response.message);
+                }
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private void linkInternal(ParcelFileDescriptor pfd1, String pathname1, ParcelFileDescriptor pfd2, String pathname2, int flags) throws FactoryBrokenException, IOException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new LinkReq(pfd1, pathname1, pfd2, pathname2, flags);
 
         FdResp response;
         try {
@@ -480,6 +555,43 @@ public final class SyscallFactory implements Closeable {
                 if (response.message != null) {
                     if (response.request == request) {
                         throw new IOException("Failed to open file: " + response.message);
+                    } else {
+                        LogUtil.swallowError(response.message);
+                    }
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private FileDescriptor creatInternal(String path, int mode) throws FactoryBrokenException, IOException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new CreatReq(path, mode);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.fd != null) {
+                    if (response.request == request) {
+                        return response.fd;
+                    }
+
+                    response.close();
+                }
+
+                if (response.message != null) {
+                    if (response.request == request) {
+                        throw new IOException("Failed to create file: " + response.message);
                     } else {
                         LogUtil.swallowError(response.message);
                     }
@@ -825,6 +937,8 @@ public final class SyscallFactory implements Closeable {
 
             // see https://code.google.com/p/android/issues/detail?id=231609
             for (final ParcelFileDescriptor p : pfds) {
+                if (p == null) return;
+
                 descriptors[0] = p.getFileDescriptor();
                 ls.setFileDescriptorsForSend(descriptors);
                 statusMsg.limit(1).position(0);
@@ -1031,12 +1145,12 @@ public final class SyscallFactory implements Closeable {
         }
 
         final class RenameReq extends FdReq {
-            static final int TYPE_UNLINK = 7;
+            static final int TYPE_RENAME = 7;
 
             final String fileName2;
 
             public RenameReq(ParcelFileDescriptor fd1, String fileName1, ParcelFileDescriptor fd2, String fileName2) {
-                super(TYPE_UNLINK, fileName1, 0, fd1, fd2);
+                super(TYPE_RENAME, fileName1, 0, fd1, fd2);
 
                 this.fileName2 = fileName2;
             }
@@ -1046,6 +1160,75 @@ public final class SyscallFactory implements Closeable {
                 super.writeRequest(reqWriter, wbc, ls);
 
                 reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
+                        .append(' ')
+                        .append(fileName.getBytes().length)
+                        .append(' ')
+                        .append(fileName2.getBytes().length)
+                        .append(' ');
+
+                reqWriter.append(fileName).append(fileName2).append("\n").flush();
+
+                if (outboundFd != null && outboundFd.length != 0) {
+                    setFd(wbc, ls, outboundFd);
+                }
+            }
+
+            @Override
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
+            }
+        }
+
+        final class CreatReq extends FdReq {
+            static final int TYPE_CREAT = 8;
+
+            public CreatReq(String fileName1, int mode) {
+                super(TYPE_CREAT, fileName1, mode);
+            }
+
+            @Override
+            public void writeRequest(CachingWriter reqWriter, WritableByteChannel wbc, LocalSocket ls) throws IOException {
+                super.writeRequest(reqWriter, wbc, ls);
+
+                reqWriter.append(mode)
+                        .append(' ')
+                        .append(fileName.getBytes().length)
+                        .append(' ');
+
+                reqWriter.append(fileName).append("\n").flush();
+            }
+
+            @Override
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                String responseStr = readMessage(rbc);
+                final FileDescriptor fd = getFd(ls);
+
+                if (fd == null && "READY".equals(responseStr)) { // unlikely, but..
+                    responseStr = "Received no file descriptor from helper";
+                }
+
+                return new FdResp(this, responseStr, fd);
+            }
+        }
+
+        final class LinkReq extends FdReq {
+            static final int TYPE_LINK = 9;
+
+            final String fileName2;
+
+            public LinkReq(ParcelFileDescriptor fd1, String fileName1, ParcelFileDescriptor fd2, String fileName2, int flags) {
+                super(TYPE_LINK, fileName1, flags, fd1, fd2);
+
+                this.fileName2 = fileName2;
+            }
+
+            @Override
+            public void writeRequest(CachingWriter reqWriter, WritableByteChannel wbc, LocalSocket ls) throws IOException {
+                super.writeRequest(reqWriter, wbc, ls);
+
+                reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
+                        .append(' ')
+                        .append(mode)
                         .append(' ')
                         .append(fileName.getBytes().length)
                         .append(' ')

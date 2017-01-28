@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.os.RemoteException;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
@@ -101,56 +102,59 @@ public abstract class FileObject implements Closeable {
     public boolean copyTo(FileObject target) throws IOException, RemoteException {
         final AssetFileDescriptor sourceAssetFd = this.openForReading();
         final Stat s1 = new Stat();
-        final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor();
-        os.fstat(sourceFd.getFd(), s1);
 
-        if (s1.type == FsType.FILE && s1.st_size == 0) {
-            // the file is empty, nothing to do
-            return true;
-        }
+        try (final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor()) {
+            os.fstat(sourceFd.getFd(), s1);
 
-        final long offset = sourceAssetFd.getStartOffset();
-
-        long size = sourceAssetFd.getDeclaredLength();
-        if (size == UNKNOWN_LENGTH) {
-            if (s1.st_size > 0) {
-                size = s1.st_size;
-            } else {
-                size = getMaxSize();
-            }
-        }
-
-        if (s1.type == FsType.FILE && size > READAHEAD_THRESHOLD) {
-            os.readahead(sourceFd.getFd(), offset, READAHEAD_LIMIT);
-            os.fadvise(sourceFd.getFd(), offset, 0, OS.POSIX_FADV_SEQUENTIAL);
-        }
-
-        final AssetFileDescriptor targetAssetFd = target.openForWriting();
-        final Stat s2 = new Stat();
-        final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
-        os.fstat(targetFd.getFd(), s2);
-
-        try {
-            if (s1.st_ino == s2.st_ino) {
-                throw new IOException(context.getString(R.string.err_self_copy));
+            if (s1.type == FsType.FILE && s1.st_size == 0) {
+                // the file is empty, nothing to do
+                return true;
             }
 
-            if (s2.type == FsType.FILE && size > 0 && size > s2.st_blksize) {
-                os.fallocate(targetFd.getFd(), 0, 0, size);
+            final long offset = sourceAssetFd.getStartOffset();
+
+            long size = sourceAssetFd.getDeclaredLength();
+            if (size == UNKNOWN_LENGTH) {
+                if (s1.st_size > 0) {
+                    size = s1.st_size;
+                } else {
+                    size = getMaxSize();
+                }
             }
 
-            long limit = sourceAssetFd.getDeclaredLength();
-
-            if (offset > 0) {
-                doSkip(sourceFd, s1.type, offset);
+            if (s1.type == FsType.FILE && size > READAHEAD_THRESHOLD) {
+                os.readahead(sourceFd.getFd(), offset, READAHEAD_LIMIT);
+                os.fadvise(sourceFd.getFd(), offset, 0, OS.POSIX_FADV_SEQUENTIAL);
             }
 
-            return dumbCopy(sourceFd, targetFd, cancellationSignal, limit);
-        } catch (Throwable tooBad) {
-            try { sourceFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
-            try { targetFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
+            try (final AssetFileDescriptor targetAssetFd = target.openForWriting()) {
+                final Stat s2 = new Stat();
+                final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
+                os.fstat(targetFd.getFd(), s2);
 
-            throw tooBad;
+                try {
+                    if (s1.st_ino == s2.st_ino) {
+                        throw new IOException(context.getString(R.string.err_self_copy));
+                    }
+
+                    if (s2.type == FsType.FILE && size > 0 && size > s2.st_blksize) {
+                        os.fallocate(targetFd.getFd(), 0, 0, size);
+                    }
+
+                    long limit = sourceAssetFd.getDeclaredLength();
+
+                    if (offset > 0) {
+                        doSkip(sourceFd, s1.type, offset);
+                    }
+
+                    return dumbCopy(sourceFd, targetFd, cancellationSignal, limit);
+                } catch (Throwable tooBad) {
+                    try { sourceFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
+                    try { targetFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
+
+                    throw tooBad;
+                }
+            }
         }
     }
 
@@ -241,11 +245,21 @@ public abstract class FileObject implements Closeable {
 
     @Override
     @CallSuper
-    public void close() throws IOException {
+    public void close() {
         cancellationSignal.cancel();
     }
 
     protected abstract boolean delete() throws IOException, RemoteException;
+
+    public static FileObject fromTempFile(OS os, Context context, FsFile file) throws IOException {
+        final String suffix = ".tmp";
+
+        final String newName = file.name + suffix;
+
+        final @Fd int tmpfile = os.creat("/proc/" + Process.myPid() + "/fd/" + file.dirFd + '/' + newName, OS.DEF_FILE_MODE);
+
+        return new DescriptorFileObject(os, context, file, newName, tmpfile);
+    }
 
     public static FileObject fromFile(OS os, Context context, String file, Stat stat) {
         return new LocalFileObject(os, context, file, stat);
@@ -521,7 +535,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public void close() throws IOException {
+        public void close() {
             super.close();
 
             if (cpc != null) {
@@ -531,6 +545,77 @@ public abstract class FileObject implements Closeable {
 
             if (info != null) {
                 info.close();
+            }
+        }
+    }
+
+    private static class DescriptorFileObject extends FileObject {
+        private final @Fd int fd;
+        private final FsFile fileInfo;
+        private final String tempName;
+
+        private boolean deleted;
+
+        DescriptorFileObject(OS os, Context context, FsFile fileInfo, String tempName, @Fd int fd) {
+            super(os, context, fileInfo.stat);
+
+            this.fd = fd;
+            this.fileInfo = fileInfo;
+            this.tempName = tempName;
+        }
+
+        @Override
+        public AssetFileDescriptor openForReading() throws IOException, RemoteException, RuntimeException {
+            return new AssetFileDescriptor(ParcelFileDescriptor.fromFd(fd), 0, -1);
+        }
+
+        @Override
+        public AssetFileDescriptor openForWriting() throws IOException, RemoteException, RuntimeException {
+            return new AssetFileDescriptor(ParcelFileDescriptor.fromFd(fd), 0, -1);
+        }
+
+        @Override
+        public String getDescription() throws IOException, RemoteException, RuntimeException {
+            return fileInfo.name;
+        }
+
+        @Override
+        public long getMaxSize() throws IOException, RemoteException, RuntimeException {
+            return -1;
+        }
+
+        @Override
+        protected boolean delete() throws IOException, RemoteException {
+            deleted = true;
+
+            if (os.faccessat(DirFd.NIL, "/proc/self/fd/" + fd, OS.F_OK)) {
+                os.unlinkat(fileInfo.dirFd, tempName, 0);
+            }
+
+            return true;
+        }
+
+        @Override
+        public void close() {
+            try {
+                super.close();
+            } finally {
+                try {
+                    if (!deleted) {
+                        os.fsync(fd);
+
+                        if (os.faccessat(fileInfo.dirFd, tempName, OS.F_OK)) {
+                            os.renameat(fileInfo.dirFd, tempName, fileInfo.dirFd, fileInfo.name);
+                        } else {
+                            os.linkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + fd, fileInfo.dirFd, fileInfo.name, OS.AT_SYMLINK_FOLLOW);
+                        }
+                    }
+                } catch (IOException e) {
+                    // ignore
+                    LogUtil.logCautiously("Failed to clean up temp file", e);
+                } finally {
+                    os.dispose(fd);
+                }
             }
         }
     }

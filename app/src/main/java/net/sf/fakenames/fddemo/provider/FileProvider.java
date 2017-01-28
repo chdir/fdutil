@@ -191,7 +191,7 @@ public class FileProvider extends DocumentsProvider {
     }
 
     @SuppressWarnings("SimplifiableIfStatement")
-    private static boolean mimeTypeMatches(String filter, String test) {
+    public static boolean mimeTypeMatches(String filter, String test) {
         if (test == null) {
             return false;
         } else if (filter == null || "*/*".equals(filter)) {
@@ -222,10 +222,33 @@ public class FileProvider extends DocumentsProvider {
 
     @Override
     public String getDocumentType(String documentId) throws FileNotFoundException {
-        return getDocType(documentId);
+        final OS os = getOS();
+
+        if (os == null) {
+            throw new FileNotFoundException("Failed to stat a document, unable to acquire root access");
+        }
+
+        try {
+            int fd = os.open(documentId, OS.O_RDONLY, 0);
+            try {
+                final Stat s = new Stat();
+
+                os.fstat(fd, s);
+
+                return getDocType(documentId, s);
+            } finally {
+                os.dispose(fd);
+            }
+        } catch (IOException e) {
+            throw new FileNotFoundException(e.getMessage());
+        }
     }
 
-    private static String getDocType(String documentId) {
+    public static String getDocType(String documentId, Stat stat) {
+        if (stat.type == FsType.DIRECTORY) {
+            return MIME_TYPE_DIR;
+        }
+
         final int dot = documentId.lastIndexOf('.');
 
         if (dot != -1) {
@@ -1314,8 +1337,7 @@ public class FileProvider extends DocumentsProvider {
                                     break;
 
                                 case DocumentsContract.Document.COLUMN_MIME_TYPE:
-                                    final String type = stat.type == FsType.DIRECTORY
-                                            ? MIME_TYPE_DIR : getDocType(reusable.name);
+                                    final String type = getDocType(reusable.name, stat);
 
                                     success = window.putString(type, position, col);
 

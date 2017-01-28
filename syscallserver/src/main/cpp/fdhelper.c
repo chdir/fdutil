@@ -25,6 +25,7 @@
 #include <sys/un.h>
 #include <sys/inotify.h>
 #include <sys/mman.h>
+#include <sys/mount.h>
 
 #include <stdlib.h> // exit
 #include <stdio.h> // printf
@@ -52,6 +53,8 @@
 #define REQ_TYPE_MKNOD 5
 #define REQ_TYPE_READLINK 6
 #define REQ_TYPE_RENAME 7
+#define REQ_TYPE_CREAT 8
+#define REQ_TYPE_LINKAT 9
 
 #define INVALID_FD -1
 
@@ -801,7 +804,7 @@ static void invoke_readlink(int sock) {
 }
 
 static void invoke_rename(int sock) {
-    int fds[2] = { -1 };
+    int fds[2] = { -1, -1 };
 
     int fdCount = -1;
     size_t nameLength1, nameLength2;
@@ -838,6 +841,78 @@ static void invoke_rename(int sock) {
     }
 }
 
+static void invoke_creat(int sock) {
+    int32_t mode;
+    size_t nameLength;
+
+    if (scanf("%d %u ", &mode, &nameLength) != 2)
+        DieWithError("reading creat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to creat %s", filepath);
+
+    int targetFd = creat(filepath, *(mode_t*)&mode);
+
+    if (targetFd > 0) {
+        if (ancil_send_fds_with_buffer(sock, targetFd))
+            DieWithError("sending file descriptor failed");
+    } else {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to create a file - %s\n", errmsg);
+
+        fprintf(stderr, "creat error - %s%c", errmsg, '\0');
+    }
+
+    free(filepath);
+
+    if (targetFd > 0) {
+        close(targetFd);
+    }
+}
+
+static void invoke_linkat(int sock) {
+    int fds[2] = { -1 };
+
+    int flags;
+    int fdCount = -1;
+    size_t nameLength1, nameLength2;
+
+    if (scanf("%u %d %u %u ", &fdCount, &flags, &nameLength1, &nameLength2) != 4)
+        DieWithError("reading linkat arguments failed");
+
+    char *filepath1 = read_filepath(nameLength1);
+    char *filepath2 = read_filepath(nameLength2);
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, fdCount, fds);
+    }
+
+    if (verbose) LOG("Attempting to link %s at %s", filepath1, filepath2);
+
+    if (sys_linkat(fds[0], filepath1, fds[1], filepath2, flags)) {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to link - %s\n", errmsg);
+
+        fprintf(stderr, "link creation error  - %s%c", errmsg, '\0');
+    } else {
+        fprintf(stderr, "READY%c", '\0');
+    }
+
+    free(filepath1);
+    free(filepath2);
+
+    if (fds[0] > 0) {
+        close(fds[0]);
+    }
+
+    if (fds[1] > 0) {
+        close(fds[1]);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         uid_t myuid= getuid();
@@ -847,6 +922,10 @@ int main(int argc, char *argv[]) {
     }
 
     verbose = 1;
+
+    if (sys_mount("proc", "/proc", "procfs", MS_REMOUNT, "hidepid=0")) {
+        LOG("Failed to remount /proc: %s", strerror(errno));
+    }
 
     // connect to supplied address and send the greeting message to server
     int sock = Bootstrap(argv[1]);
@@ -887,6 +966,12 @@ int main(int argc, char *argv[]) {
                 break;
             case REQ_TYPE_RENAME:
                 invoke_rename(sock);
+                break;
+            case REQ_TYPE_CREAT:
+                invoke_creat(sock);
+                break;
+            case REQ_TYPE_LINKAT:
+                invoke_linkat(sock);
                 break;
             default:
                 DieWithError("Unknown request type");
