@@ -6,6 +6,7 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.UriMatcher;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
@@ -60,6 +61,7 @@ import static android.os.ParcelFileDescriptor.MODE_WRITE_ONLY;
 import static android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME;
 import static android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE;
 import static android.provider.DocumentsContract.Document.COLUMN_SIZE;
+import static android.provider.DocumentsContract.Document.MIME_TYPE_DIR;
 import static android.util.Base64.*;
 import static net.sf.fakenames.fddemo.PermissionActivity.RESPONSE_ALLOW;
 import static net.sf.fakenames.fddemo.PermissionActivity.RESPONSE_DENY;
@@ -67,8 +69,6 @@ import static net.sf.fakenames.fddemo.provider.FileProvider.assertAbsolute;
 
 @SuppressLint("InlinedApi")
 public final class PublicProvider extends ContentProvider {
-    public static final String DEFAULT_MIME = "application/octet-stream";
-
     public static final String AUTHORITY = "net.sf.fddemo.public";
 
     private static final String COOKIE_FILE = "key";
@@ -178,16 +178,19 @@ public final class PublicProvider extends ContentProvider {
             MediaStore.MediaColumns.MIME_TYPE,
     };
 
+    private static void assertAbsolute(Uri uri) throws FileNotFoundException {
+        if (uri == null || !AUTHORITY.equals(uri.getAuthority()) || uri.getPath() == null) {
+            throw new FileNotFoundException();
+        }
+
+        FileProvider.assertAbsolute(uri.getPath());
+    }
+
     @Nullable
     @Override
     public Cursor query(@NonNull Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
-        final String path = uri.getPath();
-        if (path == null) {
-            return null;
-        }
-
         try {
-            assertAbsolute(path);
+            assertAbsolute(uri);
         } catch (FileNotFoundException e) {
             return null;
         }
@@ -207,6 +210,8 @@ public final class PublicProvider extends ContentProvider {
 
         int fd;
         try {
+            final String path = uri.getPath();
+
             fd = os.openat(DirFd.NIL, path, OS.O_RDONLY, 0);
             try {
                 final Stat stat = new Stat();
@@ -266,7 +271,7 @@ public final class PublicProvider extends ContentProvider {
         try {
             final String filepath = uri.getPath();
 
-            assertAbsolute(filepath);
+            FileProvider.assertAbsolute(filepath);
 
             int fd = os.open(filepath, OS.O_RDONLY, 0);
             try {
@@ -461,7 +466,7 @@ public final class PublicProvider extends ContentProvider {
     @Nullable
     @Override
     public ParcelFileDescriptor openFile(@NonNull Uri uri, @NonNull String requestedMode, CancellationSignal signal) throws FileNotFoundException {
-        assertAbsolute(uri.getPath());
+        assertAbsolute(uri);
 
         final int readableMode = ParcelFileDescriptor.parseMode(requestedMode);
 
@@ -537,6 +542,30 @@ public final class PublicProvider extends ContentProvider {
 
     @Override
     public int delete(@NonNull Uri uri, String selection, String[] selectionArgs) {
+        try {
+            assertAbsolute(uri);
+        } catch (FileNotFoundException e) {
+            return 0;
+        }
+
+        if (!checkAccess(uri, "w")) {
+            return 0;
+        }
+
+        final OS os = getOS();
+
+        if (os != null) {
+            final boolean isDir = MIME_TYPE_DIR.equals(getType(uri));
+
+            try {
+                os.unlinkat(DirFd.NIL, uri.getPath(), isDir ? OS.AT_REMOVEDIR : 0);
+
+                return 1;
+            } catch (IOException e) {
+                LogUtil.logCautiously("Failed to unlink", e);
+            }
+        }
+
         return 0;
     }
 

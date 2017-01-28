@@ -234,10 +234,63 @@ public abstract class FileObject implements Closeable {
     }
 
     public boolean moveTo(FileObject fileObject) throws IOException, RemoteException {
-        if (copyTo(fileObject)) {
+        if (shortcutMove(fileObject) || copyTo(fileObject)) {
             delete();
 
             return true;
+        }
+
+        return false;
+    }
+
+    // try to use the fact that the file may be on the same partition to out advantage
+    // to perform rename instead of copy/delete
+    protected boolean shortcutMove(FileObject target) throws IOException, RemoteException {
+        final AssetFileDescriptor sourceAssetFd = this.openForReading();
+
+        try (final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor()) {
+            os.fstat(sourceFd.getFd(), stat);
+
+            final long offset = sourceAssetFd.getStartOffset();
+
+            if (stat.type != FsType.FILE || offset != 0) {
+                // can not use rename on non-file descriptors or if the source has
+                // non-zero offset
+                return false;
+            }
+
+            if (stat.st_size == 0) {
+                // the file is empty, nothing to do
+                return true;
+            }
+
+            try (final AssetFileDescriptor targetAssetFd = target.openForWriting()) {
+                final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
+                os.fstat(targetFd.getFd(), target.stat);
+
+                try {
+                    if (target.stat.type != FsType.FILE || target.stat.st_dev != stat.st_dev) {
+                        return false;
+                    }
+
+                    if (stat.st_ino == target.stat.st_ino) {
+                        // the move can be completed by unlinking the source inode
+                        return true;
+                    }
+
+                    String sourcePath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + sourceFd.getFd());
+                    String targetPath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
+
+                    os.renameat(DirFd.NIL, sourcePath, DirFd.NIL, targetPath);
+
+                    return true;
+                } catch (Throwable tooBad) {
+                    try { sourceFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
+                    try { targetFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
+                }
+            }
+        } catch (RemoteException | IOException e) {
+            e.printStackTrace();
         }
 
         return false;
@@ -633,6 +686,52 @@ public abstract class FileObject implements Closeable {
             this.name = uri.getLastPathSegment();
         }
 
+        @Override
+        protected boolean shortcutMove(FileObject target) throws IOException {
+            @Fd int sourceFd = os.open(path, OS.O_RDONLY, 0);
+            try {
+                os.fstat(sourceFd, stat);
+
+                if (stat.st_size == 0) {
+                    // the file is empty, nothing to do
+                    return true;
+                }
+
+                try (final AssetFileDescriptor targetAssetFd = target.openForWriting()) {
+                    final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
+                    os.fstat(targetFd.getFd(), target.stat);
+
+                    if (target.stat.type == FsType.FILE && stat.st_dev == target.stat.st_dev) {
+                        try {
+                            if (stat.st_ino == target.stat.st_ino) {
+                                // the move can be completed by unlinking the source inode
+                                return true;
+                            }
+
+                            final String targetPath = os.readlinkat(DirFd.NIL,
+                                    "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
+
+                            os.renameat(DirFd.NIL, path, DirFd.NIL, targetPath);
+
+                            return true;
+                        } catch (Throwable tooBad) {
+                            try {
+                                targetFd.closeWithError(tooBad.getMessage());
+                            } catch (Exception oops) {
+                                oops.printStackTrace();
+                            }
+                        }
+                    }
+                }
+            } catch (IOException | RemoteException e) {
+                e.printStackTrace();
+            } finally {
+                os.dispose(sourceFd);
+            }
+
+            return false;
+        }
+
         public LocalFileObject(OS os, Context context, String path, Stat stat) {
             super(os, context, stat);
 
@@ -705,6 +804,11 @@ public abstract class FileObject implements Closeable {
         @Override
         public AssetFileDescriptor openForWriting() throws IOException, RemoteException {
             return resolver.openAssetFileDescriptor(uri, "w");
+        }
+
+        @Override
+        protected boolean shortcutMove(FileObject target) throws IOException, RemoteException {
+            return false;
         }
 
         @Override

@@ -29,6 +29,8 @@ import android.system.Os;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.carrotsearch.hppc.ObjectArrayList;
+
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
 import net.sf.fdlib.InotifyFd;
@@ -305,8 +307,11 @@ public final class SyscallFactory implements Closeable {
     @CheckResult
     @WorkerThread
     public String readlinkat(int target, String name) throws IOException, FactoryBrokenException {
-        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(target)) {
+        final ParcelFileDescriptor pfd = target < 0 ? null : ParcelFileDescriptor.fromFd(target);
+        try {
             return readlinkInternal(pfd, name);
+        } finally {
+            shut(pfd);
         }
     }
 
@@ -1332,9 +1337,16 @@ public final class SyscallFactory implements Closeable {
 
         public FdReq(int reqType, String fileName, int mode, ParcelFileDescriptor... outboundFd) {
             this.reqType = reqType;
-            this.outboundFd = outboundFd;
             this.fileName = fileName;
             this.mode = mode;
+
+            final ObjectArrayList<ParcelFileDescriptor> fds = new ObjectArrayList<>();
+            for (ParcelFileDescriptor pfd : outboundFd) {
+                if (pfd == null) break;
+                fds.add(pfd);
+            }
+
+            this.outboundFd = fds.toArray(ParcelFileDescriptor.class);
         }
 
         public void close() {

@@ -7,4 +7,5 @@
     <item name="menu_item_share" type="id" />
     <item name="menu_item_rename" type="id" />
     <item name="menu_item_copy" type="id" />
+    <item name="menu_item_cut" type="id" />
 </resources>

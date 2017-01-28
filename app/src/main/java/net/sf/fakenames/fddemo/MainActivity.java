@@ -65,6 +65,8 @@ public class MainActivity extends BaseActivity implements
         RenameNameInputFragment.FileNameReceiver,
         ClipboardManager.OnPrimaryClipChangedListener,
         PopupMenu.OnMenuItemClickListener {
+    private static final String EXTRA_ACTION_CUT = "cut";
+
     private ClipboardManager cbm;
 
     private Executor ioExec;
@@ -404,6 +406,9 @@ public class MainActivity extends BaseActivity implements
         delItem.setOnMenuItemClickListener(this);
 
         if (info.fileInfo.type != null && info.fileInfo.type.isNotDir()) {
+            final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
+            cutItem.setOnMenuItemClickListener(this);
+
             final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
             copyItem.setOnMenuItemClickListener(this);
 
@@ -458,6 +463,25 @@ public class MainActivity extends BaseActivity implements
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
                 break;
+            case R.id.menu_item_cut:
+                try {
+                    final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
+
+                    final Uri uri = PublicProvider.publicUri(this, path, "rw");
+
+                    if (uri == null) {
+                        toast("Failed to generate shareable uri");
+                        return true;
+                    }
+
+                    final ClipData data = ClipData.newRawUri(info.fileInfo.name,
+                            uri.buildUpon().fragment(EXTRA_ACTION_CUT).build());
+
+                    cbm.setPrimaryClip(data);
+                } catch (IOException e) {
+                    toast("Unable to resolve full path. "  + e.getMessage());
+                }
+                break;
             case R.id.menu_item_edit:
                 editfile(info.parentDir, info.fileInfo.name);
                 break;
@@ -486,7 +510,7 @@ public class MainActivity extends BaseActivity implements
 
     private AsyncTask<ParcelFileDescriptor, ?, String> asyncTask;
 
-    private void pasteFile(FileObject sourceFile) throws IOException {
+    private void pasteFile(FileObject sourceFile, boolean canRemoveOriginal) throws IOException {
         if (asyncTask != null) {
             toast("Unable to preform a copy: busy");
             return;
@@ -526,7 +550,9 @@ public class MainActivity extends BaseActivity implements
 
                     targetFile = FileObject.fromTempFile(os, context, tmpFileInfo);
 
-                    copied = sourceFile.copyTo(targetFile);
+                    copied = canRemoveOriginal
+                            ? sourceFile.moveTo(targetFile)
+                            : sourceFile.copyTo(targetFile);
 
                     return copied ? null : "Copy failed";
                 } catch (Throwable t) {
@@ -727,7 +753,12 @@ public class MainActivity extends BaseActivity implements
                 FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
                 if (fileObject != null) {
                     try {
-                        pasteFile(fileObject);
+                        final Uri uri = clip.getItemAt(0).getUri();
+
+                        final boolean canRemoveOriginal =
+                                EXTRA_ACTION_CUT.equals(uri.getEncodedFragment());
+
+                        pasteFile(fileObject, canRemoveOriginal);
                     } catch (IOException e) {
                         toast(e.getMessage());
                     }
