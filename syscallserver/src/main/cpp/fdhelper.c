@@ -55,6 +55,7 @@
 #define REQ_TYPE_RENAME 7
 #define REQ_TYPE_CREAT 8
 #define REQ_TYPE_LINKAT 9
+#define REQ_TYPE_FACCESS 10
 
 #define INVALID_FD -1
 
@@ -940,6 +941,48 @@ static void invoke_linkat(int sock) {
     }
 }
 
+static void invoke_faccessat(int sock) {
+    int fdCount = -1;
+    int32_t flags = -1;
+    size_t nameLength;
+
+    if (scanf("%u %d %u ", &fdCount, &flags, &nameLength) != 3)
+        DieWithError("reading faccessat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to access %s", filepath);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    if (sys_faccessat(receivedFd, filepath, flags)) {
+        switch (errno) {
+            case EACCES:
+            case ELOOP:
+            case ENOENT:
+            case ENOTDIR:
+                fprintf(stderr, "false%c", '\0');
+                break;
+            default:
+                fprintf(stderr, "%s%c", strerror(errno), '\0');
+        }
+    } else {
+        fprintf(stderr, "true%c", '\0');
+    }
+
+    free(filepath);
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         uid_t myuid= getuid();
@@ -999,6 +1042,9 @@ int main(int argc, char *argv[]) {
                 break;
             case REQ_TYPE_LINKAT:
                 invoke_linkat(sock);
+                break;
+            case REQ_TYPE_FACCESS:
+                invoke_faccessat(sock);
                 break;
             default:
                 DieWithError("Unknown request type");

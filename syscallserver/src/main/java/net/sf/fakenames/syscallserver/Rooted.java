@@ -284,8 +284,16 @@ public final class Rooted extends net.sf.fdlib.OS {
     }
 
     @Override
-    public boolean faccessat(@DirFd int fd, String pathname, int mode) throws IOException {
-        return delegate.faccessat(fd, pathname, mode);
+    public boolean faccessat(int fd, String pathname, int mode) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            return factory.faccessat(fd, pathname, mode);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("faccessat() failed, unable to access privileged process", e);
+        }
     }
 
     @Override

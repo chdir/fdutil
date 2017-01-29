@@ -219,6 +219,16 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
+    public boolean faccessat(int fd, String pathname, int mode) throws IOException, FactoryBrokenException {
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+        try {
+            return faccessInternal(pfd, pathname, mode);
+        } finally {
+            shut(pfd);
+        }
+    }
+
+    @WorkerThread
     public void unlinkat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
         try {
@@ -367,6 +377,44 @@ public final class SyscallFactory implements Closeable {
             throw new IOException("Interrupted before completion");
         } catch (IOException e) {
             e.printStackTrace();
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private boolean faccessInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new FaccessReq(fd, path, mode);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    switch (response.message == null ? "" : response.message) {
+                        case "true":
+                            return true;
+                        case "false":
+                            return false;
+                        case "":
+                            throw new IOException("Unable to access " + path + ": unknown error");
+                        default:
+                            throw new IOException(response.message);
+                    }
+                }
+
+                if (!"true".equals(response.message) && !"false".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
         }
 
         close();
@@ -1250,6 +1298,37 @@ public final class SyscallFactory implements Closeable {
                         .append(' ');
 
                 reqWriter.append(fileName).append(fileName2).append("\n").flush();
+
+                if (outboundFd != null && outboundFd.length != 0) {
+                    setFd(wbc, ls, outboundFd);
+                }
+            }
+
+            @Override
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc));
+            }
+        }
+
+        final class FaccessReq extends FdReq {
+            static final int TYPE_FACCESS = 10;
+
+            public FaccessReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+                super(TYPE_FACCESS, fileName, mode, outboundFd);
+            }
+
+            @Override
+            public void writeRequest(CachingWriter reqWriter, WritableByteChannel wbc, LocalSocket ls) throws IOException {
+                super.writeRequest(reqWriter, wbc, ls);
+
+                reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
+                        .append(' ')
+                        .append(mode)
+                        .append(' ')
+                        .append(fileName.getBytes().length)
+                        .append(' ');
+
+                reqWriter.append(fileName).append("\n").flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);

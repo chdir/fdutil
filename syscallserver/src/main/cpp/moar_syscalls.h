@@ -47,4 +47,8 @@ static inline int sys_capget(cap_user_header_t hdrp, cap_user_data_t datap) {
 static inline int sys_capset(cap_user_header_t hdrp, cap_user_data_t datap) {
     return syscall(__NR_capset, hdrp, datap);
 }
+
+static inline int sys_faccessat(int fd, const char *name, int mode) {
+    return syscall(__NR_faccessat, fd, name, mode);
+}
 #endif
