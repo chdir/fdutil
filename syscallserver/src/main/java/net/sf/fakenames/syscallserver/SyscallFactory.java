@@ -898,26 +898,35 @@ public final class SyscallFactory implements Closeable {
             statusMsg.clear();
 
             byte[] result = statusMsg.array();
+            int offset = statusMsg.arrayOffset();
 
             int totalReadCount = 0;
             do {
-                if (statusMsg.position() == statusMsg.limit()) {
+                int lastPos = statusMsg.position();
+
+                if (lastPos == statusMsg.limit()) {
                     final int newSize = result.length + statusMsg.capacity();
 
-                    final byte[] newBuffer = Arrays.copyOf(result, newSize);
+                    final byte[] newBuffer = Arrays.copyOfRange(result, offset, newSize);
 
-                    System.arraycopy(statusMsg.array(), 0, newBuffer, statusMsg.arrayOffset(), statusMsg.capacity());
+                    if (result != statusMsg.array()) {
+                        System.arraycopy(statusMsg.array(), statusMsg.arrayOffset(), newBuffer, totalReadCount - lastPos, lastPos);
+                    }
 
-                    result = newBuffer;
-                }
+                    result = newBuffer; offset = 0;
 
-                if (totalReadCount != 0 && statusMsg.get(statusMsg.position() - 1) == '\0') {
-                    // the terminating character was reached, bail
-                    break;
-                }
-
-                if (statusMsg.position() == statusMsg.limit()) {
                     statusMsg.clear();
+                }
+
+                if (totalReadCount != 0 && statusMsg.get(lastPos - 1) == '\0') {
+                    // the terminating character was reached, bail
+
+                    if (result != statusMsg.array() && statusMsg.position() != 0) {
+                        // salvage last remaining bytes
+                        System.arraycopy(statusMsg.array(), statusMsg.arrayOffset(), result, totalReadCount - lastPos, lastPos);
+                    }
+
+                    break;
                 }
 
                 lastClientReadCount = channel.read(statusMsg);
@@ -930,7 +939,7 @@ public final class SyscallFactory implements Closeable {
             }
             while (true);
 
-            return new String(result, 0, totalReadCount - 1);
+            return new String(result, offset, totalReadCount - 1);
         }
 
         private FileDescriptor[] descriptors = new FileDescriptor[1];
