@@ -39,4 +39,12 @@ static inline int sys_linkat(int dirfd, const char *filename, int dirfd2, const 
 static inline int sys_mount(const char *s, const char *t, const char *type, unsigned long flags, void* data) {
     return syscall(__NR_mount, s, t, type, flags, data);
 }
+
+static inline int sys_capget(cap_user_header_t hdrp, cap_user_data_t datap) {
+    return syscall(__NR_capget, hdrp, datap);
+}
+
+static inline int sys_capset(cap_user_header_t hdrp, cap_user_data_t datap) {
+    return syscall(__NR_capset, hdrp, datap);
+}
 #endif

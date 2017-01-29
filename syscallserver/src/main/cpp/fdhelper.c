@@ -312,6 +312,10 @@ static void fixPolicy(const char* context) {
     return;
 }
 
+#include <linux/capability.h>
+
+#define _LINUX_CAPABILITY_VERSION_3 0x20080522
+
 static void initFileContext(int sock, const char* context) {
     umask(0);
 
@@ -322,10 +326,33 @@ static void initFileContext(int sock, const char* context) {
         DieWithError("failed to retrieve peer credentials");
     }
 
-    fixPolicy(context);
+    // adjust uid/gid, used for filesystem operations a-la NFS
+    // we save our capabilities and restore them after calling setfsuid/setfsgid, because those
+    // calls strip some of superuser rights for legacy reasons
+    cap_user_header_t hp = calloc(1, sizeof(*hp));
+    cap_user_data_t d = calloc(2, sizeof(*d));
 
-    //sys_setfsuid(creds.uid);
-    //sys_setfsgid(creds.gid);
+    if (hp == NULL || d == NULL) {
+        DieWithError("Failed to alloc cap structures");
+        return;
+    }
+
+    hp -> pid = getpid();
+    hp -> version = _LINUX_CAPABILITY_VERSION_3;
+
+    if (!sys_capget(hp, d)) {
+        sys_setfsuid(creds.uid);
+        sys_setfsgid(creds.gid);
+
+        if (sys_capset(hp, d)) {
+            DieWithError("Failed to restore capabilities");
+        }
+    }
+
+    free(hp);
+    free(d);
+
+    fixPolicy(context);
 
     char fsCreatePathBuf[42];
 
