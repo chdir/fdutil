@@ -153,15 +153,19 @@ public final class PublicProvider extends ContentProvider {
 
         if (TextUtils.isEmpty(uri.getPath())) {
             path = "/";
-
-            uri = uri.buildUpon()
-                    .path(path).build();
         }
 
         try {
             assertAbsolute(path);
         } catch (FileNotFoundException e) {
             return null;
+        }
+
+        path = canonString(path);
+
+        if (!path.equals(uri.getPath())) {
+            uri = uri.buildUpon()
+                    .path(path).build();
         }
 
         if (!checkAccess(uri, "r")) {
@@ -431,7 +435,9 @@ public final class PublicProvider extends ContentProvider {
     @Nullable
     @Override
     public ParcelFileDescriptor openFile(@NonNull Uri uri, @NonNull String requestedMode, CancellationSignal signal) throws FileNotFoundException {
-        assertAbsolute(uri.getPath());
+        String path = uri.getPath();
+
+        assertAbsolute(path);
 
         final int readableMode = ParcelFileDescriptor.parseMode(requestedMode);
 
@@ -439,6 +445,13 @@ public final class PublicProvider extends ContentProvider {
             final Thread theThread = Thread.currentThread();
 
             signal.setOnCancelListener(theThread::interrupt);
+        }
+
+        path = canonString(path);
+
+        if (!path.equals(uri.getPath())) {
+            uri = uri.buildUpon()
+                    .path(path).build();
         }
 
         try {
@@ -466,9 +479,7 @@ public final class PublicProvider extends ContentProvider {
                 openFlags = OS.O_RDWR;
             }
 
-            final String canonDocumentId = canonString(uri.getPath());
-
-            @Fd int fd = rooted.open(canonDocumentId, openFlags, 0);
+            @Fd int fd = rooted.open(path, openFlags, 0);
 
             return ParcelFileDescriptor.adoptFd(fd);
         } catch (IOException e) {

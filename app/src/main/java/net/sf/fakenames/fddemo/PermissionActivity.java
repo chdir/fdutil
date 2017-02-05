@@ -182,11 +182,11 @@ public final class PermissionActivity extends BaseActivity {
     private String accessPattern(String access) {
         final int accessMode = ParcelFileDescriptor.parseMode(access);
 
-        if ((accessMode & ParcelFileDescriptor.MODE_READ_ONLY) == ParcelFileDescriptor.MODE_READ_ONLY) {
+        if ((accessMode & ParcelFileDescriptor.MODE_READ_ONLY) == accessMode) {
             return "read";
         }
 
-        if ((accessMode & ParcelFileDescriptor.MODE_WRITE_ONLY) == ParcelFileDescriptor.MODE_WRITE_ONLY) {
+        if ((accessMode & ParcelFileDescriptor.MODE_WRITE_ONLY) == accessMode) {
             return "write";
         }
 
