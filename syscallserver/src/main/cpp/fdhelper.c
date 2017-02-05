@@ -156,7 +156,7 @@ static int ancil_recv_fds_with_buffer(int sock, int fdCount, int *fds)
         }
 
         if (cmsg->cmsg_type == SCM_RIGHTS) {
-            LOG("Descriptor: %d", ((int *) CMSG_DATA(cmsg))[0]);
+            if (verbose) LOG("Descriptor: %d", ((int *) CMSG_DATA(cmsg))[0]);
 
             fds[i] = ((int *) CMSG_DATA(cmsg))[0];
         }
@@ -294,7 +294,7 @@ static void fixPolicy(const char* context) {
 
     patch_state_t ret = issue_indulgence(context, &pf, &fp);
 
-    munmap(newPolicy, pf.size);
+    munmap(pf.data, pf.size);
     close(outFd);
 
     switch (ret) {
@@ -304,6 +304,7 @@ static void fixPolicy(const char* context) {
             } else {
                 LOG("Yay!");
             }
+            break;
         case ALREADY_PATCHED:
             LOG("policy is already suitable, nothing to do");
         default:
@@ -313,8 +314,6 @@ static void fixPolicy(const char* context) {
     free(newPolicy);
     return;
 }
-
-#include <linux/capability.h>
 
 #define _LINUX_CAPABILITY_VERSION_3 0x20080522
 
@@ -347,7 +346,7 @@ static void initFileContext(int sock, const char* context) {
         sys_setfsgid(creds.gid);
 
         if (sys_capset(hp, d)) {
-            DieWithError("Failed to restore capabilities");
+            DieWithError("Failed to restore caps");
         }
     }
 
@@ -355,6 +354,14 @@ static void initFileContext(int sock, const char* context) {
     free(d);
 
     fixPolicy(context);
+
+    FILE* oom_adj = fopen("/proc/self/oom_score_adj", "w");
+    if (oom_adj != NULL) {
+        LOG("Adjusting score to -1000", context);
+
+        fputs("-1000", oom_adj);
+        fclose(oom_adj);
+    }
 
     char fsCreatePathBuf[42];
 
@@ -532,9 +539,9 @@ static void invoke_openat(int sock) {
 
     int targetFd;
     if (filepath[0] == '/') {
-        targetFd = sys_open(filepath, flags, S_IRWXU | S_IRWXG);
+        targetFd = sys_open(filepath, O_NONBLOCK | flags, S_IRWXU | S_IRWXG);
     } else {
-        targetFd = sys_openat(receivedFd, filepath, flags, S_IRWXU | S_IRWXG);
+        targetFd = sys_openat(receivedFd, filepath, O_NONBLOCK | flags, S_IRWXU | S_IRWXG);
     }
 
     if (targetFd > 0) {
@@ -568,7 +575,7 @@ static void invoke_add_watch(int sock) {
 
     sprintf(addWatchBuff, "/proc/self/fd/%d", fds[1]);
 
-    LOG("Resolving %s", addWatchBuff);
+    if (verbose) LOG("Resolving %s", addWatchBuff);
 
     size_t filenameSize = 1024 * 4;
     char* readLinkBuf;
@@ -1071,7 +1078,7 @@ int main(int argc, char *argv[]) {
         exit(myuid);
     }
 
-    verbose = 1;
+    verbose = 0;
 
     if (sys_mount("proc", "/proc", "procfs", MS_REMOUNT, "hidepid=0")) {
         LOG("Failed to remount /proc: %s", strerror(errno));
@@ -1093,7 +1100,7 @@ int main(int argc, char *argv[]) {
         if (scanf("%d", &reqType) != 1)
             DieWithError("reading a request type failed");
 
-        LOG("Request type is %d", reqType);
+        if (verbose) LOG("Request type is %d", reqType);
 
         switch (reqType) {
             case REQ_TYPE_OPEN:

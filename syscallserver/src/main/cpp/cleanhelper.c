@@ -42,7 +42,10 @@ static inline size_t get_len_with_checks(policy_file_t* fp, size_t* value) {
         return 1;
     }
 
-    *value = le32_to_cpu(*(uint32_t*)(fp->data));
+    uint32_t tmp;
+    memcpy(&tmp, fp->data, sizeof(uint32_t));
+
+    *value = le32_to_cpu(tmp);
 
     if (zero_or_saturated(*value)) {
         return 1;
@@ -59,7 +62,10 @@ static inline size_t get_len(policy_file_t* fp, uint32_t* value) {
         return 1;
     }
 
-    *value = le32_to_cpu(*(uint32_t*)(fp->data));
+    uint32_t tmp;
+    memcpy(&tmp, fp->data, sizeof(uint32_t));
+
+    *value = le32_to_cpu(tmp);
 
     fp -> data += sizeof(uint32_t);
     fp -> len -= sizeof(uint32_t);
@@ -528,6 +534,8 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
         return PATCH_ERR_RO;
     }
 
+    patch_state_t result = PATCH_ERR_RO;
+
     void* permissives_end = fp -> data;
 
     for (i = 0; i < SYM_TYPES; i++) {
@@ -539,7 +547,7 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
         nel = le32_to_cpu(buf[1]);
         if (nel && !nprim) {
             LOG("unexpected items in symbol table with no symbol");
-            return PATCH_ERR_RO;
+            goto cleanup;
         }
 
         LOG("Table at %d has %d entries", i, nel);
@@ -549,7 +557,7 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
 
             if (skip_f[i](fp, r_policyvers)) {
                 LOG("unable to skip table at %d : %d, bailing", i, j);
-                return PATCH_ERR_RO;
+                goto cleanup;
             }
         }
     }
@@ -557,7 +565,7 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
     uint32_t desirableTypeId;
     if (lookup_type(fp, r_policyvers, type_name, &desirableTypeId)) {
         LOG("Failed to locate %s in type table, aborting", type_name);
-        return PATCH_ERR_RO;
+        goto cleanup;
     }
 
     LOG("Found %s under id %u", type_name, desirableTypeId);
@@ -565,7 +573,7 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
     if (!ebitmap_get_bit(&foobar, desirableTypeId)) {
         if (ebitmap_set_bit(&foobar, desirableTypeId, 1)) {
             LOG("Could not set bit in permissive map");
-            return PATCH_ERR_RO;
+            goto cleanup;
         }
 
         size_t initialSegment = fixed_header_end - oldPolicy;
@@ -580,7 +588,7 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
 
         if (ebitmap_write(&foobar, newPolicyFile)) {
             LOG("Failed to write down new permissives map");
-            return PATCH_ERR_RO;
+            goto cleanup;
         }
 
         void* dataNow = newPolicyFile -> data;
@@ -599,10 +607,15 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
 
         newPolicyFile -> data = newPolicy;
 
-        return PATCH_DONE;
+        result = PATCH_DONE;
     } else {
         LOG("%s is already permissive", type_name);
 
-        return ALREADY_PATCHED;
+        result = ALREADY_PATCHED;
     }
+
+cleanup:
+    ebitmap_destroy(&foobar);
+
+    return result;
 }
