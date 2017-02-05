@@ -1,6 +1,5 @@
 package net.sf.fakenames.fddemo;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -10,7 +9,6 @@ import android.os.Handler;
 import android.os.ParcelFileDescriptor;
 import android.support.v4.os.ResultReceiver;
 import android.text.Spannable;
-import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
@@ -76,9 +74,9 @@ public final class PermissionActivity extends BaseActivity {
         allow.setText(R.string.allow);
         deny.setText(R.string.deny);
 
-        CharSequence name = null;
+        CharSequence name;
 
-        String packageNames[] = null;
+        String packageNames[];
 
         final PackageManager pm = getPackageManager();
         if (TextUtils.isEmpty(packageName)) {
@@ -184,15 +182,15 @@ public final class PermissionActivity extends BaseActivity {
     private String accessPattern(String access) {
         final int accessMode = ParcelFileDescriptor.parseMode(access);
 
-        if ((accessMode & ParcelFileDescriptor.MODE_READ_WRITE) != 0) {
-            return "full";
+        if ((accessMode & ParcelFileDescriptor.MODE_READ_ONLY) == ParcelFileDescriptor.MODE_READ_ONLY) {
+            return "read";
         }
 
-        if ((accessMode & ParcelFileDescriptor.MODE_WRITE_ONLY) != 0) {
+        if ((accessMode & ParcelFileDescriptor.MODE_WRITE_ONLY) == ParcelFileDescriptor.MODE_WRITE_ONLY) {
             return "write";
         }
 
-        return "read";
+        return "full";
     }
 
     @OnClick(android.R.id.button1)
