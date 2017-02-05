@@ -7,6 +7,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
 
+import static net.sf.fakenames.fddemo.provider.ProviderBase.removeDotSegments;
 import static org.junit.Assert.*;
 
 /**
@@ -23,7 +24,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(badPath);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/fstab.zram".contentEquals(sb));
     }
@@ -34,7 +35,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(proc);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/".contentEquals(sb));
     }
@@ -45,7 +46,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(proc);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/".contentEquals(sb));
     }
@@ -56,7 +57,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(proc);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/proc/".contentEquals(sb));
     }
@@ -67,7 +68,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(proc);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/proc/".contentEquals(sb));
     }
@@ -78,7 +79,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(badPath);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/proc/vmstat".contentEquals(sb));
     }
@@ -89,7 +90,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(badPath);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/proc/self/".contentEquals(sb));
     }
@@ -100,7 +101,7 @@ public class ExampleUnitTest {
 
         final StringBuilder sb = new StringBuilder(badPath);
 
-        FileProvider.removeDotSegments(sb);
+        removeDotSegments(sb);
 
         assertTrue("/proc/tty/driver".contentEquals(sb));
     }
