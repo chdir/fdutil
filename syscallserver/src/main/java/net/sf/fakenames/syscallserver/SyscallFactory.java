@@ -33,7 +33,6 @@ import com.carrotsearch.hppc.ObjectArrayList;
 
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
-import net.sf.fdlib.FsType;
 import net.sf.fdlib.InotifyFd;
 import net.sf.fdlib.InotifyImpl;
 import net.sf.fdlib.LogUtil;
@@ -207,169 +206,171 @@ public final class SyscallFactory implements Closeable {
      */
     @WorkerThread
     public @NonNull ParcelFileDescriptor open(File file, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
         return FdCompat.adopt(openFileDescriptor(file, mode));
-    }
-
-    @WorkerThread
-    public void mkdirat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
-        try {
-            mkdirInternal(pfd, filepath, mode);
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @WorkerThread
-    public boolean faccessat(int fd, String pathname, int mode) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
-        try {
-            return faccessInternal(pfd, pathname, mode);
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @WorkerThread
-    public void unlinkat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
-        try {
-            unlinkInternal(pfd, filepath, mode);
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @CheckResult
-    @WorkerThread
-    public int inotify_add_watch(InotifyImpl inotify, @InotifyFd int target, @Fd int pathnameFd) throws IOException, FactoryBrokenException {
-        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(target);
-             ParcelFileDescriptor pfd2 = ParcelFileDescriptor.fromFd(pathnameFd)) {
-            return addWatchInternal(inotify, pfd, pfd2);
-        }
-    }
-
-    @WorkerThread
-    public void renameat(@DirFd int from, String pathname1, @DirFd int to, String pathname2) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
-        try {
-            ParcelFileDescriptor pfd1;
-
-            if (from == to) {
-                pfd1 = pfd2;
-            } else if (from < 0) {
-                if (to < 0) {
-                    pfd1 = null;
-                } else {
-                    pfd1 = pfd2;
-                }
-            } else {
-                pfd1 = ParcelFileDescriptor.fromFd(from);
-            }
-
-            try {
-                renameInternal(pfd1, pathname1, pfd2, pathname2);
-            } finally {
-                shut(pfd2);
-            }
-        } finally {
-            shut(pfd2);
-        }
-    }
-
-    @WorkerThread
-    public void linkat(@DirFd int from, String pathname1, @DirFd int to, String pathname2, int flags) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
-        try {
-            ParcelFileDescriptor pfd1;
-
-            if (from == to) {
-                pfd1 = pfd2;
-            } else if (from < 0) {
-                if (to < 0) {
-                    pfd1 = null;
-                } else {
-                    pfd1 = pfd2;
-                }
-            } else {
-                pfd1 = ParcelFileDescriptor.fromFd(from);
-            }
-
-            try {
-                linkInternal(pfd1, pathname1, pfd2, pathname2, flags);
-            } finally {
-                shut(pfd1);
-            }
-        } finally {
-            shut(pfd2);
-        }
-    }
-
-    @WorkerThread
-    public void mknodat(int fd, String pathname, int mode, int device) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
-        try {
-            mknodInternal(pfd, pathname, mode, device);
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @NonNull
-    @CheckResult
-    @WorkerThread
-    public String readlinkat(int target, String name) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = target < 0 ? null : ParcelFileDescriptor.fromFd(target);
-        try {
-            return readlinkInternal(pfd, name);
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @WorkerThread
-    public @NonNull ParcelFileDescriptor open(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
-        return FdCompat.adopt(openInternal(null, filepath, mode));
-    }
-
-    @WorkerThread
-    public @NonNull ParcelFileDescriptor openat(@DirFd int fd, String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
-        try {
-            return FdCompat.adopt(openInternal(pfd, filepath, mode));
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @WorkerThread
-    public void fstatat(@DirFd int dir, String pathname, Stat stat, int flags) throws IOException, FactoryBrokenException {
-        final ParcelFileDescriptor pfd = dir < 0 ? null : ParcelFileDescriptor.fromFd(dir);
-        try {
-            fstatInternal(pfd, pathname, stat, flags);
-        } finally {
-            shut(pfd);
-        }
-    }
-
-    @WorkerThread
-    public @NonNull ParcelFileDescriptor creat(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
-        return FdCompat.adopt(creatInternal(filepath, mode));
     }
 
     @NonNull FileDescriptor openFileDescriptor(File file, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         return openInternal(null, file.getPath(), mode);
     }
 
-    private int addWatchInternal(InotifyImpl inotify, ParcelFileDescriptor pfd, ParcelFileDescriptor pathnameFd) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
+    @WorkerThread
+    public @NonNull ParcelFileDescriptor open(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
+        return FdCompat.adopt(openInternal(null, filepath, mode));
+    }
+
+    @WorkerThread
+    public @NonNull ParcelFileDescriptor openat(@DirFd int fd, String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+
+        return FdCompat.adopt(openInternal(pfd, filepath, mode));
+    }
+
+    @WorkerThread
+    public void mkdirat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+
+        mkdirInternal(pfd, filepath, mode);
+    }
+
+    @WorkerThread
+    public boolean faccessat(int fd, String pathname, int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+
+        return faccessInternal(pfd, pathname, mode);
+    }
+
+    @WorkerThread
+    public void unlinkat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+
+        unlinkInternal(pfd, filepath, mode);
+    }
+
+    @CheckResult
+    @WorkerThread
+    public int inotify_add_watch(InotifyImpl inotify, @InotifyFd int target, @Fd int pathnameFd) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(target);
+        final ParcelFileDescriptor pfd2 = ParcelFileDescriptor.fromFd(pathnameFd);
+
+        return addWatchInternal(inotify, pfd, pfd2);
+    }
+
+    @WorkerThread
+    public void renameat(@DirFd int from, String pathname1, @DirFd int to, String pathname2) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
+
+        final ParcelFileDescriptor pfd1;
+
+        if (from == to) {
+            pfd1 = pfd2;
+        } else if (from < 0) {
+            if (to < 0) {
+                pfd1 = null;
+            } else {
+                pfd1 = pfd2;
+            }
+        } else {
+            pfd1 = ParcelFileDescriptor.fromFd(from);
+        }
+
+        renameInternal(pfd1, pathname1, pfd2, pathname2);
+    }
+
+    @WorkerThread
+    public void linkat(@DirFd int from, String pathname1, @DirFd int to, String pathname2, int flags) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
+
+        final ParcelFileDescriptor pfd1;
+
+        if (from == to) {
+            pfd1 = pfd2;
+        } else if (from < 0) {
+            if (to < 0) {
+                pfd1 = null;
+            } else {
+                pfd1 = pfd2;
+            }
+        } else {
+            pfd1 = ParcelFileDescriptor.fromFd(from);
+        }
+
+        linkInternal(pfd1, pathname1, pfd2, pathname2, flags);
+    }
+
+    @WorkerThread
+    public void mknodat(int fd, String pathname, int mode, int device) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
+
+        mknodInternal(pfd, pathname, mode, device);
+    }
+
+    @NonNull
+    @CheckResult
+    @WorkerThread
+    public String readlinkat(int target, String name) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = target < 0 ? null : ParcelFileDescriptor.fromFd(target);
+
+        return readlinkInternal(pfd, name);
+    }
+
+    @WorkerThread
+    public void fstatat(@DirFd int dir, String pathname, Stat stat, int flags) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final ParcelFileDescriptor pfd = dir < 0 ? null : ParcelFileDescriptor.fromFd(dir);
+
+        fstatInternal(pfd, pathname, stat, flags);
+    }
+
+    @WorkerThread
+    public @NonNull ParcelFileDescriptor creat(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        return FdCompat.adopt(creatInternal(filepath, mode));
+    }
+
+    private boolean enqueue(FdReq request) throws InterruptedException {
+        boolean result = false;
+
+        try {
+            result = intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS);
+        } finally {
+            if (!result) {
+                request.close();
+            }
+        }
+
+        return result;
+    }
+
+    private int addWatchInternal(InotifyImpl inotify, ParcelFileDescriptor pfd, ParcelFileDescriptor pathnameFd) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new AddWatch(inotify, pfd, pathnameFd);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     try {
@@ -397,14 +398,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private boolean faccessInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new FaccessReq(fd, path, mode);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     switch (response.message == null ? "" : response.message) {
@@ -435,14 +433,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private void unlinkInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new UnlinkReq(fd, path, mode);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if ("READY".equals(response.message)) {
@@ -468,14 +463,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private void renameInternal(ParcelFileDescriptor pfd1, String pathname1, ParcelFileDescriptor pfd2, String pathname2) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new RenameReq(pfd1, pathname1, pfd2, pathname2);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if ("READY".equals(response.message)) {
@@ -501,14 +493,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private void linkInternal(ParcelFileDescriptor pfd1, String pathname1, ParcelFileDescriptor pfd2, String pathname2, int flags) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new LinkReq(pfd1, pathname1, pfd2, pathname2, flags);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if ("READY".equals(response.message)) {
@@ -534,14 +523,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private void fstatInternal(ParcelFileDescriptor pfd, String pathname, Stat stat, int flags) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new FstatReq(pfd, pathname, flags);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if (response.message == null) {
@@ -571,14 +557,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private void mknodInternal(ParcelFileDescriptor pfd, String pathname, int mode, int device) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new MknodReq(pfd, pathname, mode, device);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if ("READY".equals(response.message)) {
@@ -604,14 +587,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private void mkdirInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new MkdirReq(fd, path, mode);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if ("READY".equals(response.message)) {
@@ -637,14 +617,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private FileDescriptor openInternal(ParcelFileDescriptor fd, String path, int mode) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new OpenReq(fd, path, mode);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.fd != null) {
                     if (response.request == request) {
@@ -674,14 +651,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private FileDescriptor creatInternal(String path, int mode) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new CreatReq(path, mode);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.fd != null) {
                     if (response.request == request) {
@@ -711,14 +685,11 @@ public final class SyscallFactory implements Closeable {
     }
 
     private String readlinkInternal(ParcelFileDescriptor pfd, String name) throws FactoryBrokenException, IOException {
-        if (closedStatus.get())
-            throw new FactoryBrokenException("Already closed");
-
         final FdReq request = serverThread.new ReadLinkReq(pfd, name);
 
         FdResp response;
         try {
-            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+            if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.message != null) {
                     if (response.message.startsWith("/")) {
@@ -758,10 +729,10 @@ public final class SyscallFactory implements Closeable {
             if (serverThread != null) {
                 serverThread.interrupt();
 
-                do {
-                    intake.clear();
+                while (!intake.offer(FdReq.STOP)) {
+                    final FdReq stale = intake.poll();
+                    stale.close();
                 }
-                while (!intake.offer(FdReq.STOP));
             }
         }
     }
@@ -986,7 +957,11 @@ public final class SyscallFactory implements Closeable {
         }
 
         private FdResp sendFdRequest(FdReq fileOps, CachingWriter req, ReadableByteChannel rvc, WritableByteChannel wbc, LocalSocket ls) throws IOException {
-            fileOps.writeRequest(req, wbc, ls);
+            try {
+                fileOps.writeRequest(req, wbc, ls);
+            } finally {
+                fileOps.close();
+            }
 
             return fileOps.readResponse(rvc, ls);
         }
@@ -1521,7 +1496,7 @@ public final class SyscallFactory implements Closeable {
         }
     }
 
-    private static class FdReq {
+    private static class FdReq implements Closeable {
         static FdReq STOP = new FdReq(0, null, 0);
 
         static FdReq PLACEHOLDER = new FdReq(0, null, 0);
@@ -1562,7 +1537,11 @@ public final class SyscallFactory implements Closeable {
         }
 
         public void close() {
-            // nothing, callers must take care of closing everything themselves
+            if (outboundFd != null) {
+                for (ParcelFileDescriptor ofd : outboundFd) {
+                    shut(ofd);
+                }
+            }
         }
 
         @Override
