@@ -831,7 +831,7 @@ public final class SyscallFactory implements Closeable {
 
             final Matcher m = Pattern.compile("(?:.*)PID:(\\d+)").matcher(greeting);
 
-            if (!m.matches())
+            if (!m.find())
                 throw new IOException("Can't get helper PID" + (greeting.length() == 0 ? "" : " : " + greeting));
 
             return Integer.valueOf(m.group(1));
