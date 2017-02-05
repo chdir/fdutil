@@ -2,7 +2,6 @@ package net.sf.fakenames.fddemo.provider;
 
 import android.annotation.SuppressLint;
 import android.content.ContentResolver;
-import android.content.res.AssetFileDescriptor;
 import android.database.CharArrayBuffer;
 import android.database.ContentObservable;
 import android.database.ContentObserver;
@@ -22,14 +21,10 @@ import android.provider.DocumentsContract;
 import android.provider.DocumentsProvider;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.util.Pools;
-import android.text.TextUtils;
 import android.util.Log;
-import android.webkit.MimeTypeMap;
 
 import net.sf.fakenames.fddemo.BaseDirLayout;
 import net.sf.fakenames.fddemo.R;
-import net.sf.fakenames.fddemo.RootSingleton;
 import net.sf.fdlib.CrappyDirectory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
@@ -57,9 +52,10 @@ import static android.provider.DocumentsContract.Document.*;
 import static android.provider.DocumentsContract.Root.FLAG_LOCAL_ONLY;
 import static android.provider.DocumentsContract.Root.FLAG_SUPPORTS_CREATE;
 import static android.provider.DocumentsContract.Root.FLAG_SUPPORTS_IS_CHILD;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.*;
 
 @SuppressLint("InlinedApi")
-public class FileProvider extends DocumentsProvider {
+public final class FileProvider extends DocumentsProvider {
     public static final String DEFAULT_MIME = "application/octet-stream";
 
     public static final String AUTHORITY = "net.sf.fddemo.files";
@@ -75,9 +71,9 @@ public class FileProvider extends DocumentsProvider {
             DocumentsContract.Root.COLUMN_FLAGS,
             DocumentsContract.Root.COLUMN_ICON,
             DocumentsContract.Root.COLUMN_TITLE,
-    });
+    }, 1);
 
-    private static final String[] DOCUMENT_PROJECTION  = new String[] {
+    private final String[] DOCUMENT_PROJECTION  = new String[] {
             COLUMN_DOCUMENT_ID,
             COLUMN_DISPLAY_NAME,
             COLUMN_MIME_TYPE,
@@ -86,7 +82,7 @@ public class FileProvider extends DocumentsProvider {
             COLUMN_SIZE,
     };
 
-    private volatile OS rooted;
+    private volatile ProviderBase base;
 
     private volatile MountInfo mountInfo;
 
@@ -95,18 +91,6 @@ public class FileProvider extends DocumentsProvider {
     private volatile Inotify inotify;
 
     private volatile SelectorThread selectorThread;
-
-    private OS getOS() {
-        if (rooted == null) {
-            synchronized (this) {
-                if (rooted == null) {
-                    reset();
-                }
-            }
-        }
-
-        return rooted;
-    }
 
     private Inotify getInotify() {
         if (inotify == null) {
@@ -121,14 +105,10 @@ public class FileProvider extends DocumentsProvider {
     }
 
     private void reset() {
-        try {
-            if (inotify != null || rooted != null) {
-                throw new AssertionError();
-            }
+        final OS os = base.getOS();
 
-            rooted = RootSingleton.get(getContext());
-
-            inotify = rooted.observe(inotifyFd, Looper.getMainLooper());
+        if (os != null) {
+            inotify = os.observe(inotifyFd, Looper.getMainLooper());
 
             mainThreadHandler.post(() -> {
                 try {
@@ -138,9 +118,6 @@ public class FileProvider extends DocumentsProvider {
                     e.printStackTrace();
                 }
             });
-        } catch (IOException e) {
-            e.printStackTrace();
-            // ok
         }
     }
 
@@ -169,6 +146,8 @@ public class FileProvider extends DocumentsProvider {
     }
 
     private void initResources() throws IOException {
+        base = new ProviderBase(getContext(), AUTHORITY);
+
         final OS os = OS.getInstance();
 
         @Fd int mountsFd = os.open("/proc/self/mountinfo", OS.O_RDONLY, 0);
@@ -190,151 +169,90 @@ public class FileProvider extends DocumentsProvider {
         return ROOT;
     }
 
-    @SuppressWarnings("SimplifiableIfStatement")
-    public static boolean mimeTypeMatches(String filter, String test) {
-        if (test == null) {
-            return false;
-        } else if (filter == null || "*/*".equals(filter)) {
-            return true;
-        } else if (filter.equals(test)) {
-            return true;
-        } else if (filter.endsWith("/*")) {
-            return filter.regionMatches(0, test, 0, filter.indexOf('/'));
-        } else {
-            return false;
-        }
-    }
-
+    @Nullable
     @Override
-    public String[] getDocumentStreamTypes(String documentId, String mimeTypeFilter) {
+    public String[] getStreamTypes(@NonNull Uri uri, @NonNull String mimeTypeFilter) {
         try {
-            final String docType = getDocumentType(documentId);
-
-            if (mimeTypeMatches(mimeTypeFilter, docType)) {
-                return new String[] { docType };
-            }
-        } catch (FileNotFoundException ignored) {
-            ignored.printStackTrace();
+            base.assertAbsolute(uri);
+        } catch (FileNotFoundException e) {
+            return null;
         }
 
-        return null;
+        return base.getStreamTypes(canonString(uri.getPath()), mimeTypeFilter);
     }
 
     @Override
     public String getDocumentType(String documentId) throws FileNotFoundException {
-        final OS os = getOS();
-
+        final OS os = base.getOS();
         if (os == null) {
             throw new FileNotFoundException("Failed to stat a document, unable to acquire root access");
         }
 
         try {
-            int fd = os.open(documentId, OS.O_RDONLY, 0);
-            try {
-                final Stat s = new Stat();
+            documentId = canonString(documentId);
 
-                os.fstat(fd, s);
+            final String name = extractName(documentId);
 
-                return getDocType(documentId, s);
-            } finally {
-                os.dispose(fd);
-            }
+            return base.getTypeFast(documentId, name, new Stat());
         } catch (IOException e) {
             throw new FileNotFoundException(e.getMessage());
         }
     }
 
-    public static String getDocType(String documentId, Stat stat) {
-        if (stat.type == FsType.DIRECTORY) {
-            return MIME_TYPE_DIR;
-        }
-
-        final int dot = documentId.lastIndexOf('.');
-
-        if (dot != -1) {
-            final String extension = MimeTypeMap.getFileExtensionFromUrl(documentId);
-
-            if (!TextUtils.isEmpty(extension)) {
-                MimeTypeMap map = MimeTypeMap.getSingleton();
-
-                final String foundMime = map.getMimeTypeFromExtension(extension);
-
-                if (!TextUtils.isEmpty(foundMime)) {
-                    return foundMime;
-                }
-            }
-        }
-
-        return DEFAULT_MIME;
-    }
-
     @Override
     public Cursor queryDocument(String documentId, String[] projection) throws FileNotFoundException {
+        assertAbsolute(documentId);
+
+        final OS rooted = base.getOS();
+        if (rooted == null) {
+            return null;
+        }
+
+        Log.e("Detailing", "Detailing " + documentId);
+
         if (projection == null) {
             projection = DOCUMENT_PROJECTION;
         }
 
-        try {
-            final OS rooted = getOS();
+        final MatrixCursor result = new MatrixCursor(projection, 1);
 
-            if (rooted == null) {
-                return null;
-            }
+        final Object[] row = new Object[projection.length];
 
-            @Fd int fd = rooted.open(documentId, OS.O_RDONLY, 0);
-            try {
-                final Stat stat = new Stat();
-                rooted.fstat(fd, stat);
+        documentId = canonString(documentId);
 
-                final MatrixCursor result = new MatrixCursor(projection);
+        final Stat stat = new Stat();
+        final String name = extractName(documentId);
+        final String mime = base.getTypeFast(documentId, name, stat);
 
-                final Object[] row = new Object[projection.length];
+        for (int i = 0; i < projection.length; ++i) {
+            String column = projection[i];
 
-                String canon = canonString(documentId);
-                String name = extractName(canon);
-
-                Log.e("Detailing", "Detailing " + documentId);
-
-                for (int i = 0; i < projection.length; ++i) {
-                    String column = projection[i];
-
-                    switch (column) {
-                        case COLUMN_DOCUMENT_ID:
-                            row[i] = canon;
-                            break;
-                        case COLUMN_DISPLAY_NAME:
-                            row[i] = name;
-
-                            break;
-                        case COLUMN_MIME_TYPE:
-                            if (stat.type == FsType.DIRECTORY) {
-                                row[i] = MIME_TYPE_DIR;
-                            } else {
-                                row[i] = getDocumentType(documentId);
-                            }
-                            break;
-                        case COLUMN_FLAGS:
-                            if (stat.type == FsType.DIRECTORY) {
-                                row[i] = DIR_DEFAULT_FLAGS;
-                            } else {
-                                row[i] = FILE_DEFAULT_FLAGS;
-                            }
-                            break;
-                        case COLUMN_SIZE:
-                            row[i] = stat.st_size;
-                            break;
+            switch (column) {
+                case COLUMN_DOCUMENT_ID:
+                    row[i] = documentId;
+                    break;
+                case COLUMN_DISPLAY_NAME:
+                    row[i] = name;
+                    break;
+                case COLUMN_MIME_TYPE:
+                    row[i] = mime;
+                    break;
+                case COLUMN_FLAGS:
+                    if (stat.type == FsType.DIRECTORY) {
+                        row[i] = DIR_DEFAULT_FLAGS;
+                    } else {
+                        row[i] = FILE_DEFAULT_FLAGS;
                     }
-                }
-
-                result.addRow(row);
-
-                return result;
-            } finally {
-                rooted.dispose(fd);
+                    break;
+                case COLUMN_SIZE:
+                    row[i] = stat.st_size;
+                    break;
             }
-        } catch (IOException e) {
-            throw new FileNotFoundException("Unable to stat " + documentId + ": " + e.getMessage());
         }
+
+        result.addRow(row);
+
+        return result;
     }
 
     @Nullable
@@ -343,8 +261,7 @@ public class FileProvider extends DocumentsProvider {
         assertAbsolute(documentId);
         assertFilename(displayName);
 
-        final OS os = getOS();
-
+        final OS os = base.getOS();
         if (os == null) {
             throw new FileNotFoundException("Failed to rename a document, unable to acquire root access");
         }
@@ -352,7 +269,7 @@ public class FileProvider extends DocumentsProvider {
         final String canonPath = canonString(documentId);
 
         if (canonPath.length() < 2) {
-            throw new FileNotFoundException("Attempting to rename '" + canonPath + '\'');
+            throw new FileNotFoundException("Attempting to rename '/'");
         }
 
         try {
@@ -371,7 +288,7 @@ public class FileProvider extends DocumentsProvider {
 
                 return appendPathPart(parent, displayName);
             } finally {
-                rooted.dispose(parentFd);
+                os.dispose(parentFd);
             }
         } catch (IOException e) {
             throw new FileNotFoundException("Failed to rename a document. " + e.getMessage());
@@ -384,8 +301,7 @@ public class FileProvider extends DocumentsProvider {
         assertAbsolute(parentDocumentId);
         assertFilename(displayName);
 
-        final OS rooted = getOS();
-
+        final OS rooted = base.getOS();
         if (rooted == null) {
             throw new FileNotFoundException("Failed to create a document, unable to acquire root access");
         }
@@ -418,8 +334,7 @@ public class FileProvider extends DocumentsProvider {
         assertAbsolute(sourceParentDocumentId);
         assertAbsolute(targetParentDocumentId);
 
-        final OS rooted = getOS();
-
+        final OS rooted = base.getOS();
         if (rooted == null) {
             throw new FileNotFoundException("Unable to copy " + sourceDocumentId + ": can not acquire superuser access");
         }
@@ -477,8 +392,7 @@ public class FileProvider extends DocumentsProvider {
         assertAbsolute(sourceDocumentId);
         assertAbsolute(targetParentDocumentId);
 
-        final OS rooted = getOS();
-
+        final OS rooted = base.getOS();
         if (rooted == null) {
             throw new FileNotFoundException("Unable to copy " + sourceDocumentId + ": can not acquire superuser access");
         }
@@ -553,8 +467,7 @@ public class FileProvider extends DocumentsProvider {
     public void deleteDocument(String documentId) throws FileNotFoundException {
         assertAbsolute(documentId);
 
-        final OS os = getOS();
-
+        final OS os = base.getOS();
         if (os != null) {
             try {
                 final String canonDocument = canonString(documentId);
@@ -574,59 +487,6 @@ public class FileProvider extends DocumentsProvider {
                 throw new FileNotFoundException("Unable to delete " + documentId + ": " + e.getMessage());
             }
         }
-    }
-
-    public static boolean isCanon(String s) {
-        int l = s.length();
-
-        // check for dots at the end
-        if (s.charAt(l - 1) == '.') {
-            final int i = s.lastIndexOf('/');
-
-            if (i == l - 2 || (i == l - 3 && s.charAt(l - 2) == '.')) {
-                return false;
-            }
-        }
-
-        // detect slash-dot-slash segments
-        int start = 0; int idx;
-        do {
-            idx = s.indexOf('/', start);
-
-            if (idx == -1) {
-                break;
-            }
-
-            switch (l - idx) {
-                default:
-                case 4:
-                    // at least three more chars remaining to right
-                    if (s.charAt(idx + 1) == '.' && s.charAt(idx + 2) == '.' && s.charAt(idx + 3) == '/') {
-                        return false;
-                    }
-                case 3:
-                    // at least two more chars remaining to right
-                    if (s.charAt(idx + 1) == '.' && s.charAt(idx + 2) == '/') {
-                        return false;
-                    }
-                case 2:
-                    // at least one more char remaining to right
-                    if (s.charAt(idx + 1) == '/') {
-                        return false;
-                    }
-                case 1:
-            }
-
-            start += 2;
-        } while (start < l);
-
-        return true;
-    }
-
-    private static boolean isNormalized(String string) {
-        return !string.isEmpty() &&
-                string.charAt(0) == '/' &&
-                !(string.contains("/../") || string.endsWith("/.."));
     }
 
     @Override
@@ -653,46 +513,17 @@ public class FileProvider extends DocumentsProvider {
                 parentDocumentId = canonString(reuse);
             }
 
-            if (!documentId.startsWith(parentDocumentId)) {
-                return false;
-            }
-
-            final OS os = getOS();
-
-            if (os != null) {
-                try {
-                    // todo: actually verify that one contains another
-                    // e.g. check that all additional path elements in documentId are not links
-
-                    final int fdParent = os.open(parentDocumentId, OS.O_RDONLY, 0);
-                    try {
-                    } finally {
-                        os.dispose(fdParent);
-                    }
-
-                    final int fdChild = os.open(parentDocumentId, OS.O_RDONLY, 0);
-                    try {
-                    } finally {
-                        os.dispose(fdChild);
-                    }
-
-                    return true;
-                } catch (IOException e) {
-                    LogUtil.logCautiously("Error during invocation of isChildDocument", e);
-                }
-            }
+            return documentId.startsWith(parentDocumentId);
         } finally {
             if (reuse != null) {
                 release(reuse);
             }
         }
-
-        return false;
     }
 
     @Override
     public Cursor queryChildDocuments(String parentDocumentId, String[] projection, String sortOrder) throws FileNotFoundException {
-        final OS os = getOS();
+        final OS os = base.getOS();
         final Inotify inotify = getInotify();
 
         if (os == null || inotify == null) {
@@ -732,7 +563,7 @@ public class FileProvider extends DocumentsProvider {
             directory = new CrappyDirectory(os.list(fd));
         }
 
-        final DirectoryCursor cursor = DirectoryCursor.create(os, inotify, fd, directory, projection, parentDocumentId);
+        final DirectoryCursor cursor = createDirCursor(os, inotify, fd, directory, projection, parentDocumentId);
 
         assert getContext() != null;
 
@@ -758,8 +589,7 @@ public class FileProvider extends DocumentsProvider {
         }
 
         try {
-            final OS rooted = getOS();
-
+            final OS rooted = base.getOS();
             if (rooted == null) {
                 throw new FileNotFoundException("Failed to open " + documentId + ": unable to acquire access");
             }
@@ -787,66 +617,6 @@ public class FileProvider extends DocumentsProvider {
             }
 
             Thread.interrupted();
-        }
-    }
-
-    static void assertAbsolute(String pathStr) throws FileNotFoundException {
-        if (pathStr.length() == 0) {
-            throw new FileNotFoundException("The path is empty");
-        }
-
-        if (pathStr.indexOf('\0') != -1) {
-            throw new FileNotFoundException("The file path contains illegal characters");
-        }
-
-        if (pathStr.charAt(0) != '/') {
-            throw new FileNotFoundException(pathStr + " is invalid in this context, must be absolute");
-        }
-    }
-
-    private static void assertFilename(String nameStr) throws FileNotFoundException {
-        if (nameStr.length() == 0) {
-            throw new FileNotFoundException("The name is empty");
-        }
-
-        if (nameStr.indexOf('\0') != -1) {
-            throw new FileNotFoundException("The file name contains illegal characters");
-        }
-
-        if (nameStr.indexOf('/') != -1) {
-            throw new FileNotFoundException(nameStr + " is not a valid filename, must not contain '/'");
-        }
-    }
-
-    public static String extractParent(String chars) {
-        final int lastSlash = chars.lastIndexOf('/');
-
-        switch (lastSlash) {
-            case 0:
-                return chars;
-            case -1:
-                // oops
-                LogUtil.swallowError(chars + " must have at least one slash!");
-
-                return null;
-            default:
-                return chars.substring(0, lastSlash + 1);
-        }
-    }
-
-    public static String extractName(String chars) {
-        final int lastSlash = chars.lastIndexOf('/');
-
-        switch (lastSlash) {
-            case 0:
-                return chars;
-            case -1:
-                // oops
-                LogUtil.swallowError(chars + " must have at least one slash!");
-
-                return null;
-            default:
-                return chars.substring(lastSlash + 1, chars.length());
         }
     }
 
@@ -884,147 +654,6 @@ public class FileProvider extends DocumentsProvider {
         return result;
     }
 
-    private static void stripSlashes(StringBuilder chars) {
-        int length = chars.length();
-
-        int prevSlash = -1;
-
-        for (int i = length - 1; i != 0; --i) {
-            if ('/' == chars.charAt(i)) {
-                if (prevSlash == i + 1) {
-                    chars.deleteCharAt(i);
-
-                    i++;
-                } else {
-                    prevSlash = i;
-                }
-            }
-        }
-    }
-
-
-    public static void removeDotSegments(StringBuilder chars) {
-        if (chars.charAt(0) != '/') return;
-
-        /**
-         *    /  proc   /  self   /    ..   /   vmstat
-         */
-        int seg1 = 0, seg2 = 0, seg3 = 0, seg4 = 0;
-
-        int segCnt = 0;
-
-        for (int i = 1; i < chars.length(); ++i) {
-            if ('/' == chars.charAt(i)) {
-                int segStart = 0;
-
-                switch (segCnt) {
-                    case 0: // seg2 == 0
-                        seg2 = i;
-
-                        segStart = seg1;
-
-                        ++segCnt;
-
-                        break;
-                    case 1: // seg3 = 0
-                        seg3 = i;
-
-                        segStart = seg2;
-
-                        ++segCnt;
-
-                        break;
-                    case 2: // seg4 = 0
-                        seg4 = i;
-
-                        segStart = seg3;
-
-                        ++segCnt;
-
-                        break;
-                    case 3: // seg4 > 0, carry
-                        seg1 = seg2;
-                        seg2 = seg3;
-                        seg3 = seg4;
-
-                        seg4 = i;
-
-                        segStart = seg3;
-                }
-
-                final int segLength = i - segStart;
-
-                switch (segLength) {
-                    default:
-                        break;
-                    case 2:
-                        if (chars.charAt(segStart + 1) == '.') {
-                            chars.delete(segStart, i);
-
-                            --segCnt;
-
-                            i = segStart;
-                        }
-                        break;
-                    case 3:
-                        if (chars.charAt(segStart + 1) == '.'
-                                && chars.charAt(segStart + 2) == '.') {
-                            final int prevSegmentStart;
-
-                            if (segCnt == 3) {
-                                prevSegmentStart = seg2;
-                                segCnt = 1;
-                            } else {
-                                prevSegmentStart = seg1;
-                                segCnt = 0;
-                            }
-
-                            chars.delete(prevSegmentStart, i);
-
-                            i = prevSegmentStart;
-                        }
-                }
-            }
-        }
-
-        final int resultLength = chars.length();
-
-        if ('/' != chars.charAt(resultLength - 1)) {
-            int lastSlash, prevSlash = 0;
-
-            switch (segCnt) {
-                case 3:
-                    lastSlash = seg4;
-                    prevSlash = seg3;
-                    break;
-                case 2:
-                    lastSlash = seg3;
-                    prevSlash = seg2;
-                    break;
-                case 1:
-                    lastSlash = seg2;
-                    prevSlash = seg1;
-                    break;
-                default:
-                    lastSlash = 0;
-            }
-
-            switch (resultLength - lastSlash) {
-                case 2:
-                    if (chars.charAt(lastSlash + 1) == '.') {
-                        chars.delete(lastSlash + 1, resultLength + 1);
-                    }
-                    break;
-                case 3:
-                    if (chars.charAt(lastSlash + 1) == '.'
-                            && chars.charAt(lastSlash + 2) == '.') {
-                        chars.delete(prevSlash + 1, resultLength + 1);
-                    }
-                    break;
-            }
-        }
-    }
-
     @Override
     public Uri canonicalize(Uri uri) {
         if (AUTHORITY.equals(uri.getAuthority())) {
@@ -1040,26 +669,6 @@ public class FileProvider extends DocumentsProvider {
         }
 
         return super.canonicalize(uri);
-    }
-
-    private static Pools.Pool<StringBuilder> builderPool = new Pools.SynchronizedPool<>(2);
-
-    private static StringBuilder acquire(int length) {
-        StringBuilder builder = builderPool.acquire();
-
-        if (builder == null) {
-            builder = new StringBuilder(length);
-        }
-
-        builder.ensureCapacity(length);
-
-        return builder;
-    }
-
-    private static void release(StringBuilder builder) {
-        builder.setLength(0);
-
-        builderPool.release(builder);
     }
 
     private Uri canonTree(Uri tree) {
@@ -1086,35 +695,18 @@ public class FileProvider extends DocumentsProvider {
         return DocumentsContract.buildDocumentUri(AUTHORITY, canonId);
     }
 
-    static String canonString(String path) {
-        if (isCanon(path)) return path;
-
-        final StringBuilder builder = acquire(path.length());
-
-        final String result;
-        try {
-            builder.append(path);
-
-            stripSlashes(builder);
-            removeDotSegments(builder);
-
-            result = builder.toString();
-        } finally {
-            release(builder);
-        }
-
-        return result;
-    }
-
-    private static String canonString(StringBuilder builder) {
-        stripSlashes(builder);
-        removeDotSegments(builder);
-        return builder.toString();
-    }
-
     private static final Handler mainThreadHandler = new Handler(Looper.getMainLooper());
 
-    private static class DirectoryCursor implements CrossProcessCursor, Inotify.InotifyListener {
+    public DirectoryCursor createDirCursor(OS os, Inotify inotify, @DirFd int dirFd, Directory directories, String[] columns, String path) {
+        final DirectoryCursor cursor = new DirectoryCursor(os, inotify, dirFd, directories, columns, path);
+
+        // the contract of Cursor requires the window to be filled right from start...
+        cursor.fillWindow(0, cursor.window);
+
+        return cursor;
+    }
+
+    private final class DirectoryCursor implements CrossProcessCursor, Inotify.InotifyListener {
         private final OS os;
         private final @DirFd int dirFd;
         private final Directory directory;
@@ -1124,10 +716,11 @@ public class FileProvider extends DocumentsProvider {
         private final Inotify inotify;
         private final CursorWindow window;
 
-        private final Stat stat = new Stat();
-
         private final DataSetObservable dataSetObservable = new DataSetObservable();
         private final ContentObservable contentObservable = new ContentObservable();
+
+        private final Directory.Entry reusable = new Directory.Entry();
+        private final Stat stat = new Stat();
 
         private volatile RefCountedWatch inotifySub;
         private volatile int count = -1;
@@ -1138,15 +731,6 @@ public class FileProvider extends DocumentsProvider {
         private final StringBuilder nameBuilder;
 
         private int position = -1;
-
-        public static DirectoryCursor create(OS os, Inotify inotify, @DirFd int dirFd, Directory directories, String[] columns, String path) {
-            final DirectoryCursor cursor = new DirectoryCursor(os, inotify, dirFd, directories, columns, path);
-
-            // the contract of Cursor requires the window to be filled right from start...
-            cursor.fillWindow(0, cursor.window);
-
-            return cursor;
-        }
 
         private DirectoryCursor(OS os, Inotify inotify, @DirFd int dirFd, Directory directory, String[] columns, String path) {
             this.os = os;
@@ -1271,8 +855,9 @@ public class FileProvider extends DocumentsProvider {
             window.setStartPosition(position);
             window.setNumColumns(numColumns);
             try {
-                final Directory.Entry reusable = new Directory.Entry();
-                final Stat stat = new Stat();
+                final boolean needName = hasColumn(COLUMN_DISPLAY_NAME) || hasColumn(COLUMN_DOCUMENT_ID);
+                final boolean needMime = hasColumn(COLUMN_MIME_TYPE) || hasColumn(COLUMN_FLAGS);
+                final boolean needSize = hasColumn(COLUMN_SIZE);
 
                 if (iterator.moveToPosition(position)) {
                     rowloop: do {
@@ -1282,33 +867,32 @@ public class FileProvider extends DocumentsProvider {
 
                         iterator.get(reusable);
 
-                        nameBuilder.setLength(0);
+                        String fullChildName = null;
+                        if (needName) {
+                            nameBuilder.setLength(0);
 
-                        nameBuilder.append(path);
+                            nameBuilder.append(path);
 
-                        if ('/' != nameBuilder.charAt(nameBuilder.length() - 1)) {
-                            nameBuilder.append('/');
+                            if ('/' != nameBuilder.charAt(nameBuilder.length() - 1)) {
+                                nameBuilder.append('/');
+                            }
+
+                            nameBuilder.append(reusable.name);
+
+                            fullChildName = canonString(nameBuilder);
+
+                            //Log.e("Listing", "Listing " + fullChildName + " as " + reusable.name);
                         }
 
-                        nameBuilder.append(reusable.name);
-
-                        final String fullChildName = canonString(nameBuilder);
-
-                        Log.e("Listing", "Listing " + fullChildName + " as " + reusable.name);
-
-                        try {
-                            int fd = os.openat(dirFd, reusable.name, OS.O_RDONLY, 0);
-                            try {
-                                os.fstat(fd, stat);
-                            } finally {
-                                os.dispose(fd);
-                            }
-                        } catch (IOException ioe) {
-                            // opening the child failed, fall back to safe defaults
+                        String mime = null;
+                        if (needMime) {
                             stat.type = reusable.type;
-                            stat.st_ino = reusable.ino;
                             stat.st_size = 0;
-                            stat.st_dev = Long.MIN_VALUE;
+                            stat.st_ino = reusable.ino;
+
+                            mime = base.getTypeFastest(dirFd, reusable.name, stat);
+                        } else if (needSize) {
+                            os.fstatat(dirFd, reusable.name, stat, 0);
                         }
 
                         for (int col = 0; col < numColumns; ++col) {
@@ -1337,10 +921,7 @@ public class FileProvider extends DocumentsProvider {
                                     break;
 
                                 case DocumentsContract.Document.COLUMN_MIME_TYPE:
-                                    final String type = getDocType(reusable.name, stat);
-
-                                    success = window.putString(type, position, col);
-
+                                    success = window.putString(mime, position, col);
                                     break;
 
                                 case DocumentsContract.Document.COLUMN_LAST_MODIFIED:
@@ -1361,6 +942,16 @@ public class FileProvider extends DocumentsProvider {
 
                 Log.e("error", "error during reading directory contents: " + e.getMessage());
             }
+        }
+
+        private boolean hasColumn(String col) {
+            for (String column : columns) {
+                if (col.equals(column)) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         @Override

@@ -1,10 +1,16 @@
 package net.sf.fdlib;
 
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
+import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 
 import com.carrotsearch.hppc.LongObjectHashMap;
 import com.carrotsearch.hppc.LongObjectMap;
+import com.carrotsearch.hppc.ObjectHashSet;
+import com.carrotsearch.hppc.ObjectSet;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -14,6 +20,8 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.NoSuchElementException;
 import java.util.Scanner;
+
+import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
 
 public class MountInfo {
     private static final ThreadLocal<ByteBuffer> throwawayBuffer = new ThreadLocal<ByteBuffer>() {
@@ -26,6 +34,8 @@ public class MountInfo {
     private final int mountinfo;
 
     public final LongObjectMap<Mount> mountMap = new LongObjectHashMap<>();
+
+    public final ObjectSet<String> nodev = new ObjectHashSet<>();
 
     public MountInfo(@Fd int mountinfo) throws IOException {
         this.mountinfo = mountinfo;
@@ -40,49 +50,44 @@ public class MountInfo {
     public void reparse() throws IOException {
         LogUtil.logCautiously("reparse() got called");
 
-        reparse(true);
+        mountMap.clear();
+        nodev.clear();
+
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+
+        parseFilesystems(decoder, true);
+        parseMounts(decoder, true);
     }
 
     private static final int SANE_SIZE_LIMIT = 200 * 1024 * 1024;
 
-    /**
-     * Parsing happens in two steps:
-     *
-     * 1) Estimate size of virtual file by reading stuff from it.
-     * 2) Try to fetch entire contents in single call to read().
-     *
-     * This is necessary because /proc/mountinfo, like other /proc files, is only line-consistent,
-     * but not atomic (the contents may be updated between individual calls to read()) — if we don't
-     * exhaust it in single read() call, any changes to system mountpoints in-between may break our
-     * parsing attempts.
-     *
-     * See also http://stackoverflow.com/a/5880485/
-     */
-    private void reparse(boolean force) throws IOException {
-        mountMap.clear();
+    private int measure(FileChannel fc) throws IOException {
+        final ByteBuffer buffer = throwawayBuffer.get();
 
+        int totalRead = 0, lastRead;
+
+        do {
+            buffer.clear();
+
+            lastRead = fc.read(buffer);
+
+            totalRead += lastRead;
+
+            if (totalRead > SANE_SIZE_LIMIT) {
+                throw new IOException("/proc/ file appears to be too big!!");
+            }
+        } while (lastRead != -1);
+
+        fc.position(0);
+
+        return totalRead;
+    }
+
+    private void parseMounts(CharsetDecoder d, boolean force) throws IOException {
         try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(mountinfo);
              FileChannel fc = new FileInputStream(pfd.getFileDescriptor()).getChannel()) {
 
-            final ByteBuffer buffer = throwawayBuffer.get();
-
-            int totalRead = 0, lastRead;
-
-            do {
-                buffer.clear();
-
-                lastRead = fc.read(buffer);
-
-                totalRead += lastRead;
-
-                if (totalRead > SANE_SIZE_LIMIT) {
-                    throw new IOException("/proc/mountinfo appears to be too big!!");
-                }
-            } while (lastRead != -1);
-
-            fc.position(0);
-
-            final CharsetDecoder d = StandardCharsets.UTF_8.newDecoder();
+            final int totalRead = measure(fc);
 
             try (Scanner scanner = new Scanner(Channels.newReader(new FileInputStream(pfd.getFileDescriptor()).getChannel(), d, totalRead))) {
                 while (scanner.hasNextLine()) {
@@ -103,9 +108,9 @@ public class MountInfo {
                     // skip optional parts
                     scanner.skip("(.+ -)");
 
-                    final String fsType = scanner.next();
+                    final String fsType = scanner.next().intern();
 
-                    final String subject = scanner.next();
+                    final String subject = scanner.next().intern();
 
                     mountMap.put(dev_t, new Mount(fsType, location, subject));
 
@@ -121,7 +126,47 @@ public class MountInfo {
             }
         }
 
-        reparse(false);
+        parseMounts(d, false);
+    }
+
+    private void parseFilesystems(CharsetDecoder d, boolean force) throws IOException {
+        try (ParcelFileDescriptor pfd = ParcelFileDescriptor.open(new File("/proc/filesystems"), MODE_READ_ONLY);
+             FileChannel fc = new FileInputStream(pfd.getFileDescriptor()).getChannel()) {
+
+            int totalRead = measure(fc);
+
+            try (Scanner scanner = new Scanner(Channels.newReader(new FileInputStream(pfd.getFileDescriptor()).getChannel(), d, totalRead))) {
+                while (scanner.hasNextLine()) {
+                    final String firstCol = scanner.next();
+
+                    if ("nodev".equals(firstCol)) {
+                        final String secondCol = scanner.next();
+
+                        nodev.add(secondCol.intern());
+                    }
+
+                    scanner.nextLine();
+                }
+
+                return;
+            } catch (NoSuchElementException nse) {
+                // oops..
+                if (!force) {
+                    throw new IOException("Failed to parse fs list", nse);
+                }
+            }
+        }
+
+        parseFilesystems(d, false);
+    }
+
+    public boolean isVolatile(Mount fs) {
+        switch (fs.fstype) {
+            case "fuse":
+                return false;
+            default:
+                return nodev.contains(fs.fstype);
+        }
     }
 
     public static final class Mount {

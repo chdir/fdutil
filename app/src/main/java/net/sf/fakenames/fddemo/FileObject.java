@@ -21,6 +21,7 @@ import android.support.annotation.WorkerThread;
 import android.text.TextUtils;
 
 import net.sf.fakenames.fddemo.provider.FileProvider;
+import net.sf.fakenames.fddemo.provider.ProviderBase;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
 import net.sf.fdlib.FsType;
@@ -38,6 +39,7 @@ import java.nio.channels.FileChannel;
 import java.util.Random;
 
 import static android.content.res.AssetFileDescriptor.UNKNOWN_LENGTH;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.extractName;
 
 /**
  * Container for information about Uri-addressable object
@@ -737,7 +739,7 @@ public abstract class FileObject implements Closeable {
 
             this.os = os;
             this.path = path;
-            this.name = FileProvider.extractName(path);
+            this.name = extractName(path);
         }
 
         @Override

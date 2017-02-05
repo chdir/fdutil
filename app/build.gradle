@@ -1,6 +1,8 @@
 apply plugin: 'com.android.application'
 apply plugin: 'me.tatarka.retrolambda'
 
+final int libmagicVersionCode = 125
+
 android {
     compileSdkVersion 24
     buildToolsVersion '25.0.1'
@@ -9,11 +11,20 @@ android {
         minSdkVersion 19
         targetSdkVersion 24
         versionCode 1
-        versionName "1.0"
+        versionName '1.0'
+
+        buildConfigField 'int', 'MAGIC_VER', "$libmagicVersionCode"
 
         testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
 
         testInstrumentationRunnerArguments [['disableAnalytics' : 'true']]
+
+        externalNativeBuild {
+            cmake {
+                abiFilters 'x86', 'armeabi-v7a', 'mips'
+                arguments "-DMAGIC_NATIVE_VER:STRING=$libmagicVersionCode"
+            }
+        }
     }
 
     compileOptions {
@@ -26,6 +37,15 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+
+    aaptOptions {
+        noCompress 'mgc'
     }
 }
 

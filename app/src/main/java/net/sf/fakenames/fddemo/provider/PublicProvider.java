@@ -2,11 +2,9 @@ package net.sf.fakenames.fddemo.provider;
 
 import android.annotation.SuppressLint;
 import android.content.ContentProvider;
-import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
-import android.content.UriMatcher;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
@@ -32,7 +30,6 @@ import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.carrotsearch.hppc.ObjectIntMap;
 
 import net.sf.fakenames.fddemo.PermissionActivity;
-import net.sf.fakenames.fddemo.RootSingleton;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
 import net.sf.fdlib.LogUtil;
@@ -55,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 
+import static android.content.ContentResolver.SCHEME_CONTENT;
 import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
 import static android.os.ParcelFileDescriptor.MODE_READ_WRITE;
 import static android.os.ParcelFileDescriptor.MODE_WRITE_ONLY;
@@ -65,7 +63,10 @@ import static android.provider.DocumentsContract.Document.MIME_TYPE_DIR;
 import static android.util.Base64.*;
 import static net.sf.fakenames.fddemo.PermissionActivity.RESPONSE_ALLOW;
 import static net.sf.fakenames.fddemo.PermissionActivity.RESPONSE_DENY;
-import static net.sf.fakenames.fddemo.provider.FileProvider.assertAbsolute;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.assertAbsolute;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.canonString;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.extractName;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.mimeTypeMatches;
 
 @SuppressLint("InlinedApi")
 public final class PublicProvider extends ContentProvider {
@@ -73,11 +74,11 @@ public final class PublicProvider extends ContentProvider {
 
     private static final String COOKIE_FILE = "key";
     private static final int COOKIE_SIZE = 20;
-    private static final String URI_ARG_EXPIRY = "expiry";
-    private static final String URI_ARG_COOKIE = "cookie";
-    private static final String URI_ARG_MODE = "mode";
 
-    private volatile OS rooted;
+    public static final String URI_ARG_TYPE = "t";
+    public static final String URI_ARG_EXPIRY = "e";
+    public static final String URI_ARG_COOKIE = "c";
+    public static final String URI_ARG_MODE = "m";
 
     private static volatile Key cookieSalt;
 
@@ -123,45 +124,19 @@ public final class PublicProvider extends ContentProvider {
         return cookieSalt;
     }
 
-    private OS getOS() {
-        if (rooted == null) {
-            synchronized (this) {
-                if (rooted == null) {
-                    reset();
-                }
+    private final String[] COMMON_PROJECTION = new String[] {
+            BaseColumns._ID,
+            OpenableColumns.DISPLAY_NAME,
+            OpenableColumns.SIZE,
+            MediaStore.MediaColumns.MIME_TYPE,
+    };
 
-                if (rooted == null) {
-                    try {
-                        return OS.getInstance();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-
-                        return null;
-                    }
-                }
-            }
-        }
-
-        return rooted;
-    }
-
-    private void reset() {
-        try {
-            if (rooted != null) {
-                throw new AssertionError();
-            }
-
-            rooted = RootSingleton.get(getContext());
-        } catch (IOException e) {
-            e.printStackTrace();
-            // ok
-        }
-    }
+    private volatile ProviderBase base;
 
     @Override
     public boolean onCreate() {
         try {
-            initResources();
+            base = new ProviderBase(getContext(), AUTHORITY);
         } catch (IOException e) {
             e.printStackTrace();
 
@@ -171,26 +146,20 @@ public final class PublicProvider extends ContentProvider {
         return true;
     }
 
-    private static final String[] COMMON_PROJECTION = new String[] {
-            BaseColumns._ID,
-            OpenableColumns.DISPLAY_NAME,
-            OpenableColumns.SIZE,
-            MediaStore.MediaColumns.MIME_TYPE,
-    };
-
-    private static void assertAbsolute(Uri uri) throws FileNotFoundException {
-        if (uri == null || !AUTHORITY.equals(uri.getAuthority()) || uri.getPath() == null) {
-            throw new FileNotFoundException();
-        }
-
-        FileProvider.assertAbsolute(uri.getPath());
-    }
-
     @Nullable
     @Override
     public Cursor query(@NonNull Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
+        String path = uri.getPath();
+
+        if (TextUtils.isEmpty(uri.getPath())) {
+            path = "/";
+
+            uri = uri.buildUpon()
+                    .path(path).build();
+        }
+
         try {
-            assertAbsolute(uri);
+            assertAbsolute(path);
         } catch (FileNotFoundException e) {
             return null;
         }
@@ -203,14 +172,14 @@ public final class PublicProvider extends ContentProvider {
             projection = COMMON_PROJECTION;
         }
 
-        final OS os = getOS();
+        final OS os = base.getOS();
         if (os == null) {
             return null;
         }
 
         int fd;
         try {
-            final String path = uri.getPath();
+            final String name = extractName(path);
 
             fd = os.openat(DirFd.NIL, path, OS.O_RDONLY, 0);
             try {
@@ -228,13 +197,13 @@ public final class PublicProvider extends ContentProvider {
                             columns.add(stat.st_ino);
                             break;
                         case COLUMN_DISPLAY_NAME:
-                            columns.add(FileProvider.extractName(path));
+                            columns.add(name);
                             break;
                         case COLUMN_SIZE:
                             columns.add(stat.st_size);
                             break;
                         case COLUMN_MIME_TYPE:
-                            columns.add(FileProvider.getDocType(path, stat));
+                            columns.add(base.getTypeFast(path, name, stat));
                             break;
                         default:
                             columns.add(null);
@@ -260,48 +229,44 @@ public final class PublicProvider extends ContentProvider {
     }
 
     @Nullable
-    @Override
     public String getType(@NonNull Uri uri) {
-        final OS os = getOS();
-
-        if (os == null) {
-            return null;
+        final String hardCodedType = uri.getQueryParameter(URI_ARG_TYPE);
+        if (hardCodedType != null) {
+            return hardCodedType.isEmpty() ? null : hardCodedType;
         }
 
         try {
-            final String filepath = uri.getPath();
+            assertAbsolute(uri.getPath());
 
-            FileProvider.assertAbsolute(filepath);
+            final String path = uri.getPath();
 
-            int fd = os.open(filepath, OS.O_RDONLY, 0);
-            try {
-                final Stat s = new Stat();
+            final String name = extractName(path);
 
-                os.fstat(fd, s);
-
-                return FileProvider.getDocType(filepath, s);
-            } finally {
-                os.dispose(fd);
-            }
+            return base.getTypeFast(path, name, new Stat());
         } catch (IOException e) {
             return null;
         }
     }
 
-    private void initResources() throws IOException {
-        final OS os = OS.getInstance();
-    }
-
     @Nullable
     @Override
     public String[] getStreamTypes(@NonNull Uri uri, @NonNull String mimeTypeFilter) {
-        final String docType = getType(uri);
+        final String hardCodedType = uri.getQueryParameter(URI_ARG_TYPE);
+        if (hardCodedType != null) {
+            if (hardCodedType.isEmpty()) return null;
 
-        if (FileProvider.mimeTypeMatches(mimeTypeFilter, docType)) {
-            return new String[] { docType };
+            if (mimeTypeMatches(mimeTypeFilter, hardCodedType)) {
+                return new String[] { hardCodedType };
+            }
         }
 
-        return null;
+        try {
+            assertAbsolute(uri.getPath());
+        } catch (FileNotFoundException e) {
+            return null;
+        }
+
+        return base.getStreamTypes(uri.getPath(), mimeTypeFilter);
     }
 
     final boolean checkAccess(Uri uri, String necessaryMode) {
@@ -466,7 +431,7 @@ public final class PublicProvider extends ContentProvider {
     @Nullable
     @Override
     public ParcelFileDescriptor openFile(@NonNull Uri uri, @NonNull String requestedMode, CancellationSignal signal) throws FileNotFoundException {
-        assertAbsolute(uri);
+        assertAbsolute(uri.getPath());
 
         final int readableMode = ParcelFileDescriptor.parseMode(requestedMode);
 
@@ -485,7 +450,7 @@ public final class PublicProvider extends ContentProvider {
                 e.printStackTrace();
             }
 
-            final OS rooted = getOS();
+            final OS rooted = base.getOS();
 
             if (rooted == null) {
                 throw new FileNotFoundException("Failed to open " + uri.getPath() + ": unable to acquire access");
@@ -501,7 +466,7 @@ public final class PublicProvider extends ContentProvider {
                 openFlags = OS.O_RDWR;
             }
 
-            final String canonDocumentId = FileProvider.canonString(uri.getPath());
+            final String canonDocumentId = canonString(uri.getPath());
 
             @Fd int fd = rooted.open(canonDocumentId, openFlags, 0);
 
@@ -519,19 +484,13 @@ public final class PublicProvider extends ContentProvider {
 
     @Override
     public Uri canonicalize(@NonNull Uri uri) {
-        if (!AUTHORITY.equals(uri.getAuthority())) {
+        try {
+            assertAbsolute(uri.getPath());
+        } catch (FileNotFoundException e) {
             return null;
         }
 
-        if (DocumentsContract.isTreeUri(uri)) {
-            return canonTree(uri);
-        }
-
-        if (DocumentsContract.isDocumentUri(getContext(), uri)) {
-            return canonDocument(uri);
-        }
-
-        return super.canonicalize(uri);
+        return DocumentsContract.buildDocumentUri(AUTHORITY, canonString(uri.getPath()));
     }
 
     @Nullable
@@ -543,7 +502,7 @@ public final class PublicProvider extends ContentProvider {
     @Override
     public int delete(@NonNull Uri uri, String selection, String[] selectionArgs) {
         try {
-            assertAbsolute(uri);
+            assertAbsolute(uri.getPath());
         } catch (FileNotFoundException e) {
             return 0;
         }
@@ -552,7 +511,7 @@ public final class PublicProvider extends ContentProvider {
             return 0;
         }
 
-        final OS os = getOS();
+        final OS os = base.getOS();
 
         if (os != null) {
             final boolean isDir = MIME_TYPE_DIR.equals(getType(uri));
@@ -572,30 +531,6 @@ public final class PublicProvider extends ContentProvider {
     @Override
     public int update(@NonNull Uri uri, ContentValues values, String selection, String[] selectionArgs) {
         return 0;
-    }
-
-    private Uri canonTree(Uri tree) {
-        final String documentId = DocumentsContract.getDocumentId(tree);
-
-        final String canonId = FileProvider.canonString(documentId);
-
-        if (documentId.equals(canonId)) {
-            return tree;
-        }
-
-        return DocumentsContract.buildTreeDocumentUri(AUTHORITY, canonId);
-    }
-
-    private Uri canonDocument(Uri tree) {
-        final String documentId = DocumentsContract.getDocumentId(tree);
-
-        final String canonId = FileProvider.canonString(documentId);
-
-        if (documentId.equals(canonId)) {
-            return tree;
-        }
-
-        return DocumentsContract.buildDocumentUri(AUTHORITY, canonId);
     }
 
     public static @Nullable Uri publicUri(Context context, String path) {
@@ -637,7 +572,7 @@ public final class PublicProvider extends ContentProvider {
         }
 
         final Uri.Builder b = new Uri.Builder()
-                .scheme(ContentResolver.SCHEME_CONTENT)
+                .scheme(SCHEME_CONTENT)
                 .authority(AUTHORITY);
 
         if (!"r".equals(mode)) {
