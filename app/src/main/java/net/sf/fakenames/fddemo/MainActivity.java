@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
+import android.os.Process;
 import android.os.RemoteException;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
@@ -318,7 +319,13 @@ public class MainActivity extends BaseActivity implements
 
     private void openfile(@DirFd int base, String path) {
         try {
-            final String resolved = state.os.readlinkat(base, path);
+            final String resolved;
+            final int resolvedFd = state.os.openat(base, path, OS.O_RDONLY, 0);
+            try {
+                resolved = state.os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + resolvedFd);
+            } finally {
+                state.os.dispose(resolvedFd);
+            }
 
             final Uri uri = PublicProvider.publicUri(this, resolved, "r");
 

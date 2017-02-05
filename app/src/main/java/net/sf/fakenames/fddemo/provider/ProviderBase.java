@@ -372,7 +372,7 @@ public final class ProviderBase extends ContextWrapper {
         }
     }
 
-    private static String getExtensionFromPath(@CanonPath String path) {
+    public static String getExtensionFromPath(@CanonPath String path) {
         final int dot = path.lastIndexOf('.');
 
         if (dot == -1 || dot == path.length() - 1 || dot < path.lastIndexOf('/')) {
@@ -478,12 +478,12 @@ public final class ProviderBase extends ContextWrapper {
 
         int prevSlash = -1;
 
-        for (int i = length - 1; i != 0; --i) {
+        for (int i = length - 1; i >= 0; --i) {
             if ('/' == chars.charAt(i)) {
                 if (prevSlash == i + 1) {
                     chars.deleteCharAt(i);
 
-                    i++;
+                    --prevSlash;
                 } else {
                     prevSlash = i;
                 }
