@@ -124,6 +124,11 @@ final class Android extends OS {
     }
 
     @Override
+    public void fstatat(int dir, @NonNull String pathname, @NonNull Stat stat, int flags) throws IOException {
+        nativeFstatAt(dir, toNative(pathname), stat, flags);
+    }
+
+    @Override
     public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
 
     @Override
@@ -165,6 +170,8 @@ final class Android extends OS {
     private static String fromNative(Object string) {
         return Build.VERSION.SDK_INT >= 23 ? (String) string : new String((byte[]) string, StandardCharsets.UTF_8);
     }
+
+    private static native void nativeFstatAt(@DirFd int dir, Object o, Stat stat, int flags);
 
     private static native void nativeLinkAt(@DirFd int oldDirFd, Object o, @DirFd int newDirFd, Object o1, @LinkAtFlags int flags);
 

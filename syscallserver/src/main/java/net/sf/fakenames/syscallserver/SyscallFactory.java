@@ -33,10 +33,12 @@ import com.carrotsearch.hppc.ObjectArrayList;
 
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
+import net.sf.fdlib.FsType;
 import net.sf.fdlib.InotifyFd;
 import net.sf.fdlib.InotifyImpl;
 import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.OS;
+import net.sf.fdlib.Stat;
 
 import java.io.Closeable;
 import java.io.File;
@@ -309,7 +311,7 @@ public final class SyscallFactory implements Closeable {
         try {
             mknodInternal(pfd, pathname, mode, device);
         } finally {
-            if (pfd != null) { try { pfd.close(); } catch (IOException ignore) {} }
+            shut(pfd);
         }
     }
 
@@ -335,6 +337,16 @@ public final class SyscallFactory implements Closeable {
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
         try {
             return FdCompat.adopt(openInternal(pfd, filepath, mode));
+        } finally {
+            shut(pfd);
+        }
+    }
+
+    @WorkerThread
+    public void fstatat(@DirFd int dir, String pathname, Stat stat, int flags) throws IOException, FactoryBrokenException {
+        final ParcelFileDescriptor pfd = dir < 0 ? null : ParcelFileDescriptor.fromFd(dir);
+        try {
+            fstatInternal(pfd, pathname, stat, flags);
         } finally {
             shut(pfd);
         }
@@ -507,6 +519,43 @@ public final class SyscallFactory implements Closeable {
                 }
 
                 if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    private void fstatInternal(ParcelFileDescriptor pfd, String pathname, Stat stat, int flags) throws FactoryBrokenException, IOException {
+        if (closedStatus.get())
+            throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new FstatReq(pfd, pathname, flags);
+
+        FdResp response;
+        try {
+            if (intake.offer(request, HELPER_TIMEOUT, TimeUnit.MILLISECONDS)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    if (response.message == null) {
+                        FstatResp resp = (FstatResp) response;
+
+                        stat.init(resp.st_dev, resp.st_ino, resp.st_size, resp.st_blksize, resp.typeOrdinal);
+
+                        return;
+                    } else {
+                        throw new IOException("Failed to stat file: " + response.message);
+                    }
+                }
+
+                if (response.message != null) {
                     LogUtil.swallowError(response.message);
                 }
             }
@@ -945,10 +994,14 @@ public final class SyscallFactory implements Closeable {
         private String readMessage(ReadableByteChannel channel) throws IOException {
             statusMsg.clear();
 
+            return readMessageInner(channel, 0);
+        }
+
+        private String readMessageInner(ReadableByteChannel channel, int readSoFar) throws IOException {
             byte[] result = statusMsg.array();
             int offset = statusMsg.arrayOffset();
 
-            int totalReadCount = 0;
+            int totalReadCount = readSoFar;
             do {
                 int lastPos = statusMsg.position();
 
@@ -1340,6 +1393,77 @@ public final class SyscallFactory implements Closeable {
                 return new FdResp(this, readMessage(rbc));
             }
         }
+
+        final class FstatReq extends FdReq {
+            static final int TYPE_STAT = 11;
+
+            public FstatReq(ParcelFileDescriptor pfd, String fileName, int mode) {
+                super(TYPE_STAT, fileName, mode, pfd);
+            }
+
+            @Override
+            public void writeRequest(CachingWriter reqWriter, WritableByteChannel wbc, LocalSocket ls) throws IOException {
+                super.writeRequest(reqWriter, wbc, ls);
+
+                reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
+                        .append(' ')
+                        .append(mode)
+                        .append(' ')
+                        .append(fileName.getBytes().length)
+                        .append(' ');
+
+                reqWriter.append(fileName).append("\n").flush();
+
+                if (outboundFd != null && outboundFd.length != 0) {
+                    setFd(wbc, ls, outboundFd);
+                }
+            }
+
+            @Override
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                statusMsg.clear();
+
+                int hdr = Long.SIZE / Byte.SIZE;
+
+                int lastRead, total = 0;
+                do {
+                    lastRead = rbc.read(statusMsg);
+
+                    if (lastRead == -1) {
+                        throw new IOException("Disconnected before reading complete message");
+                    }
+
+                    total += lastRead;
+                } while (total < hdr);
+
+                final long errIndicator = statusMsg.getLong(0);
+
+                final String errorMsg;
+
+                if (errIndicator == 1) {
+                    byte lastByte = statusMsg.get(statusMsg.position() - 1);
+
+                    if (lastByte == '\0') {
+                        errorMsg = new String(statusMsg.array(), statusMsg.arrayOffset() + hdr, statusMsg.position() - hdr);
+                    } else {
+                        statusMsg.limit(statusMsg.position());
+                        statusMsg.position(hdr);
+                        statusMsg.compact();
+
+                        errorMsg = readMessageInner(rbc, lastRead);
+                    }
+
+                    statusMsg.clear();
+                } else {
+                    errorMsg = null;
+
+                    statusMsg.flip();
+                    statusMsg.position(hdr);
+                }
+
+                return new FstatResp(this, errorMsg, statusMsg);
+            }
+        }
     }
 
     private static void logTrace(int proprity, String message, Object... args) {
@@ -1501,6 +1625,28 @@ public final class SyscallFactory implements Closeable {
                 logException("Failed to close watch", e);
             } catch (NumberFormatException ignored) {
             }
+        }
+    }
+
+    private static class FstatResp extends FdResp {
+        public final long st_dev;
+
+        public final long st_ino;
+
+        public final long st_size;
+
+        public final int typeOrdinal;
+
+        public final int st_blksize;
+
+        public FstatResp(Server.FstatReq request, String message, ByteBuffer buffer) {
+            super(request, message);
+
+            this.st_dev = buffer.getLong();
+            this.st_ino = buffer.getLong();
+            this.st_size = buffer.getLong();
+            this.typeOrdinal = buffer.getInt();
+            this.st_blksize = buffer.getInt();
         }
     }
 

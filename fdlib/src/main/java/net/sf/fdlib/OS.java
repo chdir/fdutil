@@ -37,6 +37,13 @@ public abstract class OS {
     public static final int DEF_DIR_MODE =  0b111111001; // 0771 aka drwxrwx--x
     public static final int DEF_FILE_MODE = 0b110110110; // 0666 aka  rw-rw-rw-
 
+    public static final int AT_SYMLINK_NOFOLLOW = 0x100;
+
+    @IntDef(AT_SYMLINK_NOFOLLOW)
+    @Documented
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface StatAtFlags {}
+
     public static final int AT_SYMLINK_FOLLOW = 0x400;
 
     @IntDef(AT_SYMLINK_FOLLOW)
@@ -108,6 +115,8 @@ public abstract class OS {
     @NonNull
     @CheckResult
     public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper);
+
+    public abstract void fstatat(@DirFd int dir, @NonNull String pathname, @NonNull Stat stat, @StatAtFlags int flags) throws IOException;
 
     public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
 

@@ -96,6 +96,8 @@ public final class Rooted extends net.sf.fdlib.OS {
 
             final @Fd int fdInt = pfd.detachFd();
 
+            pfd.close();
+
             return fdInt;
         } catch (FactoryBrokenException e) {
             factoryInstance = null;
@@ -132,6 +134,8 @@ public final class Rooted extends net.sf.fdlib.OS {
             final ParcelFileDescriptor pfd = factory.openat(fd, pathname, flags);
 
             final @Fd int fdInt = pfd.detachFd();
+
+            pfd.close();
 
             return fdInt;
         } catch (FactoryBrokenException e) {
@@ -191,6 +195,19 @@ public final class Rooted extends net.sf.fdlib.OS {
     @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) {
         return new RootInotify(inotifyDescriptor, looper);
+    }
+
+    @Override
+    public void fstatat(@DirFd int dir, @NonNull String pathname, @NonNull Stat stat, int flags) throws IOException {
+        try {
+            final SyscallFactory factory = getFactory();
+
+            factory.fstatat(dir, pathname, stat, flags);
+        } catch (FactoryBrokenException e) {
+            factoryInstance = null;
+
+            throw new IOException("stat() failed, unable to access privileged process", e);
+        }
     }
 
     @Override
@@ -285,6 +302,10 @@ public final class Rooted extends net.sf.fdlib.OS {
 
     @Override
     public boolean faccessat(int fd, String pathname, int mode) throws IOException {
+        if (delegate.faccessat(fd, pathname, mode)) {
+            return true;
+        }
+
         try {
             final SyscallFactory factory = getFactory();
 

@@ -528,4 +528,44 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeLinkAt(JNIEnv *env, jclas
     freeUtf8(env, o, name_);
 }
 
+JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_nativeFstatAt(JNIEnv *env, jclass type, jint dir, jworkaroundstr pathname, jobject statStruct, jint flags) {
+    const char *utf8Path = getUtf8(env, pathname);
+    if (utf8Path == NULL) {
+        return;
+    }
+
+    kernel_stat64 fdStat;
+
+    jint fileTypeOrdinal = 0;
+
+    if (TEMP_FAILURE_RETRY(sys_fstatat64_fixed(dir, utf8Path, &fdStat, flags))) {
+        handleError(env);
+        goto cleanup;
+    }
+
+    if (S_ISBLK(fdStat.st_mode)) {
+        fileTypeOrdinal = 0;
+    } else if (S_ISCHR(fdStat.st_mode)) {
+        fileTypeOrdinal = 1;
+    } else if (S_ISFIFO(fdStat.st_mode)) {
+        fileTypeOrdinal = 2;
+    } else if (S_ISSOCK(fdStat.st_mode)) {
+        fileTypeOrdinal = 3;
+    } else if (S_ISLNK(fdStat.st_mode)) {
+        fileTypeOrdinal = 4;
+    } else if (S_ISREG(fdStat.st_mode)) {
+        fileTypeOrdinal = 5;
+    } else if (S_ISDIR(fdStat.st_mode)) {
+        fileTypeOrdinal = 6;
+    } else {
+        fileTypeOrdinal = 7;
+    }
+
+    env -> CallNonvirtualVoidMethod(statStruct, statContainer, statContainerInit,
+                                    fdStat.st_dev, fdStat.st_ino, fdStat.st_size, fdStat.st_blksize, fileTypeOrdinal);
+
+    cleanup:
+    freeUtf8(env, pathname, utf8Path);
+}
+
 }

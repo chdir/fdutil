@@ -56,6 +56,7 @@
 #define REQ_TYPE_CREAT 8
 #define REQ_TYPE_LINKAT 9
 #define REQ_TYPE_FACCESS 10
+#define REQ_TYPE_STAT 11
 
 #define INVALID_FD -1
 
@@ -983,6 +984,85 @@ static void invoke_faccessat(int sock) {
     }
 }
 
+struct {
+    int64_t status;
+    int64_t st_dev;
+    int64_t st_ino;
+    int64_t st_size;
+    int32_t type;
+    int32_t blksize;
+} dumbStat;
+
+static void invoke_fstatat(int sock) {
+    int fdCount = -1;
+    int32_t flags = -1;
+    size_t nameLength;
+
+    if (scanf("%u %d %u ", &fdCount, &flags, &nameLength) != 3)
+        DieWithError("reading fstatat arguments failed");
+
+    char* filepath = read_filepath(nameLength);
+
+    if (verbose) LOG("Attempting to stat %s", filepath);
+
+    int receivedFd;
+
+    if (fdCount > 0) {
+        ancil_recv_fds_with_buffer(sock, 1, &receivedFd);
+    } else {
+        receivedFd = INVALID_FD;
+    }
+
+    struct kernel_stat64 stat;
+
+    if (sys_fstatat64_fixed(receivedFd, filepath, &stat, flags)) {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to stat - %s\n", errmsg);
+
+        uint64_t errState = 1;
+
+        write(STDERR_FILENO, &errState, sizeof(errState));
+
+        fprintf(stderr, "stat error  - %s%c", errmsg, '\0');
+    } else {
+        struct dumbStat;
+
+        dumbStat.status = 0;
+        dumbStat.st_dev = stat.st_dev;
+        dumbStat.st_ino = stat.st_ino;
+        dumbStat.st_size = stat.st_size;
+
+        if (S_ISBLK(stat.st_mode)) {
+            dumbStat.type = 0;
+        } else if (S_ISCHR(stat.st_mode)) {
+            dumbStat.type = 1;
+        } else if (S_ISFIFO(stat.st_mode)) {
+            dumbStat.type = 2;
+        } else if (S_ISSOCK(stat.st_mode)) {
+            dumbStat.type = 3;
+        } else if (S_ISLNK(stat.st_mode)) {
+            dumbStat.type = 4;
+        } else if (S_ISREG(stat.st_mode)) {
+            dumbStat.type = 5;
+        } else if (S_ISDIR(stat.st_mode)) {
+            dumbStat.type = 6;
+        } else {
+            dumbStat.type = 7;
+        }
+
+        dumbStat.blksize = stat.st_blksize;
+
+        write(STDERR_FILENO, &dumbStat, sizeof(dumbStat));
+    }
+
+    free(filepath);
+
+    if (receivedFd > 0) {
+        close(receivedFd);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         uid_t myuid= getuid();
@@ -1045,6 +1125,9 @@ int main(int argc, char *argv[]) {
                 break;
             case REQ_TYPE_FACCESS:
                 invoke_faccessat(sock);
+                break;
+            case REQ_TYPE_STAT:
+                invoke_fstatat(sock);
                 break;
             default:
                 DieWithError("Unknown request type");
