@@ -7,6 +7,7 @@ import android.content.res.Resources;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 
+import net.sf.fakenames.fddemo.BuildConfig;
 import net.sf.fakenames.fddemo.R;
 import net.sf.fdlib.Fd;
 
@@ -22,7 +23,7 @@ import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 
 public final class Magic {
     static {
-        System.loadLibrary("magic");
+        System.loadLibrary("magic-" + BuildConfig.MAGIC_VER);
     }
 
     @SuppressWarnings("FieldCanBeLocal") // finalizer closes descriptor

@@ -10,7 +10,7 @@ cmake_minimum_required(VERSION 3.4.1)
 # Gradle automatically packages shared libraries with your APK.
 
 add_library( # Sets the name of the library.
-             magic
+             magic-${MAGIC_NATIVE_VER}
 
              # Sets the library as a shared library.
              SHARED
@@ -43,8 +43,8 @@ add_library( # Sets the name of the library.
 
 include_directories(prebuilt)
 
-target_compile_definitions(magic PRIVATE VERSION=5.29 HAVE_CONFIG_H ZLIBSUPPORT)
-target_compile_options(magic PRIVATE "-Wall -Wstrict-prototypes -Wmissing-prototypes -Wpointer-arith -Wmissing-declarations -Wredundant-decls -Wnested-externs -Wsign-compare -Wreturn-type -Wswitch -Wshadow -Wcast-qual -Wwrite-strings -Wextra -Wunused-parameter -Wformat=2")
+target_compile_definitions(magic-${MAGIC_NATIVE_VER} PRIVATE VERSION=5.29 HAVE_CONFIG_H ZLIBSUPPORT)
+target_compile_options(magic-${MAGIC_NATIVE_VER} PRIVATE -Wall -fvisibility=hidden)
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because system libraries are included in the search path by
@@ -60,7 +60,7 @@ find_library(log-lib log)
 # build script, prebuilt third-party libraries, or system libraries.
 
 target_link_libraries( # Specifies the target library.
-                       magic
+                       magic-${MAGIC_NATIVE_VER}
 
                        # Links the target library to the log library
                        # included in the NDK.

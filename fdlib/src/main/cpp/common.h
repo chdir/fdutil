@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <android/log.h>
 
+#define PKG_SYM(name) Java_net_sf_fdlib_Android_##name
+
 #define MARSHMALLOW 23
 
 typedef jobject jworkaroundstr;

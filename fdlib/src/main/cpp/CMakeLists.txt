@@ -23,6 +23,10 @@ add_library( # Sets the name of the library.
              inotify.cpp
              native-lib.cpp )
 
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+
+target_compile_options(coreio-${COREIO_NATIVE_VER} PRIVATE -Wall -Wunused-parameter -fvisibility=hidden)
+
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because system libraries are included in the search path by
 # default, you only need to specify the name of the public NDK library
