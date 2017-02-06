@@ -1,3 +1,18 @@
+/*
+ * Copyright © 2016 Alexander Rvachev
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package net.sf.fdlib;
 
 import android.Manifest;
@@ -27,7 +42,7 @@ import java.io.IOException;
  *
  * Thus class can be used in two modes: 1) direct reading from inotify descriptor using thread of
  * your choice and 2) monitoring inotify events from shared {@link SelectorThread}. To implement
- * the first mode simply call {@link #run} in a loop (depending on properties of inotify descriptor,
+ * the first mode simply call {@link #read} in a loop (depending on properties of inotify descriptor,
  * that may block until new events are ready or return immediately if no new events exist).
  * To use this class in second mode start a {@link SelectorThread} and pass it to {@link #setSelector}.
  *
@@ -54,7 +69,7 @@ import java.io.IOException;
  *
  * <p/>
  *
- * Only {@link #run} and {@link #close} are thread-safe: {@link #subscribe} and {@link #setSelector}
+ * Only {@link #read} and {@link #close} are thread-safe: {@link #subscribe} and {@link #setSelector}
  * must be called from the same Looper thread as one used to dispatch {@link InotifyListener}.
  */
 public interface Inotify extends Closeable {
@@ -62,7 +77,7 @@ public interface Inotify extends Closeable {
      * Linux inotify descriptors support {@code epoll} — a mechanism, that allows to efficiently
      * monitor multiple file descriptors for new data without creating dedicated a thread for each.
      * To use it with this class, create and start a SelectorThread. If you pass the
-     * Selector to this method, you don't have to call {@link #run} yourself.
+     * Selector to this method, you don't have to call {@link #read} yourself.
      *
      * <p/>
      *

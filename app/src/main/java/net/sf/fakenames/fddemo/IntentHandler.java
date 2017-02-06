@@ -1,17 +1,18 @@
-/*
- * Copyright © 2015 Alexander Rvachev
+/**
+ * Copyright © 2017 Alexander Rvachev
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 package net.sf.fakenames.fddemo;
 
@@ -34,8 +35,8 @@ import android.webkit.MimeTypeMap;
 
 import com.carrotsearch.hppc.ObjectHashSet;
 import com.carrotsearch.hppc.ObjectSet;
-import com.j256.simplemagic.ContentType;
 
+import net.sf.fakenames.fddemo.provider.ProviderBase;
 import net.sf.fakenames.fddemo.provider.PublicProvider;
 
 import java.io.File;
@@ -234,7 +235,10 @@ public class IntentHandler extends ContextWrapper {
                 newUri = intentUri;
 
                 // apply extra effort for files without extensions
-                if (TextUtils.isEmpty(MimeTypeMap.getFileExtensionFromUrl(intentUri.toString()))) {
+
+                /*
+                if (TextUtils.isEmpty(ProviderBase.getExtensionFromPath(intentUri.toString()))) {
+
                     final ContentType libmagicType = ContentType.fromMimeType(possibleMimeTypes[i]);
                     if (libmagicType != null) {
                         final String[] possibleExtensions = libmagicType.getFileExtensions();
@@ -244,6 +248,7 @@ public class IntentHandler extends ContextWrapper {
                         }
                     }
                 }
+                */
             }
 
             extraIntents[i] = new Intent(untypedIntent)
