@@ -16,6 +16,7 @@
  */
 package net.sf.fakenames.fddemo;
 
+import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
@@ -32,6 +33,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
@@ -45,9 +47,13 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import com.carrotsearch.hppc.IntObjectHashMap;
+import com.carrotsearch.hppc.IntObjectMap;
+
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
 import net.sf.fakenames.fddemo.provider.FileProvider;
+import net.sf.fakenames.fddemo.provider.ProviderBase;
 import net.sf.fakenames.fddemo.provider.PublicProvider;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
@@ -75,6 +81,9 @@ import java.util.concurrent.ThreadFactory;
 
 import butterknife.BindView;
 import butterknife.OnClick;
+
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import static net.sf.fakenames.fddemo.provider.ProviderBase.fdPath;
 
 public class MainActivity extends BaseActivity implements
         MenuItem.OnMenuItemClickListener,
@@ -290,6 +299,16 @@ public class MainActivity extends BaseActivity implements
     }
 
     private void opendir(@DirFd int base, String pathname) {
+        try {
+            doWithAccessChecks(OS.R_OK | OS.X_OK, base, pathname, () -> doOpendir(pathname));
+        } catch (IOException e) {
+            toast("Failed to open directory: permission denied");
+        }
+    }
+
+    private void doOpendir(String pathname) {
+        final @DirFd int base = state.adapter.getFd();
+
         int newFd = DirFd.NIL, prev = DirFd.NIL;
         try {
             newFd = state.os.opendirat(base, pathname, OS.O_RDONLY, 0);
@@ -642,8 +661,51 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
+    private IntObjectMap<Action> pendingActions = new IntObjectHashMap<>();
+
+    private interface Action {
+        void act();
+    }
+
+    private void doWithAccessChecks(@OS.AccessFlags int checks, @DirFd int dirFd, String path, Action action) throws IOException {
+        final boolean canAccess = state.os.isPrivileged() || state.os.faccessat(dirFd, path, checks);
+
+        if (canAccess) {
+            action.act();
+            return;
+        }
+
+        final Stat stat = new Stat();
+        state.os.fstat(dirFd, stat);
+
+        final MountInfo.Mount mount = state.layout.getFs(stat.st_dev);
+        if (mount != null) {
+            if (mount.askForPermission(this, R.id.req_permission)) {
+                state.adapter.packState();
+
+                pendingActions.put(R.id.req_permission, () -> {
+                    state.adapter.recoverState();
+
+                    action.act();
+                });
+                return;
+            }
+        }
+
+        action.act();
+    }
     @Override
     public void onNameChosen(String name, int type) {
+        try {
+            final @DirFd int fd = state.adapter.getFd();
+
+            doWithAccessChecks(OS.W_OK, fd, fdPath(fd), () -> doMknod(name, type));
+        } catch (IOException e) {
+            toast("Unable to create a file. " + e.getMessage());
+        }
+    }
+
+    private void doMknod(String name, int type) {
         @OS.FileTypeFlag int fileType;
 
         switch (type) {
@@ -674,6 +736,41 @@ public class MainActivity extends BaseActivity implements
             LogUtil.logCautiously("Failed to create a file", e);
 
             toast("Unable to create a file. " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        switch (requestCode) {
+            case R.id.req_permission:
+                if (permissions.length == 1 && grantResults.length == 1) {
+                    if (Manifest.permission.WRITE_EXTERNAL_STORAGE.equals(permissions[0])
+                            && grantResults[0] == PERMISSION_GRANTED) {
+                        final Action runnable = pendingActions.remove(requestCode);
+
+                        if (runnable != null) {
+                            handler.post(runnable::act);
+                        }
+                    }
+                }
+                break;
+            default:
+                super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        switch (requestCode) {
+            case R.id.req_permission:
+                if (resultCode == RESULT_OK) {
+                    final Action runnable = pendingActions.remove(requestCode);
+
+                    handler.post(runnable::act);
+                }
+                break;
+            default:
+                super.onActivityResult(requestCode, resultCode, data);
         }
     }
 

@@ -32,11 +32,14 @@ public abstract class OS {
     protected OS() {
     }
 
-    @IntDef(value = {F_OK}, flag = true)
+    @IntDef(value = {F_OK, R_OK, W_OK, X_OK}, flag = true)
     @Documented
     @Retention(RetentionPolicy.SOURCE)
     public @interface AccessFlags {}
 
+    public static final int R_OK  = 1 << 2;  /* Read */
+    public static final int W_OK  = 1 << 1;  /* Write */
+    public static final int X_OK = 1;
     public static final int F_OK = 0;
 
     @IntDef(value = {O_RDONLY, O_WRONLY, O_RDWR}, flag = true)
@@ -170,6 +173,10 @@ public abstract class OS {
     public abstract void close(@Fd int fd) throws IOException;
 
     public abstract void dispose(int fd);
+
+    public boolean isPrivileged() {
+        return false;
+    }
 
     private static volatile OS defaultOs;
 

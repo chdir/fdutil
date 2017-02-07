@@ -25,6 +25,9 @@ import android.os.storage.StorageVolume;
 import android.support.v4.content.ContextCompat;
 import android.text.TextUtils;
 
+import com.carrotsearch.hppc.ObjectHashSet;
+import com.carrotsearch.hppc.ObjectObjectHashMap;
+import com.carrotsearch.hppc.ObjectObjectMap;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
 import net.sf.fdlib.Fd;
@@ -42,6 +45,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.Lock;
 
 public class BaseDirLayout extends ContextWrapper {
     private final OS os;
@@ -49,6 +53,10 @@ public class BaseDirLayout extends ContextWrapper {
     private File home;
 
     private MountInfo mountInfo;
+
+    private final ObjectHashSet<String> usableFilesystems = new ObjectHashSet<>(10); {
+        usableFilesystems.addAll("ext2", "ext3", "ext4", "xfs", "jfs", "yaffs", "jffs2", "f2fS", "fuse", "vfat");
+    }
 
     public BaseDirLayout(OS os, Context base) {
         super(base);
@@ -59,17 +67,7 @@ public class BaseDirLayout extends ContextWrapper {
     public void init() throws IOException {
         home = getDir("Home", MODE_PRIVATE);
 
-        @Fd int mountFd = os.open("/proc/self/mountinfo", OS.O_RDONLY, 0);
-        try {
-            mountInfo = new MountInfo(mountFd);
-        } finally {
-            os.dispose(mountFd);
-        }
-
-        final HashSet<String> usableFilesystems = new HashSet<>(10);
-
-        usableFilesystems.addAll(Arrays.asList(
-                "ext2", "ext3", "ext4", "xfs", "jfs", "yaffs", "jffs2", "f2fS", "fuse", "vfat"));
+        mountInfo = MountsSingleton.get(os);
 
         final HashMap<File, String> pathNameMap = new HashMap<>();
 
@@ -109,6 +107,17 @@ public class BaseDirLayout extends ContextWrapper {
             volumes.addAll(sm.getStorageVolumes());
         }
 
+        final Lock lock = mountInfo.getLock();
+        lock.lock();
+        try {
+            parseMounts(pathNameMap, volumes);
+        } finally {
+            lock.unlock();
+        }
+
+    }
+
+    private void parseMounts(HashMap<File, String> pathNameMap, List<StorageVolume> volumes) throws IOException {
         mounts:
         for (LongObjectCursor<MountInfo.Mount> mount : mountInfo.mountMap) {
             final Iterator<Map.Entry<File, String>> i = pathNameMap.entrySet().iterator();
@@ -172,7 +181,13 @@ public class BaseDirLayout extends ContextWrapper {
     }
 
     public MountInfo.Mount getFs(long dev_t) {
-        return mountInfo.mountMap.get(dev_t);
+        final Lock lock = mountInfo.getLock();
+        lock.lock();
+        try {
+            return mountInfo.mountMap.get(dev_t);
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**

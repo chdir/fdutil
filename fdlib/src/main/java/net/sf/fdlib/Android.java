@@ -149,7 +149,7 @@ final class Android extends OS {
 
     @Override
     public MountInfo getMounts() throws IOException {
-        return new MountInfo(open("/proc/self/mountinfo", OS.O_RDONLY, 0));
+        return new MountInfo(this, open("/proc/self/mountinfo", OS.O_RDONLY, 0));
     }
 
     @Override

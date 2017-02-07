@@ -237,7 +237,7 @@ public final class Rooted extends net.sf.fdlib.OS {
 
     @Override
     public MountInfo getMounts() throws IOException {
-        return delegate.getMounts();
+        return new MountInfo(this, open("/proc/self/mountinfo", OS.O_RDONLY, 0));
     }
 
     @Override
@@ -313,6 +313,11 @@ public final class Rooted extends net.sf.fdlib.OS {
     @Override
     public void fadvise(@Fd int fd, long off, long length, int advice) throws IOException {
         delegate.fadvise(fd, off, length, advice);
+    }
+
+    @Override
+    public boolean isPrivileged() {
+        return true;
     }
 
     @Override

@@ -16,6 +16,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import net.sf.fakenames.fddemo.R;
+import net.sf.fakenames.fddemo.provider.ProviderBase;
 import net.sf.fdlib.CrappyDirectory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
@@ -32,6 +33,8 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.Random;
+
+import static net.sf.fakenames.fddemo.provider.ProviderBase.fdPath;
 
 public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implements Closeable {
     private static final String IO_ERR = "core.io.ui";
@@ -67,6 +70,30 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         return dirFd;
     }
 
+    private String pathname;
+
+    public void packState() {
+        if (dirFd < 0) return;
+
+        try {
+            pathname = os.readlinkat(DirFd.NIL, fdPath(dirFd));
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to fetch name of directory", e);
+        }
+    }
+
+    public void recoverState() {
+        if (pathname == null) return;
+
+        try {
+            swapDirectoryDescriptor(os.opendir(pathname, OS.O_RDONLY, 0));
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to fetch name of directory", e);
+        } finally {
+            pathname = null;
+        }
+    }
+
     public @DirFd int swapDirectoryDescriptor(@DirFd int dirFd) {
         return swapDirectoryDescriptor(dirFd, true);
     }
@@ -75,6 +102,8 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         if (this.dirFd == dirFd) {
             return DirFd.NIL;
         }
+
+        pathname = null;
 
         LogUtil.logCautiously("Switching directories; fd: %d, useCachingWrapper: %s", dirFd, useCachingWrapper);
 

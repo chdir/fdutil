@@ -23,6 +23,7 @@ import net.sf.fdlib.CloseableGuard;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Inotify;
 import net.sf.fdlib.InotifyFd;
+import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.SelectorThread;
 import net.sf.fdlib.WrappedIOException;
@@ -40,8 +41,7 @@ public final class GuardedState extends CloseableGuard {
     public final int inotifyFd;
 
     public static GuardedState create(OS os, Context context) throws IOException {
-        final SelectorThread selThread = new SelectorThread();
-        selThread.start();
+        final SelectorThread selThread = EpollThreadSingleton.get();
 
         @InotifyFd int inotifyFd = os.inotify_init();
 
@@ -52,7 +52,7 @@ public final class GuardedState extends CloseableGuard {
         inotify.setSelector(selThread);
 
         // no need to use root access here
-        final BaseDirLayout layout = new BaseDirLayout(OS.getInstance(), context.getApplicationContext());
+        final BaseDirLayout layout = new BaseDirLayout(os, context.getApplicationContext());
 
         layout.init();
 
@@ -85,12 +85,6 @@ public final class GuardedState extends CloseableGuard {
         @DirFd int prev = adapter.swapDirectoryDescriptor(DirFd.NIL);
         if (prev >= 0) {
             os.dispose(prev);
-        }
-
-        try {
-            selThread.close();
-        } catch (IOException e) {
-            throw new WrappedIOException(e);
         }
     }
 }

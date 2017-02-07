@@ -24,6 +24,8 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 
 import net.sf.fakenames.fddemo.BaseDirLayout;
+import net.sf.fakenames.fddemo.EpollThreadSingleton;
+import net.sf.fakenames.fddemo.MountsSingleton;
 import net.sf.fakenames.fddemo.R;
 import net.sf.fdlib.CrappyDirectory;
 import net.sf.fdlib.DirFd;
@@ -39,6 +41,7 @@ import net.sf.fdlib.OS;
 import net.sf.fdlib.SelectorThread;
 import net.sf.fdlib.Stat;
 import net.sf.fdlib.UnreliableIterator;
+import net.sf.fdlib.WrappedIOException;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -47,6 +50,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
 
 import static android.provider.DocumentsContract.Document.*;
 import static android.provider.DocumentsContract.Root.FLAG_LOCAL_ONLY;
@@ -108,6 +112,12 @@ public final class FileProvider extends DocumentsProvider {
         final OS os = base.getOS();
 
         if (os != null) {
+            try {
+                mountInfo = MountsSingleton.get(os);
+            } catch (IOException e) {
+                throw new WrappedIOException(e);
+            }
+
             inotify = os.observe(inotifyFd, Looper.getMainLooper());
 
             mainThreadHandler.post(() -> {
@@ -126,8 +136,7 @@ public final class FileProvider extends DocumentsProvider {
         try {
             initResources();
 
-            selectorThread = new SelectorThread();
-            selectorThread.start();
+            selectorThread = EpollThreadSingleton.get();
         } catch (IOException e) {
             e.printStackTrace();
 
@@ -149,13 +158,6 @@ public final class FileProvider extends DocumentsProvider {
         base = new ProviderBase(getContext(), AUTHORITY);
 
         final OS os = OS.getInstance();
-
-        @Fd int mountsFd = os.open("/proc/self/mountinfo", OS.O_RDONLY, 0);
-        try {
-            mountInfo = new MountInfo(mountsFd);
-        } finally {
-            os.dispose(mountsFd);
-        }
 
         inotifyFd = os.inotify_init();
 
@@ -554,8 +556,14 @@ public final class FileProvider extends DocumentsProvider {
         }
 
         final Directory directory;
-
-        final MountInfo.Mount mount = mountInfo.mountMap.get(stat.st_dev);
+        final MountInfo.Mount mount;
+        final Lock mountsLock = mountInfo.getLock();
+        mountsLock.lock();
+        try {
+            mount = mountInfo.mountMap.get(stat.st_dev);
+        } finally {
+            mountsLock.unlock();
+        }
 
         if (mount != null && BaseDirLayout.isPosix(mount.fstype)) {
             directory = os.list(fd);

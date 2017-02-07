@@ -15,7 +15,17 @@
  */
 package net.sf.fdlib;
 
+import android.app.Activity;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
 import android.os.ParcelFileDescriptor;
+import android.os.storage.StorageManager;
+import android.os.storage.StorageVolume;
 
 import com.carrotsearch.hppc.LongObjectHashMap;
 import com.carrotsearch.hppc.LongObjectMap;
@@ -25,14 +35,22 @@ import com.carrotsearch.hppc.ObjectSet;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.ConcurrentModificationException;
 import java.util.NoSuchElementException;
 import java.util.Scanner;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
+import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
 
 public class MountInfo {
@@ -43,32 +61,130 @@ public class MountInfo {
         }
     };
 
+    private final Looper looper = Looper.getMainLooper();
+    private final Handler handler = new MountsHandler(looper);
+    private final ArrayList<MountChangeListener> listeners = new ArrayList<>();
+
+    private final OS os;
     private final int mountinfo;
 
     public final LongObjectMap<Mount> mountMap = new LongObjectHashMap<>();
-
     public final ObjectSet<String> nodev = new ObjectHashSet<>();
 
-    public MountInfo(@Fd int mountinfo) throws IOException {
+    private SocketChannel fake;
+    private ParcelFileDescriptor fakeHolder;
+
+    private SelectionKey selectionKey;
+    private WeakReference<SelectorThread> selector;
+
+    public MountInfo(OS os, @Fd int mountinfo) throws IOException {
+        this.os = os;
         this.mountinfo = mountinfo;
 
         reparse();
+    }
+
+    public Lock getLock() {
+        return primaryLock;
+    }
+
+    public synchronized void setSelector(SelectorThread selector) throws IOException {
+        DebugAsserts.thread(looper, "setSelector");
+
+        primaryLock.lock();
+        try {
+            if (fake == null) {
+                fake = SocketChannel.open();
+                fakeHolder = ParcelFileDescriptor.fromSocket(fake.socket());
+            }
+
+            if (selectionKey != null) {
+                final SelectorThread oldSelector = this.selector.get();
+
+                if (oldSelector != null) {
+                    oldSelector.unregister(selectionKey);
+                }
+
+                selectionKey = null;
+            }
+
+            if (selector != null) {
+                os.dup2(mountinfo, fakeHolder.getFd());
+
+                // DatagramChannel caches the flag, make sure that it is reset either way
+                fake.configureBlocking(true);
+                fake.configureBlocking(false);
+
+                selectionKey = selector.register(fake, SelectionKey.OP_CONNECT, this::reparse);
+
+                this.selector = new WeakReference<>(selector);
+            }
+        } finally {
+            primaryLock.unlock();
+        }
+    }
+
+    private boolean safeIter = true;
+
+    private void notifyListeners() {
+        safeIter = false;
+        try {
+            for (int i = 0; i < listeners.size(); ++i) {
+                listeners.get(i).onMountsChanged();
+            }
+        } finally {
+            safeIter = true;
+        }
+    }
+
+    public void addMountListener(MountChangeListener listener) {
+        DebugAsserts.thread(looper, "addMountListener");
+
+        listeners.add(listener);
+    }
+
+    public void removeMountListener(MountChangeListener listener) {
+        DebugAsserts.thread(looper, "removeMountListener");
+
+        if (safeIter) {
+            listeners.remove(listener);
+        } else {
+            throw new ConcurrentModificationException("Removing a listener during onMountsChanged() callback is forbidden");
+        }
     }
 
     private static long makedev(long major, long minor) {
         return ((major & 0xfff) << 8) | (minor & 0xff) | ((minor & 0xfff00) << 12);
     }
 
-    public void reparse() throws IOException {
-        LogUtil.logCautiously("reparse() got called");
+    private final Lock primaryLock = new ReentrantLock();
 
-        mountMap.clear();
-        nodev.clear();
+    public boolean reparse() {
+        if (!primaryLock.tryLock()) {
+            return false;
+        }
 
-        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+        try {
+            LogUtil.logCautiously("reparse() got called");
 
-        parseFilesystems(decoder, true);
-        parseMounts(decoder, true);
+            mountMap.clear();
+            nodev.clear();
+
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
+
+            try {
+                parseFilesystems(decoder, true);
+                parseMounts(decoder, true);
+            } catch (IOException e) {
+                throw new WrappedIOException(e);
+            }
+        } finally {
+            primaryLock.unlock();
+        }
+
+        handler.sendEmptyMessage(0);
+
+        return true;
     }
 
     private static final int SANE_SIZE_LIMIT = 200 * 1024 * 1024;
@@ -194,9 +310,45 @@ public class MountInfo {
             this.subject = subject;
         }
 
+        // Note, that we are not even trying to use StorageVolume-based permissions, because
+        // those don't currently work for native calls
+        public boolean askForPermission(Activity context, int reqId) {
+            if (Build.VERSION.SDK_INT >= 24) {
+                final StorageManager sm = (StorageManager) context.getSystemService(Context.STORAGE_SERVICE);
+                final StorageVolume sv = sm.getStorageVolume(new File(rootPath));
+                if (sv == null || !Environment.MEDIA_MOUNTED.equals(sv.getState())) {
+                    return false;
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= 23) {
+                if (context.checkSelfPermission(WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                    context.requestPermissions(new String[] { WRITE_EXTERNAL_STORAGE }, reqId);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         @Override
         public String toString() {
             return fstype + ' ' + rootPath + ' ' + subject;
+        }
+    }
+
+    public interface MountChangeListener {
+        void onMountsChanged();
+    }
+
+    private final class MountsHandler extends Handler {
+        public MountsHandler(Looper looper) {
+            super(looper);
+        }
+
+        @Override
+        public void handleMessage(Message msg) {
+            notifyListeners();
         }
     }
 }

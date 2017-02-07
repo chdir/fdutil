@@ -14,6 +14,7 @@ import android.webkit.MimeTypeMap;
 import com.carrotsearch.hppc.ObjectHashSet;
 import com.carrotsearch.hppc.ObjectSet;
 
+import net.sf.fakenames.fddemo.MountsSingleton;
 import net.sf.fakenames.fddemo.RootSingleton;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Fd;
@@ -26,6 +27,7 @@ import net.sf.fdlib.Stat;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.concurrent.locks.Lock;
 
 import static android.provider.DocumentsContract.Document.MIME_TYPE_DIR;
 import static net.sf.fakenames.fddemo.provider.FileProvider.DEFAULT_MIME;
@@ -41,8 +43,8 @@ public final class ProviderBase extends ContextWrapper {
     private static final LruCache<String, TimestampedMime> fileTypeCache = new LruCache<>(7);
 
     private final String authority;
-    private final MountInfo mounts;
 
+    private volatile MountInfo mounts;
     private volatile OS rooted;
     private volatile Magic magic;
 
@@ -50,8 +52,6 @@ public final class ProviderBase extends ContextWrapper {
         super(context);
 
         this.authority = authority;
-
-        this.mounts = OS.getInstance().getMounts();
 
         this.magic = Magic.getInstance(getBaseContext());
     }
@@ -61,15 +61,9 @@ public final class ProviderBase extends ContextWrapper {
         if (rooted == null) {
             synchronized (this) {
                 if (rooted == null) {
-                    reset();
-                }
-
-                if (rooted == null) {
                     try {
-                        return OS.getInstance();
+                        reset();
                     } catch (IOException e) {
-                        e.printStackTrace();
-
                         return null;
                     }
                 }
@@ -79,17 +73,24 @@ public final class ProviderBase extends ContextWrapper {
         return rooted;
     }
 
-    private void reset() {
-        try {
-            if (rooted != null) {
-                throw new AssertionError();
-            }
-
-            rooted = RootSingleton.get(getApplicationContext());
-        } catch (IOException e) {
-            e.printStackTrace();
-            // ok
+    private void reset() throws IOException {
+        if (rooted != null) {
+            throw new AssertionError();
         }
+
+        OS os = null;
+        try {
+            os = RootSingleton.get(getApplicationContext());
+        } catch (IOException e) {
+            e.printStackTrace(); // ok
+        }
+
+        if (os == null) {
+            os = OS.getInstance();
+        }
+
+        rooted = os;
+        mounts = MountsSingleton.get(os);
     }
 
     @NonNull
@@ -795,15 +796,31 @@ public final class ProviderBase extends ContextWrapper {
         return mimeCandidates.toArray(String.class);
     }
 
+    public static String fdPath(int fd) {
+        final String result;
+        final int myPid = Process.myPid();
+        final StringBuilder builder = acquire(30);
+        try {
+            result = builder.append("/proc/").append(myPid).append("/fd/").append(fd).toString();
+        } finally {
+            release(builder);
+        }
+        return result;
+    }
+
     private boolean isPossiblySpecial(Stat s) {
         if (s == null) return true;
 
-        synchronized (ProviderBase.class) {
+        final Lock lock = mounts.getLock();
+        lock.lock();
+        try {
             final MountInfo.Mount mount = mounts.mountMap.get(s.st_dev);
 
             if (mount == null || mounts.isVolatile(mount)) {
                 return true;
             }
+        } finally {
+            lock.unlock();
         }
 
         return false;

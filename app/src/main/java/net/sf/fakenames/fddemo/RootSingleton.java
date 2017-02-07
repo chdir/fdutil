@@ -23,7 +23,7 @@ import net.sf.fdlib.OS;
 
 import java.io.IOException;
 
-public class RootSingleton {
+public final class RootSingleton {
     private static volatile OS instance;
 
     public static OS get(Context context) throws IOException {
