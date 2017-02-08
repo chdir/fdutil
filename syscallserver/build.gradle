@@ -1,3 +1,9 @@
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.channels.FileChannel.MapMode
+
 apply plugin: 'com.android.library'
 
 final int nativeVersionCode = 0
@@ -22,7 +28,7 @@ android {
             cmake {
                 targets "fdhelper-$nativeVersionCode"
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
-                cppFlags '-std=c++11', '-Wall', '-Werror=all'
+                cppFlags '-std=c++11', '-Wall', '-Werror=all -O'
                 arguments "-DFDHELPER_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_PIE=ON"
             }
         }
@@ -53,20 +59,148 @@ dependencies {
 }
 
 project.android.libraryVariants.all { variant ->
-    def renameExecutablesTaskName = 'renameExecutables' + variant.name.capitalize()
+    def renameExecutablesTaskName = "renameExecutables${variant.name.capitalize()}"
 
-    Task renameExecutables = task(renameExecutablesTaskName) << {
-        project.copy {
-            from "$projectDir.absolutePath/src/main/libs"
-            into "$projectDir.absolutePath/src/main/jniLibs"
-            include '**/*'
-            exclude '**/*.jar'
-            exclude '**/*.so'
-            rename(/(.+)/, true ? 'lib$1_PIC_exec.so' : 'lib$1_exec.so')
+    Task renameExecutables = task(type: Copy, dependsOn: variant.externalNativeBuildTasks[0], renameExecutablesTaskName) {
+        from "$projectDir.absolutePath/src/main/libs"
+        into "$projectDir.absolutePath/src/main/jniLibs"
+        include '**/*'
+        exclude '**/*.jar'
+        exclude '**/*.so'
+        rename(/(.+)/, true ? 'lib$1_PIC_exec.so' : 'lib$1_exec.so')
+    }
+
+    def patchExecutablesTaskName = "patchExecutables${variant.name.capitalize()}"
+
+    Task processExecutables = task(dependsOn: renameExecutables, patchExecutablesTaskName) << {
+        IOHelper.processFiles(logger, renameExecutables.outputs.files as File[])
+    }
+
+    variant.javaCompile.dependsOn(processExecutables)
+}
+
+import groovy.transform.CompileStatic;
+
+@CompileStatic
+final class IOHelper {
+    static final int ASCII_CHAR_START = 32
+    static final int ASCII_CHAR_END = 122
+
+    static final int UCHAR_MAX = 256
+
+    static final byte slash = 47; // '/'
+
+    static final byte[] sig = [109 /* 'm' */,
+                               97  /* 'a' */,
+                               114 /* 'r' */,
+                               107 /* 'k' */,
+                               slash];
+
+    static final Random rand = new Random()
+
+    static void processFiles(Logger logger, File... files) {
+        for (File file : files) {
+            if (file.directory) {
+                processFiles(logger, file.listFiles())
+            } else {
+                mangleStrings(logger, file)
+            }
         }
     }
 
-    renameExecutables.dependsOn(variant.externalNativeBuildTasks[0])
+    static void mangleStrings(Logger logger, File... files) {
+        for (File file : files) {
+            logger.warn("processing $file")
 
-    variant.javaCompile.dependsOn(renameExecutables)
+            if (file.directory) continue
+
+            new RandomAccessFile(file, 'rw').channel.withCloseable { FileChannel ch ->
+                MappedByteBuffer buffer = ch.map(MapMode.READ_WRITE, 0, ch.size())
+
+                mangleStrings(logger, buffer.order(ByteOrder.LITTLE_ENDIAN))
+
+                buffer.force()
+            }
+        }
+    }
+
+    static void mangleStrings(Logger logger, ByteBuffer buffer) {
+        int cap = buffer.capacity();
+
+        final byte[] tst = new byte[5];
+
+        for (int i = 0; i < cap; ++i) {
+            if (Integer.compare(buffer.get(i), slash) == 0) {
+                buffer.position(i + 1)
+                buffer.get(tst)
+
+                if (!Arrays.equals(tst, sig)) continue
+
+                logger.warn('found match at ' + i)
+
+                // erase the header
+                buffer.putInt(i, rand.nextInt());
+                buffer.putShort(i + 4, (short) rand.nextInt());
+
+                buffer.position(i + 1 + sig.length)
+
+                int j;
+                byte b = -1;
+
+                for (j = buffer.position(); Integer.compare(b, 0) != 0; ++j) {
+                    b = buffer.get(j);
+                }
+
+                final int strlen = j - 1 - buffer.position();
+
+                buffer.limit(j - 1);
+
+                final ByteBuffer slice1 = buffer.slice()
+                        .order(ByteOrder.LITTLE_ENDIAN);
+
+                buffer.limit(j + strlen);
+                buffer.position(j);
+
+                final ByteBuffer slice2 = buffer.slice()
+                        .order(ByteOrder.LITTLE_ENDIAN);
+
+                crypt(slice1, slice2)
+
+                i = buffer.limit();
+
+                buffer.clear()
+            }
+        }
+    }
+
+    static void crypt(ByteBuffer inputSlice, ByteBuffer outputSlice) {
+        assert inputSlice.capacity() == outputSlice.capacity()
+
+        int cap = inputSlice.capacity();
+
+        for (int i = 0; i < cap; ++i) {
+            final byte sourceByte = inputSlice.get()
+
+            if (Integer.compare(sourceByte, slash) == 0) {
+                outputSlice.put(i, slash)
+                continue
+            }
+
+            // obfuscated char in "generic" ASCII range
+            int result = ASCII_CHAR_START + rand.nextInt(ASCII_CHAR_END - ASCII_CHAR_START)
+            if (Integer.compare(result, sourceByte) == 0) {
+                outputSlice.put(i, slash);
+            } else {
+                if (Integer.compare(result, slash) == 0) {
+                    ++result;
+                }
+
+                int offset = sourceByte < result ? result - sourceByte : UCHAR_MAX - sourceByte + result
+
+                outputSlice.put(i, (byte) offset)
+            }
+
+            inputSlice.put(i, (byte) result)
+        }
+    }
 }

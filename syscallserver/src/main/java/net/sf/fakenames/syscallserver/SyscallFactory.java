@@ -890,7 +890,7 @@ public final class SyscallFactory implements Closeable {
                             clientTty.append("GO\n").flush();
 
                             // as little exercise in preparation to real deal, try to protect our helper from OOM killer
-                            final String oomFile = "/proc/" + helperPid + "/oom_score_adj";
+                            final String oomFile = getFileName(helperPid);
 
                             final FdResp oomFileTestResp = sendFdRequest(new OpenReq(null, oomFile, OS.O_RDWR), clientTty, rbc, wbc, localSocket);
 
@@ -920,6 +920,19 @@ public final class SyscallFactory implements Closeable {
                     }
                 }
             }
+        }
+
+        @SuppressWarnings("StringBufferReplaceableByString")
+        private String getFileName(int pid) {
+            final StringBuilder builder = new StringBuilder(35);
+            builder.append("/proc/");
+            builder.append(pid);
+            builder.append("/oo");
+            builder.append('m');
+            builder.append("_score");
+            builder.append('_');
+            builder.append("adj");
+            return builder.toString();
         }
 
         private void processRequestsUntilStopped(LocalSocket fdrecv,

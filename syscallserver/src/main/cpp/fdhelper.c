@@ -46,6 +46,8 @@
 
 #define LOG_TAG "fdshare"
 
+#define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__))
+
 #define REQ_TYPE_OPEN 1
 #define REQ_TYPE_MKDIR 2
 #define REQ_TYPE_UNLINK 3
@@ -355,9 +357,9 @@ static void initFileContext(int sock, const char* context) {
 
     fixPolicy(context);
 
-    FILE* oom_adj = fopen("/proc/self/oom_score_adj", "w");
+    FILE* oom_adj = fopen(ENC("/proc/self/oom_score_adj"), "w");
     if (oom_adj != NULL) {
-        LOG("Adjusting score to -1000", context);
+        LOG("Adjusting score to -1000");
 
         fputs("-1000", oom_adj);
         fclose(oom_adj);
@@ -367,7 +369,7 @@ static void initFileContext(int sock, const char* context) {
 
     int threadId = gettid();
 
-    sprintf(fsCreatePathBuf, "/proc/self/task/%d/attr/fscreate", threadId);
+    sprintf(fsCreatePathBuf, ENC("/proc/self/task/%d/attr/fscreate"), threadId);
 
     FILE* fscreateFd = fopen(fsCreatePathBuf, "w");
 
@@ -380,7 +382,7 @@ static void initFileContext(int sock, const char* context) {
 
     char sockCreatePathBuf[44];
 
-    sprintf(sockCreatePathBuf, "/proc/self/task/%d/attr/sockcreate", threadId);
+    sprintf(sockCreatePathBuf, ENC("/proc/self/task/%d/attr/sockcreate"), threadId);
 
     FILE* sockcreateFd = fopen(fsCreatePathBuf, "w");
 
@@ -1080,8 +1082,8 @@ int main(int argc, char *argv[]) {
 
     verbose = 0;
 
-    if (sys_mount("proc", "/proc", "procfs", MS_REMOUNT, "hidepid=0")) {
-        LOG("Failed to remount /proc: %s", strerror(errno));
+    if (sys_mount("proc", "/proc", "procfs", MS_REMOUNT, ENC("hidepid=0"))) {
+        LOG("Failed to adjust proc settings: %s", strerror(errno));
     }
 
     // connect to supplied address and send the greeting message to server

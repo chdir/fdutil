@@ -235,7 +235,7 @@ static int lookup_type(policy_file_t* fp, int version, const char* type_name, ui
 }
 
 int load_policy_from_kernel(policy_file_t *pf) {
-    const char *filename = "/sys/fs/selinux/policy";
+    const char *filename = ENC("/sys/fs/selinux/policy");
 
     int fd;
     struct stat sb;
@@ -272,7 +272,7 @@ int load_policy_from_kernel(policy_file_t *pf) {
 }
 
 int load_policy_into_kernel(policy_file_t *fp) {
-    char *filename = "/sys/fs/selinux/load";
+    char *filename = ENC("/sys/fs/selinux/load");
     int fd, ret;
 
     fd = open(filename, O_RDWR);
