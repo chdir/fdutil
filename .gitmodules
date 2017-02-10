@@ -2,5 +2,5 @@
 	path = syscallserver/src/main/cpp/util
 	url = git@github.com:chdir/util.git
 [submodule "app/src/main/cpp/magic"]
-	path = app/src/main/cpp/magic
+	path = provider/src/main/cpp/magic
 	url = git@github.com:Alexander--/file.git

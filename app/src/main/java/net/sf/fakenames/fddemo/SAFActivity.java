@@ -23,7 +23,7 @@ import android.os.Bundle;
 import android.provider.DocumentsContract;
 import android.widget.Toast;
 
-import net.sf.fakenames.fddemo.provider.FileProvider;
+import net.sf.xfd.provider.FileProvider;
 
 public final class SAFActivity extends Activity {
     private IntentHandler handler;
@@ -57,9 +57,12 @@ public final class SAFActivity extends Activity {
             return;
         }
 
+        final String packageName = getPackageName();
+        final String authority = packageName + FileProvider.AUTHORITY_SUFFIX;
+
         final Uri uri = data.getData();
-        if (!FileProvider.AUTHORITY.equals(uri.getAuthority())) {
-            Toast.makeText(this, "Unsupported provder", Toast.LENGTH_SHORT).show();
+        if (!authority.equals(uri.getAuthority())) {
+            Toast.makeText(this, "Unsupported file picker", Toast.LENGTH_SHORT).show();
             finish();
             return;
         }

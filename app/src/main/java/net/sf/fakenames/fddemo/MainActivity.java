@@ -52,9 +52,6 @@ import com.carrotsearch.hppc.IntObjectMap;
 
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
-import net.sf.fakenames.fddemo.provider.FileProvider;
-import net.sf.fakenames.fddemo.provider.ProviderBase;
-import net.sf.fakenames.fddemo.provider.PublicProvider;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
 import net.sf.fakenames.fddemo.view.DirItemHolder;
@@ -71,6 +68,8 @@ import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.Stat;
+import net.sf.xfd.provider.PublicProvider;
+import net.sf.xfd.provider.RootSingleton;
 
 import java.io.Closeable;
 import java.io.File;
@@ -83,7 +82,9 @@ import butterknife.BindView;
 import butterknife.OnClick;
 
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
-import static net.sf.fakenames.fddemo.provider.ProviderBase.fdPath;
+import static net.sf.xfd.provider.ProviderBase.DEFAULT_MIME;
+import static net.sf.xfd.provider.ProviderBase.fdPath;
+import static net.sf.xfd.provider.ProviderBase.isPosix;
 
 public class MainActivity extends BaseActivity implements
         MenuItem.OnMenuItemClickListener,
@@ -324,7 +325,7 @@ public class MainActivity extends BaseActivity implements
 
             final MountInfo.Mount m = state.layout.getFs(stat.st_dev);
 
-            final boolean canUseTellDir = m != null && BaseDirLayout.isPosix(m.fstype);
+            final boolean canUseTellDir = m != null && isPosix(m.fstype);
 
             prev = state.adapter.swapDirectoryDescriptor(newFd, !canUseTellDir);
 
@@ -399,7 +400,7 @@ public class MainActivity extends BaseActivity implements
 
             String type = getContentResolver().getType(uri);
             if (type == null) {
-                type = FileProvider.DEFAULT_MIME;
+                type = DEFAULT_MIME;
             }
 
             final Intent view = new Intent(Intent.ACTION_SEND)
@@ -570,7 +571,7 @@ public class MainActivity extends BaseActivity implements
 
         final MountInfo.Mount m = state.layout.getFs(targetDirStat.st_dev);
 
-        final boolean canUseExtChars = m != null && BaseDirLayout.isPosix(m.fstype);
+        final boolean canUseExtChars = m != null && isPosix(m.fstype);
 
         asyncTask = new AsyncTask<ParcelFileDescriptor, Void, String>() {
             @Override

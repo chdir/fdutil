@@ -42,26 +42,7 @@
             android:stateNotNeeded="true"
             android:resumeWhilePausing="true"
             tools:ignore="UnusedAttribute">
+            <meta-data android:name="net.sf.xfd.is_permission_delegate" android:value="true"/>
         </activity>
-
-        <provider
-            android:authorities="net.sf.fddemo.files"
-            android:name=".provider.FileProvider"
-            android:exported="true"
-            android:permission="android.permission.MANAGE_DOCUMENTS"
-            android:grantUriPermissions="true">
-            <!--suppress AndroidElementNotAllowed -->
-            <intent-filter>
-                <!--suppress AndroidElementNotAllowed -->
-                <action android:name="android.content.action.DOCUMENTS_PROVIDER"/>
-            </intent-filter>
-        </provider>
-
-        <provider
-            android:authorities="net.sf.fddemo.public"
-            android:name=".provider.PublicProvider"
-            android:exported="true"
-            tools:ignore="ExportedContentProvider">
-        </provider>
     </application>
 </manifest>

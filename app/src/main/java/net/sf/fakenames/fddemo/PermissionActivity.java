@@ -36,18 +36,9 @@ import java.util.Arrays;
 import butterknife.BindView;
 import butterknife.OnClick;
 
+import static net.sf.xfd.provider.PermissionDelegate.*;
+
 public final class PermissionActivity extends BaseActivity {
-    public static final String EXTRA_CALLBACK = "net.sf.callback";
-    public static final String EXTRA_CALLER = "net.sf.source";
-    public static final String EXTRA_UID = "net.sf.uid";
-    public static final String EXTRA_PATH = "net.sf.path";
-    public static final String EXTRA_MODE = "net.sf.mode";
-    public static final String EXTRA_RESPONSE = "net.sf.res";
-
-    public static final int RESPONSE_ALLOW = 1;
-    public static final int RESPONSE_DENY = 2;
-    public static final int RESPONSE_TIMEOUT = 3;
-
     @BindView(android.R.id.message)
     TextView message;
 

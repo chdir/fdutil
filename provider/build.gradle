@@ -1,0 +1,55 @@
+apply plugin: 'com.android.library'
+apply plugin: 'me.tatarka.retrolambda'
+
+final int libmagicVersionCode = 125
+
+android {
+    compileSdkVersion 25
+    buildToolsVersion '25.0.2'
+
+    defaultConfig {
+        minSdkVersion 19
+        targetSdkVersion 25
+        versionCode 1
+        versionName '0.4'
+
+        buildConfigField 'int', 'MAGIC_VER', "$libmagicVersionCode"
+
+        testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
+        testInstrumentationRunnerArguments [['disableAnalytics' : 'true']]
+
+        externalNativeBuild {
+            cmake {
+                abiFilters 'x86', 'armeabi-v7a', 'mips'
+                arguments "-DMAGIC_NATIVE_VER:STRING=$libmagicVersionCode"
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+    aaptOptions {
+        noCompress 'mgc'
+    }
+}
+
+dependencies {
+    compile 'com.android.support:support-compat:25.1.0'
+
+    compile project(':syscallserver')
+
+    testCompile 'junit:junit:4.12'
+    testCompile 'org.robolectric:robolectric:3.2.2'
+}

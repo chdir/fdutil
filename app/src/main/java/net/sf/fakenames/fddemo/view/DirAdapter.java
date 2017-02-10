@@ -1,32 +1,24 @@
 package net.sf.fakenames.fddemo.view;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
-import android.os.FileObserver;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
-import android.view.ContextMenu;
 import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
 import net.sf.fakenames.fddemo.R;
-import net.sf.fakenames.fddemo.provider.ProviderBase;
 import net.sf.fdlib.CrappyDirectory;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Directory;
 import net.sf.fdlib.Inotify;
-import net.sf.fdlib.InotifyFd;
 import net.sf.fdlib.InotifyWatch;
 import net.sf.fdlib.LogUtil;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.UnreliableIterator;
-import net.sf.fdlib.WrappedIOException;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -34,7 +26,7 @@ import java.security.SecureRandom;
 import java.util.List;
 import java.util.Random;
 
-import static net.sf.fakenames.fddemo.provider.ProviderBase.fdPath;
+import static net.sf.xfd.provider.ProviderBase.fdPath;
 
 public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implements Closeable {
     private static final String IO_ERR = "core.io.ui";

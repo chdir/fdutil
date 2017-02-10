@@ -23,10 +23,9 @@ import net.sf.fdlib.CloseableGuard;
 import net.sf.fdlib.DirFd;
 import net.sf.fdlib.Inotify;
 import net.sf.fdlib.InotifyFd;
-import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
 import net.sf.fdlib.SelectorThread;
-import net.sf.fdlib.WrappedIOException;
+import net.sf.xfd.provider.EpollThreadSingleton;
 
 import java.io.IOException;
 

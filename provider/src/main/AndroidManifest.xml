@@ -1,0 +1,29 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="net.sf.xfd.provider">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <provider
+            android:authorities="${applicationId}.file_provider"
+            android:name=".FileProvider"
+            android:exported="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:grantUriPermissions="true">
+            <!--suppress AndroidElementNotAllowed -->
+            <intent-filter>
+                <!--suppress AndroidElementNotAllowed -->
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER"/>
+            </intent-filter>
+        </provider>
+
+        <provider
+            android:authorities="${applicationId}.public_provider"
+            android:name=".PublicProvider"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider">
+        </provider>
+    </application>
+
+</manifest>

@@ -26,18 +26,16 @@ import android.support.v4.content.ContextCompat;
 import android.text.TextUtils;
 
 import com.carrotsearch.hppc.ObjectHashSet;
-import com.carrotsearch.hppc.ObjectObjectHashMap;
-import com.carrotsearch.hppc.ObjectObjectMap;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
 import net.sf.fdlib.Fd;
 import net.sf.fdlib.MountInfo;
 import net.sf.fdlib.OS;
+import net.sf.xfd.provider.MountsSingleton;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -187,26 +185,6 @@ public class BaseDirLayout extends ContextWrapper {
             return mountInfo.mountMap.get(dev_t);
         } finally {
             lock.unlock();
-        }
-    }
-
-    /**
-     * @return {@code true} if filesystem is in list of filesystems, known to support telldir, Linux filename conventions etc. {@code false} otherwise
-     */
-    public static boolean isPosix(String filesystemName) {
-        switch (filesystemName) {
-            case "ext3":
-            case "ext4":
-            case "xfs":
-            case "f2fS":
-            case "procfs":
-            case "sysfs":
-            case "tmpfs":
-            case "devpts":
-            case "rootfs":
-                return true;
-            default:
-                return false;
         }
     }
 

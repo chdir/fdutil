@@ -1,8 +1,6 @@
 apply plugin: 'com.android.application'
 apply plugin: 'me.tatarka.retrolambda'
 
-final int libmagicVersionCode = 125
-
 android {
     compileSdkVersion 24
     buildToolsVersion '25.0.1'
@@ -13,18 +11,8 @@ android {
         versionCode 1
         versionName '1.0'
 
-        buildConfigField 'int', 'MAGIC_VER', "$libmagicVersionCode"
-
         testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
-
         testInstrumentationRunnerArguments [['disableAnalytics' : 'true']]
-
-        externalNativeBuild {
-            cmake {
-                abiFilters 'x86', 'armeabi-v7a', 'mips'
-                arguments "-DMAGIC_NATIVE_VER:STRING=$libmagicVersionCode"
-            }
-        }
     }
 
     compileOptions {
@@ -37,15 +25,6 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
-    }
-    externalNativeBuild {
-        cmake {
-            path 'src/main/cpp/CMakeLists.txt'
-        }
-    }
-
-    aaptOptions {
-        noCompress 'mgc'
     }
 }
 
@@ -65,14 +44,13 @@ dependencies {
     androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
-    testCompile 'junit:junit:4.12'
 
-    debugCompile project(path: ':syscallserver', configuration: 'debug')
-    releaseCompile project(path: ':syscallserver', configuration: 'release')
+    compile project(':provider')
 
+    androidTestCompile project(':provider')
     androidTestCompile 'com.google.truth:truth:0.30'
-    androidTestCompile project(':fdlib')
 
-    testCompile project(':fdlib')
+    testCompile project(':provider')
     testCompile 'org.robolectric:robolectric:3.2.2'
+    testCompile 'junit:junit:4.12'
 }

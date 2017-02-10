@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">provider</string>
+    <string name="metadata_name_is_delegate">net.sf.xfd.is_permission_delegate</string>
+</resources>

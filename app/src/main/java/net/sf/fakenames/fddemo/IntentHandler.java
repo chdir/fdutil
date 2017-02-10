@@ -26,31 +26,24 @@ import android.content.pm.LabeledIntent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Parcelable;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.text.TextUtils;
-import android.webkit.MimeTypeMap;
 
 import com.carrotsearch.hppc.ObjectHashSet;
 import com.carrotsearch.hppc.ObjectSet;
 
-import net.sf.fakenames.fddemo.provider.ProviderBase;
-import net.sf.fakenames.fddemo.provider.PublicProvider;
+import net.sf.xfd.provider.PublicProvider;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static android.content.ContentResolver.SCHEME_CONTENT;
-import static net.sf.fakenames.fddemo.provider.PublicProvider.AUTHORITY;
-import static net.sf.fakenames.fddemo.provider.PublicProvider.URI_ARG_TYPE;
+import static net.sf.xfd.provider.PublicProvider.URI_ARG_TYPE;
 
 /**
  * This class can open files in 4 ways:

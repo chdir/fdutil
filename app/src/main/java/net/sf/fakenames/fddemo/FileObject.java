@@ -53,7 +53,7 @@ import java.nio.channels.FileChannel;
 import java.util.Random;
 
 import static android.content.res.AssetFileDescriptor.UNKNOWN_LENGTH;
-import static net.sf.fakenames.fddemo.provider.ProviderBase.extractName;
+import static net.sf.xfd.provider.ProviderBase.extractName;
 
 /**
  * Container for information about Uri-addressable object
