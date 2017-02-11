@@ -57,7 +57,7 @@ final class Android extends OS {
 
     @Override
     public @Fd int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
-        return nativeOpenAt(DirFd.AT_FDCWD, toNative(pathname), flags, mode);
+        return nativeOpenAt(fd, toNative(pathname), flags, mode);
     }
 
     @Override
