@@ -1,1 +1,1 @@
-include ':app', ':fdlib', ':syscallserver'
+include ':app', ':fdlib', ':syscallserver', ':provider'

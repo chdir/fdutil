@@ -1,6 +1,6 @@
 [submodule "syscallserver/src/main/cpp/util"]
 	path = syscallserver/src/main/cpp/util
-	url = git@github.com:chdir/util.git
+	url = https://github.com/chdir/util.git
 [submodule "app/src/main/cpp/magic"]
 	path = provider/src/main/cpp/magic
-	url = git@github.com:Alexander--/file.git
+	url = https://github.com/Alexander--/file.git

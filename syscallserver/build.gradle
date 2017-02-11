@@ -10,7 +10,7 @@ final int nativeVersionCode = 0
 
 android {
     compileSdkVersion 24
-    buildToolsVersion "25.0.2"
+    buildToolsVersion '25.0.2'
 
     publishNonDefault true
 
