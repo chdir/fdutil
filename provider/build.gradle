@@ -43,9 +43,15 @@ android {
     aaptOptions {
         noCompress 'mgc'
     }
+    lintOptions {
+        checkAllWarnings true
+
+        error 'EasterEgg'
+    }
 }
 
 dependencies {
+    //noinspection GradleCompatible
     compile 'com.android.support:support-compat:25.1.0'
 
     compile project(':syscallserver')

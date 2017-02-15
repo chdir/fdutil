@@ -41,6 +41,11 @@ android {
             path 'src/main/cpp/CMakeLists.txt'
         }
     }
+    lintOptions {
+        checkAllWarnings true
+
+        error 'EasterEgg'
+    }
 }
 
 dependencies {

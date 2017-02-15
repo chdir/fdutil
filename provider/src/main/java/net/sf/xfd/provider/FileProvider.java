@@ -17,6 +17,7 @@
 package net.sf.xfd.provider;
 
 import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.CharArrayBuffer;
@@ -29,6 +30,7 @@ import android.database.DataSetObservable;
 import android.database.DataSetObserver;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
@@ -684,7 +686,7 @@ public final class FileProvider extends DocumentsProvider {
             return null;
         }
 
-        if (DocumentsContract.isTreeUri(uri)) {
+        if (Build.VERSION.SDK_INT >= 24 && DocumentsContract.isTreeUri(uri)) {
             return canonTree(uri);
         }
 
@@ -695,6 +697,7 @@ public final class FileProvider extends DocumentsProvider {
         return super.canonicalize(uri);
     }
 
+    @TargetApi(24)
     private Uri canonTree(Uri tree) {
         final String documentId = DocumentsContract.getDocumentId(tree);
 
@@ -905,7 +908,7 @@ public final class FileProvider extends DocumentsProvider {
 
                             fullChildName = canonString(nameBuilder);
 
-                            //Log.e("Listing", "Listing " + fullChildName + " as " + reusable.name);
+                            Log.e("Listing", "Listing " + fullChildName + " as " + reusable.name);
                         }
 
                         String mime = null;

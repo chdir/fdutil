@@ -1,3 +1,19 @@
+/**
+ * Copyright © 2017 Alexander Rvachev
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 package net.sf.xfd.provider;
 
 import android.annotation.SuppressLint;
@@ -27,6 +43,7 @@ import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.content.ContentResolverCompat;
 import android.support.v4.os.ResultReceiver;
 import android.support.v4.util.LruCache;
 import android.text.TextUtils;
@@ -99,6 +116,18 @@ public final class PublicProvider extends ContentProvider {
 
     private static volatile Intent authActivity;
 
+    private static ComponentName createRelative(String pkg, String cls) {
+        final String fullName;
+        if (cls.charAt(0) == '.') {
+            // Relative to the package. Prepend the package name.
+            fullName = pkg + cls;
+        } else {
+            // Fully qualified package name.
+            fullName = cls;
+        }
+        return new ComponentName(pkg, fullName);
+    }
+
     private static @Nullable Intent authActivityIntent(Context c) {
         if (authActivity == null) {
             synchronized (PublicProvider.class) {
@@ -112,16 +141,20 @@ public final class PublicProvider extends ContentProvider {
                                 PackageManager.GET_ACTIVITIES | PackageManager.GET_META_DATA);
 
                         for (ActivityInfo activity : pi.activities) {
-                            boolean isSuitable = activity.metaData.getBoolean(META_IS_PERMISSION_DELEGATE);
+                            final Bundle metadata = activity.metaData;
 
-                            if (isSuitable) {
-                                authActivity = new Intent(ACTION_PERMISSION_REQUEST)
-                                        .setComponent(ComponentName.createRelative(c, activity.name))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                break;
+                            if (metadata != null) {
+                                boolean isSuitable = metadata.getBoolean(META_IS_PERMISSION_DELEGATE);
+
+                                if (isSuitable) {
+                                    authActivity = new Intent(ACTION_PERMISSION_REQUEST)
+                                            .setComponent(createRelative(packageName, activity.name))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                    break;
+                                }
                             }
                         }
-                    } catch (PackageManager.NameNotFoundException e) {
+                    } catch (Exception e) {
                         return null;
                     }
                 }
@@ -519,12 +552,8 @@ public final class PublicProvider extends ContentProvider {
         }
 
         try {
-            try {
-                if (!checkAccess(uri, requestedMode)) {
-                    return null;
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
+            if (!checkAccess(uri, requestedMode)) {
+                return null;
             }
 
             final OS rooted = base.getOS();
