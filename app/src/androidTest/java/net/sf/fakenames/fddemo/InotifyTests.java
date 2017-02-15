@@ -2,7 +2,6 @@ package net.sf.fakenames.fddemo;
 
 import android.app.Instrumentation;
 import android.content.Context;
-import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.support.test.InstrumentationRegistry;
@@ -11,18 +10,17 @@ import android.support.test.filters.LargeTest;
 import android.support.test.filters.MediumTest;
 import android.support.test.runner.AndroidJUnit4;
 
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Inotify;
-import net.sf.fdlib.InotifyFd;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.SelectorThread;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Inotify;
+import net.sf.xfd.InotifyFd;
+import net.sf.xfd.OS;
+import net.sf.xfd.SelectorThread;
 
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.FileInputStream;

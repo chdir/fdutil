@@ -2,8 +2,8 @@ package net.sf.fakenames.fddemo.view;
 
 import android.view.ContextMenu;
 
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Directory;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Directory;
 
 public final class FileMenuInfo implements ContextMenu.ContextMenuInfo {
     public final Directory.Entry fileInfo;

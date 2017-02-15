@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.sf.fdlib;
+package net.sf.xfd;
 
 import android.support.annotation.IntDef;
 
@@ -26,16 +26,15 @@ import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
-import static net.sf.fdlib.Fd.*;
+import static net.sf.xfd.DirFd.*;
 
 /**
- * A type definition for file descriptors. This annotation is not meant to be used with
- * raw values except when those are well-known values for standard stream (0, 1, 2).
+ * A type definition for directory file descriptors.
  */
 @Retention(SOURCE)
-@IntDef({NIL, ERROR, STDIN, STDOUT, STDERR})
+@IntDef({NIL, ERROR, AT_FDCWD})
 @Target({FIELD, METHOD, PARAMETER, LOCAL_VARIABLE})
-public @interface Fd {
+public @interface DirFd {
     /**
      * Invalid descriptor sentinel for indicating absence of value (a {@code null} replacement)
      */
@@ -46,7 +45,10 @@ public @interface Fd {
      */
     int ERROR = 0x80000000;
 
-    int STDIN = 0;
-    int STDOUT = 1;
-    int STDERR = 2;
+    /**
+     * A value with special treatment by kernel: when supplied as parameter to {@link OS#opendirat},
+     * {@link OS#unlinkat} etc., non-absolute pathnames are interpreted relative to the current
+     * working directory of calling process.
+     */
+    int AT_FDCWD = -100;
 }

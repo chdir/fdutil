@@ -1,7 +1,7 @@
 package net.sf.xfd.provider;
 
-import net.sf.fdlib.MountInfo;
-import net.sf.fdlib.OS;
+import net.sf.xfd.MountInfo;
+import net.sf.xfd.OS;
 
 import java.io.IOException;
 

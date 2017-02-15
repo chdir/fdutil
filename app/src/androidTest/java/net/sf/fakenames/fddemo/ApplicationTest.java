@@ -5,28 +5,23 @@ import android.support.test.filters.MediumTest;
 
 import com.carrotsearch.hppc.IntArrayList;
 
-import net.sf.fdlib.DebugUtil;
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.DirectoryImpl;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.UnreliableIterator;
+import net.sf.xfd.DebugUtil;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Directory;
+import net.sf.xfd.OS;
+import net.sf.xfd.UnreliableIterator;
 
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Random;
-import java.util.UUID;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth.assertWithMessage;

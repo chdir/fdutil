@@ -22,7 +22,7 @@ import android.support.annotation.RequiresApi;
 import android.system.Os;
 import android.util.Log;
 
-import net.sf.fdlib.Fd;
+import net.sf.xfd.Fd;
 
 import java.io.FileDescriptor;
 import java.io.IOException;

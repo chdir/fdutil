@@ -19,7 +19,7 @@ package net.sf.xfd.provider;
 import android.content.Context;
 
 import net.sf.fakenames.syscallserver.Rooted;
-import net.sf.fdlib.OS;
+import net.sf.xfd.OS;
 
 import java.io.IOException;
 

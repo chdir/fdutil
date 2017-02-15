@@ -11,14 +11,14 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import net.sf.fakenames.fddemo.R;
-import net.sf.fdlib.CrappyDirectory;
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.Inotify;
-import net.sf.fdlib.InotifyWatch;
-import net.sf.fdlib.LogUtil;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.UnreliableIterator;
+import net.sf.xfd.CrappyDirectory;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Directory;
+import net.sf.xfd.Inotify;
+import net.sf.xfd.InotifyWatch;
+import net.sf.xfd.LogUtil;
+import net.sf.xfd.OS;
+import net.sf.xfd.UnreliableIterator;
 
 import java.io.Closeable;
 import java.io.IOException;

@@ -5,13 +5,12 @@ import android.content.res.ColorStateList;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
 import android.support.v7.widget.RecyclerView;
-import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 
 import net.sf.fakenames.fddemo.R;
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.UnreliableIterator;
+import net.sf.xfd.Directory;
+import net.sf.xfd.UnreliableIterator;
 
 import java.io.IOException;
 

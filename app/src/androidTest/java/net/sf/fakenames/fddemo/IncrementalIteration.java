@@ -7,10 +7,10 @@ import android.support.test.runner.AndroidJUnit4;
 
 import com.carrotsearch.hppc.LongArrayList;
 
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.UnreliableIterator;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Directory;
+import net.sf.xfd.OS;
+import net.sf.xfd.UnreliableIterator;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -18,7 +18,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.IOException;

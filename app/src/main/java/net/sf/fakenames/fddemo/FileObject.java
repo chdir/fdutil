@@ -36,12 +36,12 @@ import android.support.annotation.CallSuper;
 import android.support.annotation.WorkerThread;
 import android.text.TextUtils;
 
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Fd;
-import net.sf.fdlib.FsType;
-import net.sf.fdlib.LogUtil;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.Stat;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Fd;
+import net.sf.xfd.FsType;
+import net.sf.xfd.LogUtil;
+import net.sf.xfd.OS;
+import net.sf.xfd.Stat;
 
 import java.io.Closeable;
 import java.io.FileInputStream;

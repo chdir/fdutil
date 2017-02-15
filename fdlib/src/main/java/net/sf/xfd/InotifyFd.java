@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.sf.fdlib;
+package net.sf.xfd;
 
 import android.support.annotation.IntDef;
 
@@ -25,8 +25,8 @@ import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
-import static net.sf.fdlib.InotifyFd.ERROR;
-import static net.sf.fdlib.InotifyFd.NIL;
+import static net.sf.xfd.InotifyFd.ERROR;
+import static net.sf.xfd.InotifyFd.NIL;
 
 /**
  * A type definition for inotify file descriptors.

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2016 Alexander Rvachev
+ * Copyright © 2017 Alexander Rvachev
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,29 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.sf.fdlib;
+package net.sf.xfd;
 
 import java.io.IOException;
 
-public final class ErrnoException extends IOException {
-    public static final int EOPNOTSUPP = 95;
-    public static final int ENOTDIR = 20;
-    public static final int ENOENT = 2;
-
-    private final int errno;
-
-    public ErrnoException(int errno, String explanation) {
-        super(explanation);
-
-        this.errno = errno;
-    }
-
-    public int code() {
-        return errno;
+public class WrappedIOException extends RuntimeException {
+    public WrappedIOException(IOException inner) {
+        super(inner);
     }
 
     @Override
-    public String toString() {
-        return super.toString() + " (errno " + errno + ')';
+    public IOException getCause() {
+        return (IOException) super.getCause();
     }
 }

@@ -1,4 +1,4 @@
-package net.sf.fdlib;
+package net.sf.xfd;
 
 final class Util {
     private Util() {}

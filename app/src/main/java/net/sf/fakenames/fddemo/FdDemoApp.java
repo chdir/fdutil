@@ -18,11 +18,10 @@ package net.sf.fakenames.fddemo;
 
 import android.app.Application;
 import android.os.Handler;
-import android.os.Looper;
 import android.os.StrictMode;
 
 import net.sf.fakenames.syscallserver.SyscallFactory;
-import net.sf.fdlib.OS;
+import net.sf.xfd.OS;
 
 public final class FdDemoApp extends Application {
     static {

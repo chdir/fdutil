@@ -28,9 +28,9 @@ import android.text.TextUtils;
 import com.carrotsearch.hppc.ObjectHashSet;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
-import net.sf.fdlib.Fd;
-import net.sf.fdlib.MountInfo;
-import net.sf.fdlib.OS;
+import net.sf.xfd.Fd;
+import net.sf.xfd.MountInfo;
+import net.sf.xfd.OS;
 import net.sf.xfd.provider.MountsSingleton;
 
 import java.io.File;

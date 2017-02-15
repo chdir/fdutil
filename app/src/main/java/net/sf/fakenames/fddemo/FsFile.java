@@ -16,8 +16,8 @@
  */
 package net.sf.fakenames.fddemo;
 
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Stat;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Stat;
 
 public class FsFile {
     public final @DirFd int dirFd;

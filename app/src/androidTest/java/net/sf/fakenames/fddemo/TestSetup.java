@@ -2,10 +2,10 @@ package net.sf.fakenames.fddemo;
 
 import android.support.test.InstrumentationRegistry;
 
-import net.sf.fdlib.CrappyDirectory;
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.OS;
+import net.sf.xfd.CrappyDirectory;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Directory;
+import net.sf.xfd.OS;
 
 import java.io.File;
 import java.io.IOException;

@@ -19,12 +19,12 @@ package net.sf.fakenames.fddemo;
 import android.content.Context;
 
 import net.sf.fakenames.fddemo.view.DirAdapter;
-import net.sf.fdlib.CloseableGuard;
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Inotify;
-import net.sf.fdlib.InotifyFd;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.SelectorThread;
+import net.sf.xfd.CloseableGuard;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Inotify;
+import net.sf.xfd.InotifyFd;
+import net.sf.xfd.OS;
+import net.sf.xfd.SelectorThread;
 import net.sf.xfd.provider.EpollThreadSingleton;
 
 import java.io.IOException;

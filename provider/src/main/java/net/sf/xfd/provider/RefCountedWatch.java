@@ -16,7 +16,7 @@
  */
 package net.sf.xfd.provider;
 
-import net.sf.fdlib.InotifyWatch;
+import net.sf.xfd.InotifyWatch;
 
 import java.util.IdentityHashMap;
 import java.util.Map;

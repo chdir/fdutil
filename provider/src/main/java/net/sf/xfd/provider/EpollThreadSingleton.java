@@ -1,6 +1,6 @@
 package net.sf.xfd.provider;
 
-import net.sf.fdlib.SelectorThread;
+import net.sf.xfd.SelectorThread;
 
 import java.io.IOException;
 

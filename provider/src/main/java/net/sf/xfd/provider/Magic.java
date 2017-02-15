@@ -21,7 +21,7 @@ import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources;
 import android.os.Build;
 
-import net.sf.fdlib.Fd;
+import net.sf.xfd.Fd;
 
 import java.io.FileInputStream;
 import java.io.IOException;

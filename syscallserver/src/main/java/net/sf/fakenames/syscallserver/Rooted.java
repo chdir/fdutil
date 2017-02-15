@@ -23,16 +23,16 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
 
-import net.sf.fdlib.DirFd;
-import net.sf.fdlib.Directory;
-import net.sf.fdlib.Fd;
-import net.sf.fdlib.GuardFactory;
-import net.sf.fdlib.Inotify;
-import net.sf.fdlib.InotifyFd;
-import net.sf.fdlib.InotifyImpl;
-import net.sf.fdlib.MountInfo;
-import net.sf.fdlib.OS;
-import net.sf.fdlib.Stat;
+import net.sf.xfd.DirFd;
+import net.sf.xfd.Directory;
+import net.sf.xfd.Fd;
+import net.sf.xfd.GuardFactory;
+import net.sf.xfd.Inotify;
+import net.sf.xfd.InotifyFd;
+import net.sf.xfd.InotifyImpl;
+import net.sf.xfd.MountInfo;
+import net.sf.xfd.OS;
+import net.sf.xfd.Stat;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -42,7 +42,7 @@ import java.util.Scanner;
 
 import static android.os.Process.myPid;
 
-public final class Rooted extends net.sf.fdlib.OS {
+public final class Rooted extends net.sf.xfd.OS {
     private final OS delegate;
 
     private final Context context;
