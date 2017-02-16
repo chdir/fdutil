@@ -1,0 +1,86 @@
+def packageDesc = 'Simple syscall proxy for Android'
+def packageSite = 'https://github.com/chdir/fdutil'
+def mainLic = 'Apache-2.0'
+def libVcs = 'https://github.com/chdir/fdutil'
+def helperVer = '0.1'
+
+def props = new Properties()
+
+def propFile
+def propName = project.properties.deploymentConfig
+if(propName && (propFile = file(propName)).exists()) {
+    new FileInputStream(propFile).withStream { InputStream is ->
+        props.load(is)
+    }
+}
+
+if (props) {
+    task androidSourcesJar(type: Jar) {
+        classifier = 'sources'
+        from android.sourceSets.main.java.srcDirs
+    }
+
+    apply plugin: 'maven-publish'
+    apply plugin: 'com.jfrog.bintray'
+
+    def pomXmlContents = new XmlParser().parseText """
+        <dependencies>
+            <dependency>
+                <groupId>net.sf.xfd</groupId>
+                <artifactId>sysutils</artifactId>
+                <version>0.1</version>
+                <type>jar</type>
+                <scope>compile</scope>
+                <optional>false</optional>
+            </dependency>
+        </dependencies>
+    """
+
+    publishing {
+        publications {
+            xfdbase(MavenPublication) {
+                artifact ([
+                        source: file("$buildDir/outputs/aar/syscallserver-release.aar"),
+                        extension: 'aar',
+                ])
+                artifact androidSourcesJar
+                groupId 'net.sf.xfd'
+                artifactId 'syscallserver'
+                version helperVer
+
+                pom.withXml { provider ->
+                    provider.asNode().append(pomXmlContents)
+                }
+            }
+        }
+    }
+
+    bintray {
+        user = props['bintrayUser']
+        key = props['bintrayKey']
+        publications = ['xfdbase']
+
+        pkg {
+            repo = 'maven'
+            name = 'syscallserver'
+            desc = packageDesc
+            websiteUrl = packageSite
+            issueTrackerUrl = 'https://github.com/chdir/fdutil/issues'
+            vcsUrl = libVcs
+            licenses = [mainLic]
+            labels = ['android']
+            publicDownloadNumbers = true
+
+            githubRepo = 'chdir/fdutil'
+
+            version {
+                name = helperVer
+                vcsTag = "v${name}"
+            }
+
+            publish = false
+        }
+    }
+
+    tasks.bintrayUpload.dependsOn tasks.assemble
+}

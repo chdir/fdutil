@@ -32,8 +32,17 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles 'proguard-rules.pro'
         }
+    }
+    packagingOptions {
+        pickFirst 'LICENSE.txt'
+        pickFirst 'META-INF/ASL2.0'
+        pickFirst 'META-INF/LICENSE'
+        pickFirst 'META-INF/LICENSE.txt'
+        pickFirst 'META-INF/NOTICE'
+        exclude 'META-INF/services/javax.annotation.processing.Processor'
+        exclude 'META-INF/maven/*'
     }
     externalNativeBuild {
         cmake {
@@ -45,9 +54,14 @@ android {
     }
     lintOptions {
         checkAllWarnings true
+        showAll true
 
         error 'EasterEgg'
     }
+}
+
+if (project.hasProperty('deploymentConfig')) {
+    apply from: file("$rootProject.projectDir/deployment-provider.gradle")
 }
 
 dependencies {
