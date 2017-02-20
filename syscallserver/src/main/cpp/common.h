@@ -15,18 +15,22 @@ enum patch_state {
 };
 
 
-static inline void decrypt(const char* str, char* cleartext, size_t len) {
+static inline void decrypt(volatile const char* str, char* cleartext, size_t len) {
+    if (cleartext[0] != '\0') {
+        return;
+    }
+
     LOG("string length is %d", len);
 
     str += 6;
 
-    const char* key = str + len + 1;
+    volatile const char* key = str + len + 1;
 
-    size_t  keylen = strlen(key);
+     //size_t  keylen = strlen(key);
 
-    if (keylen != len) {
-        LOG("Key length is %d but string length is %d", keylen, len);
-    }
+    //if (keylen != len) {
+    //    LOG("Key length is %d but string length is %d", keylen, len);
+    //}
 
     //LOG("Decrypting %s with %s", str, key);
 
@@ -43,10 +47,12 @@ static inline void decrypt(const char* str, char* cleartext, size_t len) {
         cleartext[i] = tmp;
     }
 
-    LOG("Terminated at %u by %c", i, str[i]);
+    //LOG("Terminated at %u by %c", i, str[i]);
 
     cleartext[len] = '\0';
 }// + 1
+
+//#define ENC(str) str
 
 #define ENC(str) ({                              \
     size_t len = sizeof(str);                    \
