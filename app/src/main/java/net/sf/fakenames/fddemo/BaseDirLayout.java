@@ -62,8 +62,22 @@ public class BaseDirLayout extends ContextWrapper {
         this.os = os;
     }
 
+    private File getBaseDir() throws IOException {
+        if (Build.VERSION.SDK_INT < 21) {
+            return getDir("Home", MODE_PRIVATE);
+        } else {
+            final File result = new File(getNoBackupFilesDir(), "Home");
+
+            if (!result.exists() && !result.mkdirs() && !result.exists()) {
+                throw new IOException("Failed to create " + result);
+            }
+
+            return result;
+        }
+    }
+
     public void init() throws IOException {
-        home = getDir("Home", MODE_PRIVATE);
+        home = getBaseDir();
 
         mountInfo = MountsSingleton.get(os);
 
