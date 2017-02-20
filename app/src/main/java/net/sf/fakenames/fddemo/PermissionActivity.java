@@ -118,6 +118,10 @@ public final class PermissionActivity extends BaseActivity {
                             return ssb;
                         }
                     }
+
+                    ssb.append(packages[0]);
+                    setBold(ssb, 0, ssb.length());
+                    return ssb;
                 } else {
                     Arrays.sort(packages);
 
