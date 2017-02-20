@@ -7,7 +7,8 @@
 #include <unistd.h>
 #include <android/log.h>
 
-#define PKG_SYM(name) Java_net_sf_fdlib_Android_##name
+#define PKG(name) Java_net_sf_xfd_##name
+#define PKG_SYM(name) Java_net_sf_xfd_Android_##name
 
 #define MARSHMALLOW 23
 

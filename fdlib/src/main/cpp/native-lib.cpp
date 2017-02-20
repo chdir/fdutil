@@ -73,7 +73,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    statContainer = saveClassRef("net/sf/fdlib/Stat", env);
+    statContainer = saveClassRef("net/sf/xfd/Stat", env);
     if (statContainer == NULL) {
         return -1;
     }
@@ -83,7 +83,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    errnoException = saveClassRef("net/sf/fdlib/ErrnoException", env);
+    errnoException = saveClassRef("net/sf/xfd/ErrnoException", env);
     if (errnoException == NULL) {
         return -1;
     }
@@ -110,7 +110,7 @@ JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, 
     return coreio_openat(env, fd, path, flags | O_LARGEFILE, mode);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeClose)(JNIEnv *env, jclass type, jint fd) {
+JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
     if (close(fd) == -1) {
         handleError(env);
     }
@@ -140,7 +140,7 @@ JNIEXPORT jint JNICALL PKG_SYM(inotify_1init)(JNIEnv *env, jobject instance) {
     return fd;
 }
 
-JNIEXPORT void JNICALL Java_net_sf_fdlib_BlockingGuards_free(JNIEnv *env, jclass cl, jlong pointer) {
+JNIEXPORT void JNICALL Java_net_sf_xfd_BlockingGuards_free(JNIEnv *env, jclass cl, jlong pointer) {
     free(reinterpret_cast<void*>(pointer));
 }
 
@@ -503,7 +503,7 @@ JNIEXPORT jint JNICALL PKG_SYM(nativeCreat)(JNIEnv *env, jclass type, jobject pa
     return coreio_openat(env, -1, pathname, O_CREAT | O_RDWR | O_TRUNC, mode);
 }
 
-JNIEXPORT void JNICALL Java_net_sf_fdlib_Android_fsync(JNIEnv *env, jobject instance, jint fd) {
+JNIEXPORT void JNICALL PKG_SYM(fsync)(JNIEnv *env, jobject instance, jint fd) {
     if (fsync(fd)) {
         handleError(env);
     }

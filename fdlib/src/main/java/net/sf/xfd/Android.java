@@ -102,27 +102,34 @@ final class Android extends OS {
     }
 
     @Override
-    public native void fallocate(@Fd int fd, int mode, long off, long length) throws IOException;
-
-    @Override
-    public native void readahead(@Fd int fd, long off, int byteCount) throws IOException;
-
-    @Override
-    public native void fadvise(@Fd int fd, long off, long length, int advice) throws IOException;
-
-    @Override
     public boolean faccessat(int fd, String pathname, int mode) throws IOException {
         return nativeFaccessAt(fd, toNative(pathname), mode);
     }
 
     @Override
-    public native void dup2(int source, int dest) throws IOException;
+    public void fstatat(int dir, @NonNull String pathname, @NonNull Stat stat, int flags) throws IOException {
+        nativeFstatAt(dir, toNative(pathname), stat, flags);
+    }
 
     @Override
-    public native int dup(int source) throws IOException;
+    public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
+        nativeRenameAt(fd, toNative(name), fd2, toNative(name2));
+    }
 
     @Override
-    public native int inotify_init() throws IOException;
+    public void dispose(int fd) {
+        try {
+            close(fd);
+        } catch (IOException e) {
+            throw new WrappedIOException(e);
+        }
+    }
+
+    @NonNull
+    @Override
+    public Directory list(@Fd int fd) {
+        return new DirectoryImpl(fd, GuardFactory.getInstance(this));
+    }
 
     @NonNull
     @Override
@@ -137,9 +144,27 @@ final class Android extends OS {
     }
 
     @Override
-    public void fstatat(int dir, @NonNull String pathname, @NonNull Stat stat, int flags) throws IOException {
-        nativeFstatAt(dir, toNative(pathname), stat, flags);
+    public MountInfo getMounts() throws IOException {
+        return new MountInfo(this, open("/proc/self/mountinfo", OS.O_RDONLY, 0));
     }
+
+    @Override
+    public native void fallocate(@Fd int fd, int mode, long off, long length) throws IOException;
+
+    @Override
+    public native void readahead(@Fd int fd, long off, int byteCount) throws IOException;
+
+    @Override
+    public native void fadvise(@Fd int fd, long off, long length, int advice) throws IOException;
+
+    @Override
+    public native void dup2(int source, int dest) throws IOException;
+
+    @Override
+    public native int dup(int source) throws IOException;
+
+    @Override
+    public native int inotify_init() throws IOException;
 
     @Override
     public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
@@ -148,33 +173,7 @@ final class Android extends OS {
     public native void fsync(int fd) throws IOException;
 
     @Override
-    public MountInfo getMounts() throws IOException {
-        return new MountInfo(this, open("/proc/self/mountinfo", OS.O_RDONLY, 0));
-    }
-
-    @Override
-    public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
-        nativeRenameAt(fd, toNative(name), fd2, toNative(name2));
-    }
-
-    @NonNull
-    @Override
-    public Directory list(@Fd int fd) {
-        return new DirectoryImpl(fd, GuardFactory.getInstance(this));
-    }
-
-    public void close(@Fd int fd) throws IOException {
-        nativeClose(fd);
-    }
-
-    @Override
-    public void dispose(int fd) {
-        try {
-            nativeClose(fd);
-        } catch (IOException e) {
-            throw new WrappedIOException(e);
-        }
-    }
+    public native void close(int fd) throws ErrnoException;
 
     private static Object toNative(String string) {
         return Build.VERSION.SDK_INT >= 23 ? string : string.getBytes(StandardCharsets.UTF_8);
@@ -207,6 +206,4 @@ final class Android extends OS {
     private static native @DirFd int nativeOpenDirAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
 
     private static native Object nativeReadlink(@DirFd int fd, Object pathname) throws IOException;
-
-    private static native void nativeClose(int fd) throws ErrnoException;
 }

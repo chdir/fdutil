@@ -53,7 +53,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    errnoException = saveClassRef("net/sf/fdlib/ErrnoException", env);
+    errnoException = saveClassRef("net/sf/xfd/ErrnoException", env);
     if (errnoException == NULL) {
         return -1;
     }

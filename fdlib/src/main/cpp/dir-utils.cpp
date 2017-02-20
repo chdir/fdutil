@@ -6,13 +6,13 @@
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeInit(JNIEnv *env, jclass type) {
+JNIEXPORT void JNICALL Java_net_sf_xfd_DirectoryImpl_nativeInit(JNIEnv *env, jclass type) {
     if ((directoryImplPointerField = env -> GetFieldID(type, "nativePtr", "J")) == NULL) {
         return;
     }
 }
 
-JNIEXPORT jobject JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeCreate(JNIEnv *env, jobject self, jint fd) {
+JNIEXPORT jobject JNICALL Java_net_sf_xfd_DirectoryImpl_nativeCreate(JNIEnv *env, jobject self, jint fd) {
     kernel_stat64 dirStat;
 
     if (TEMP_FAILURE_RETRY(sys_fstat64(fd, &dirStat)) < 0) {
@@ -59,7 +59,7 @@ JNIEXPORT jobject JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeCreate(JNIEnv *e
     return bufferObj;
 }
 
-JNIEXPORT void JNICALL Java_net_sf_fdlib_DirectoryImpl_rewind(JNIEnv *env, jclass type, jint dirFd) {
+JNIEXPORT void JNICALL Java_net_sf_xfd_DirectoryImpl_rewind(JNIEnv *env, jclass type, jint dirFd) {
     off_t result;
 
     if ((result = lseek(dirFd, 0, SEEK_SET)) == -1) {
@@ -72,7 +72,7 @@ JNIEXPORT void JNICALL Java_net_sf_fdlib_DirectoryImpl_rewind(JNIEnv *env, jclas
     }
 }
 
-JNIEXPORT jlong JNICALL Java_net_sf_fdlib_DirectoryImpl_seekTo(JNIEnv *env, jclass type, jint dirFd, jlong cookie) {
+JNIEXPORT jlong JNICALL Java_net_sf_xfd_DirectoryImpl_seekTo(JNIEnv *env, jclass type, jint dirFd, jlong cookie) {
     loff_t result = 0;
 
     if (result == cookie) {
@@ -89,7 +89,7 @@ JNIEXPORT jlong JNICALL Java_net_sf_fdlib_DirectoryImpl_seekTo(JNIEnv *env, jcla
     return result;
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeReadNext(JNIEnv *env, jclass type, jint dirFd, jlong nativeBufferPtr, jint capacity) {
+JNIEXPORT jint JNICALL Java_net_sf_xfd_DirectoryImpl_nativeReadNext(JNIEnv *env, jclass type, jint dirFd, jlong nativeBufferPtr, jint capacity) {
     int bytesRead = TEMP_FAILURE_RETRY(sys_getdents64(dirFd, reinterpret_cast<kernel_dirent64*>(nativeBufferPtr), capacity));
 
     if (bytesRead < 0) {
@@ -99,7 +99,7 @@ JNIEXPORT jint JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeReadNext(JNIEnv *en
     return bytesRead;
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeGetStringBytes(JNIEnv *env, jobject instance, jlong entryPtr, jbyteArray reuse_, jint arrSize) {
+JNIEXPORT jint JNICALL Java_net_sf_xfd_DirectoryImpl_nativeGetStringBytes(JNIEnv *env, jobject instance, jlong entryPtr, jbyteArray reuse_, jint arrSize) {
     kernel_dirent64* entry = reinterpret_cast<kernel_dirent64*>(entryPtr);
 
     char* stringChars = entry->d_name;
@@ -117,10 +117,6 @@ JNIEXPORT jint JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeGetStringBytes(JNIE
     }
 
     return nameLength;
-}
-
-JNIEXPORT void JNICALL Java_net_sf_fdlib_DirectoryImpl_nativeRelease(JNIEnv *env, jclass type, jlong bufferPointer) {
-    free(reinterpret_cast<void*>(bufferPointer));
 }
 
 }
