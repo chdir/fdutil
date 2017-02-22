@@ -1026,6 +1026,14 @@ public final class SyscallFactory implements Closeable {
                     }
 
                     throw t;
+                } finally {
+                    // clear the refs, least the wrath of GC comes upon us
+
+                    //noinspection UnusedAssignment
+                    fileOps = null;
+
+                    //noinspection UnusedAssignment
+                    response = null;
                 }
             }
         }

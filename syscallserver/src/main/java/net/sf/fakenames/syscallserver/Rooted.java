@@ -231,7 +231,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     public MountInfo getMounts() throws IOException {
-        return new MountInfo(this, open("/proc/self/mountinfo", OS.O_RDONLY, 0));
+        return new MountInfo(OS.getInstance(), open("/proc/self/mountinfo", OS.O_RDONLY, 0));
     }
 
     @Override

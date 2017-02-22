@@ -59,8 +59,6 @@ public class SelectorThread extends Thread implements Closeable {
         try (SelectorThread selfCleanup = this) {
             final Set<SelectionKey> selected = selector.selectedKeys();
 
-            SelectionKey key;
-
             boolean hasPendingKeys;
 
             while (true) {
@@ -73,14 +71,20 @@ public class SelectorThread extends Thread implements Closeable {
                         return;
                     }
 
-                    key = selectedKeys.next();
+                    SelectionKey key = selectedKeys.next();
 
                     boolean removeKey = true;
                     try {
-
                         if (key.isValid()) {
                             try {
-                                removeKey = ((Task) key.attachment()).run();
+                                Task attachment = (Task) key.attachment();
+                                try {
+                                    if (attachment != null) {
+                                        removeKey = attachment.run();
+                                    }
+                                } finally {
+                                    attachment = null;
+                                }
                             } catch (Exception e) {
                                 LogUtil.logCautiously("Received exception from polled resource", e);
                             }
@@ -166,6 +170,10 @@ public class SelectorThread extends Thread implements Closeable {
      * of the selector.
      */
     public void unregister(SelectionKey selectionKey) {
+        // remove the attachment: this won't actually cancel the key, but at least
+        // most problematic memory leaks will be squashed
+        selectionKey.attach(null);
+
         selectorLock.lock();
         try {
             if (!selector.isOpen()) {
