@@ -23,6 +23,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
 
+import net.sf.xfd.CloseableGuard;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
 import net.sf.xfd.Fd;
@@ -30,24 +31,27 @@ import net.sf.xfd.GuardFactory;
 import net.sf.xfd.Inotify;
 import net.sf.xfd.InotifyFd;
 import net.sf.xfd.InotifyImpl;
+import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 
+import java.io.Closeable;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.ref.PhantomReference;
 import java.util.Locale;
 import java.util.Scanner;
 
 import static android.os.Process.myPid;
 
-public final class Rooted extends net.sf.xfd.OS {
+public final class Rooted extends net.sf.xfd.OS implements Closeable {
     private final OS delegate;
 
     private final Context context;
 
-    public static OS createWithChecks(Context context) throws IOException {
+    public static Rooted createWithChecks(Context context) throws IOException {
         final Rooted instance = new Rooted(context, getInstance());
 
         SyscallFactory.assertAccess(context);
@@ -57,47 +61,37 @@ public final class Rooted extends net.sf.xfd.OS {
         return instance;
     }
 
-    public static OS newInstance(Context context) throws IOException {
-        return new Rooted(context, getInstance());
-    }
-
     private Rooted(Context context, OS delegate) {
         this.context = context;
         this.delegate = delegate;
     }
 
-    private volatile SyscallFactory factoryInstance;
+    private volatile FactoryGuard factory;
 
     private SyscallFactory getFactory() throws IOException {
-        if (factoryInstance == null) {
+        FactoryGuard guard;
+
+        final SyscallFactory factory;
+
+        guard = this.factory;
+
+        if (guard == null) {
             synchronized (this) {
-                if (factoryInstance == null) {
-                    factoryInstance = SyscallFactory.create(context, getContext());
+                guard = this.factory;
+
+                if (guard == null) {
+                    factory = SyscallFactory.create(context);
+
+                    this.factory = new FactoryGuard(this, factory);
+                } else {
+                    factory = guard.guarded;
                 }
             }
+        } else {
+            factory = guard.guarded;
         }
 
-        return factoryInstance;
-    }
-
-    private String getContext() {
-        String contextFileName = String.format(Locale.ENGLISH, "/proc/%d/attr/current", myPid());
-
-        try (Scanner s = new Scanner(new FileInputStream(contextFileName))) {
-            s.useDelimiter("(:|\\Z)");
-
-            // skip user and object type
-            if (s.hasNext()) s.next(); else return null;
-            if (s.hasNext()) s.next(); else return null;
-
-            if (s.hasNext()) {
-                return s.next();
-            }
-        } catch (FileNotFoundException ok) {
-            // either there is no SELinux, or we are simply powerless to do anything
-        }
-
-        return null;
+        return factory;
     }
 
     @Override
@@ -115,7 +109,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             return fdInt;
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("creat() failed, unable to access privileged process", e);
         }
@@ -154,7 +148,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             return fdInt;
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("open() failed, unable to access privileged process", e);
         }
@@ -169,7 +163,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             return factory.readlinkat(fd, pathname);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("readlink() failed, unable to access privileged process", e);
         }
@@ -183,7 +177,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             factory.renameat(fd, name, fd2, name2);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("rename() failed, unable to access privileged process", e);
         }
@@ -219,7 +213,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             factory.fstatat(dir, pathname, stat, flags);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("stat() failed, unable to access privileged process", e);
         }
@@ -252,7 +246,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             factory.linkat(oldDirFd, oldName, newDirFd, newName, flags);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("link() failed, unable to access privileged process", e);
         }
@@ -266,7 +260,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             factory.unlinkat(target, pathname, flags);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("unlink() failed, unable to access privileged process", e);
         }
@@ -280,7 +274,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             factory.mknodat(target, pathname, mode, device);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("mknod() failed, unable to access privileged process", e);
         }
@@ -294,7 +288,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             factory.mkdirat(target, pathname, mode);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("mkdir() failed, unable to access privileged process", e);
         }
@@ -331,7 +325,7 @@ public final class Rooted extends net.sf.xfd.OS {
 
             return factory.faccessat(fd, pathname, mode);
         } catch (FactoryBrokenException e) {
-            factoryInstance = null;
+            factory = null;
 
             throw new IOException("faccessat() failed, unable to access privileged process", e);
         }
@@ -357,6 +351,16 @@ public final class Rooted extends net.sf.xfd.OS {
         delegate.dispose(fd);
     }
 
+    @Override
+    public void close() throws IOException {
+        synchronized(this) {
+            if (factory != null) {
+                factory.close();
+                factory = null;
+            }
+        }
+    }
+
     private final class RootInotify extends InotifyImpl {
         RootInotify(@InotifyFd int fd, @Nullable Looper looper) {
             super(fd, looper, Rooted.this, GuardFactory.getInstance(delegate));
@@ -370,10 +374,32 @@ public final class Rooted extends net.sf.xfd.OS {
 
                 return factory.inotify_add_watch(this, fd, watchedFd);
             } catch (FactoryBrokenException e) {
-                factoryInstance = null;
+                factory = null;
 
                 throw new IOException("inotify_add_watch() failed, unable to access privileged process", e);
             }
+        }
+    }
+
+    private static final class FactoryGuard extends CloseableGuard {
+        private final SyscallFactory guarded;
+
+        private FactoryGuard(Closeable r, SyscallFactory guarded) {
+            super(r);
+
+            this.guarded = guarded;
+        }
+
+        @Override
+        protected void trigger() {
+            close();
+        }
+
+        @Override
+        public void close() {
+            super.close();
+
+            guarded.close();
         }
     }
 }

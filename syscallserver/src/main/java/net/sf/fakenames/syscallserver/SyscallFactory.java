@@ -134,7 +134,7 @@ public final class SyscallFactory implements Closeable {
      *
      * @throws IOException if creation of instance fails, such as due to absence of "su" command in {@code PATH} etc.
      */
-    public static SyscallFactory create(Context context, String seLinuxContext) throws IOException {
+    public static SyscallFactory create(Context context) throws IOException {
         final String command = new File(context.getApplicationInfo().nativeLibraryDir, System.mapLibraryName(EXEC_NAME)).getAbsolutePath();
 
         final String address = UUID.randomUUID().toString();
@@ -142,10 +142,6 @@ public final class SyscallFactory implements Closeable {
         final StringBuilder args = new StringBuilder(command)
                 .append(' ')
                 .append(address);
-
-        if (!TextUtils.isEmpty(seLinuxContext)) {
-            args.append(' ').append(seLinuxContext);
-        }
 
         return create(address, "su", "-c", args.toString());
     }
@@ -349,6 +345,90 @@ public final class SyscallFactory implements Closeable {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         return FdCompat.adopt(creatInternal(filepath, mode));
+    }
+
+    /**
+     * Trigger optional startup bookkeeping.
+     *
+     * @throws IOException if the initialization fails
+     * @throws FactoryBrokenException if irrecoverable error happens
+     */
+    public void init() throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new InitReq();
+
+        FdResp response;
+        try {
+            if (enqueue(request)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                response.close();
+
+                if (response.request == request) {
+                    if ("READY".equals(response.message)) {
+                        return;
+                    }
+
+                    throw new IOException(response.message);
+                }
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
+    }
+
+    /**
+     * Undo changes, performed during optional startup bookkeeping.
+     *
+     * @throws IOException if the operation fails
+     * @throws FactoryBrokenException if irrecoverable error happens
+     */
+    public void cleanup() throws IOException, FactoryBrokenException {
+        if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
+
+        final FdReq request = serverThread.new CleanupReq();
+
+        FdResp response;
+        try {
+            if (enqueue(request)
+                    && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
+                if (response.request == request) {
+                    if ("READY".equals(response.message)) {
+                        return;
+                    }
+
+                    throw new IOException(response.message);
+                }
+
+                response.close();
+
+                if (!"READY".equals(response.message)) {
+                    LogUtil.swallowError(response.message);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
+            throw new IOException("Interrupted before completion");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        close();
+
+        throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
     private boolean enqueue(FdReq request) throws InterruptedException {
@@ -727,8 +807,6 @@ public final class SyscallFactory implements Closeable {
             shut(terminalFd);
 
             if (serverThread != null) {
-                serverThread.interrupt();
-
                 while (!intake.offer(FdReq.STOP)) {
                     final FdReq stale = intake.poll();
                     stale.close();
@@ -889,25 +967,21 @@ public final class SyscallFactory implements Closeable {
                             // cleanly killing it's root process for us
                             clientTty.append("GO\n").flush();
 
-                            // as little exercise in preparation to real deal, try to protect our helper from OOM killer
-                            final String oomFile = getFileName(helperPid);
+                            // check if we truly have full access
+                            try (FdResp oomFileTestResp = sendFdRequest(new InitReq(), clientTty, rbc, wbc, localSocket)) {
+                                logTrace(Log.DEBUG, "Initial response: " + oomFileTestResp);
 
-                            final FdResp oomFileTestResp = sendFdRequest(new OpenReq(null, oomFile, OS.O_RDWR), clientTty, rbc, wbc, localSocket);
+                                if (oomFileTestResp.fd == null) {
+                                    throw new IOException("Failed to obtain test descriptor: " + oomFileTestResp.message);
+                                }
 
-                            logTrace(Log.DEBUG, "Response to " + oomFile + " request: " + oomFileTestResp);
+                                try (OutputStreamWriter oow = new OutputStreamWriter(new FileOutputStream(oomFileTestResp.fd))) {
+                                    oow.append("-1000").flush();
 
-                            if (oomFileTestResp.fd == null) {
-                                throw new IOException("Failed to obtain " + oomFile + " descriptor: " + oomFileTestResp.message);
-                            }
-
-                            try (OutputStreamWriter oow = new OutputStreamWriter(new FileOutputStream(oomFileTestResp.fd))) {
-                                oow.append("-1000").flush();
-
-                                logTrace(Log.DEBUG, "Successfully adjusted helper's OOM score to -1000");
+                                    logTrace(Log.DEBUG, "Bootstrap successful!");
+                                }
                             } catch (Exception e) {
-                                logException("Write to " + oomFile + " failed", e);
-                            } finally {
-                                oomFileTestResp.close();
+                                logException("Access test failed", e);
                             }
 
                             if (intake.take() == FdReq.STOP)
@@ -920,19 +994,6 @@ public final class SyscallFactory implements Closeable {
                     }
                 }
             }
-        }
-
-        @SuppressWarnings("StringBufferReplaceableByString")
-        private String getFileName(int pid) {
-            final StringBuilder builder = new StringBuilder(35);
-            builder.append("/proc/");
-            builder.append(pid);
-            builder.append("/oo");
-            builder.append('m');
-            builder.append("_score");
-            builder.append('_');
-            builder.append("adj");
-            return builder.toString();
         }
 
         private void processRequestsUntilStopped(LocalSocket fdrecv,
@@ -1452,6 +1513,39 @@ public final class SyscallFactory implements Closeable {
                 return new FstatResp(this, errorMsg, statusMsg);
             }
         }
+
+        final class InitReq extends FdReq {
+            static final int TYPE_INIT = 12;
+
+            public InitReq() {
+                super(TYPE_INIT, null, 0);
+            }
+
+            @Override
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                String responseStr = readMessage(rbc);
+                final FileDescriptor fd = getFd(ls);
+
+                if (fd == null && "READY".equals(responseStr)) { // unlikely, but..
+                    responseStr = "Received no file descriptor from helper";
+                }
+
+                return new FdResp(this, responseStr, fd);
+            }
+        }
+
+        final class CleanupReq extends FdReq {
+            static final int TYPE_CLEANUP = 13;
+
+            public CleanupReq() {
+                super(TYPE_CLEANUP, null, 0);
+            }
+
+            @Override
+            public FdResp readResponse(ReadableByteChannel rbc, LocalSocket ls) throws IOException {
+                return new FdResp(this, readMessage(rbc), null);
+            }
+        }
     }
 
     private static void logTrace(int proprity, String message, Object... args) {
@@ -1571,7 +1665,7 @@ public final class SyscallFactory implements Closeable {
         }
     }
 
-    private static class FdResp {
+    private static class FdResp implements Closeable {
         final FdReq request;
         final String message;
         @Nullable final FileDescriptor fd;

@@ -68,3 +68,5 @@ extern int load_policy_from_kernel(policy_file_t *pf);
 extern int load_policy_into_kernel(policy_file_t *fp);
 
 extern patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_file_t* newPolicyFile);
+
+extern patch_state_t issue_rollback(const char* type_name, policy_file_t* fp, policy_file_t* newPolicyFile);

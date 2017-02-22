@@ -16,4 +16,11 @@
         android:showAsAction="never"
         app:showAsAction="never"
         tools:ignore="AppCompatResource" />
+
+    <item
+        android:id="@+id/menu_settings"
+        android:title="@string/settings"
+        android:showAsAction="never"
+        app:showAsAction="never"
+        tools:ignore="AppCompatResource" />
 </menu>

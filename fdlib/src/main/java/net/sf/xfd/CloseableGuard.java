@@ -31,7 +31,7 @@ public abstract class CloseableGuard extends PhantomReference<Closeable> impleme
 
     private static final ReferenceQueue<Closeable> queue = new ReferenceQueue<>();
 
-    private volatile boolean closed;
+    protected volatile boolean closed;
 
     protected CloseableGuard(Closeable r) {
         super(r, queue);

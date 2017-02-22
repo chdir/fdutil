@@ -143,7 +143,9 @@ public class CrappyDirectory implements Directory {
 
         @Override
         public boolean moveToPosition(int position) throws IOException {
-            if (position == bogusPosition) {
+            // make a special exception for absolute value of -1, because
+            // it is used to reset underlying descriptor
+            if (position != -1 && position == bogusPosition) {
                 return true;
             }
 

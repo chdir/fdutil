@@ -23,6 +23,7 @@ import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -33,6 +34,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
+import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
@@ -74,10 +76,11 @@ import net.sf.xfd.provider.RootSingleton;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
+import butterknife.BindString;
 import butterknife.BindView;
 import butterknife.OnClick;
 
@@ -91,12 +94,13 @@ public class MainActivity extends BaseActivity implements
         NameInputFragment.FileNameReceiver,
         RenameNameInputFragment.FileNameReceiver,
         ClipboardManager.OnPrimaryClipChangedListener,
+        SharedPreferences.OnSharedPreferenceChangeListener,
         PopupMenu.OnMenuItemClickListener {
     private static final String EXTRA_ACTION_CUT = "cut";
 
     private ClipboardManager cbm;
 
-    private Executor ioExec;
+    private ExecutorService ioExec;
 
     private final RecyclerView.ItemAnimator animator = new DefaultItemAnimator();
 
@@ -120,6 +124,9 @@ public class MainActivity extends BaseActivity implements
     @BindView(R.id.act_main_btn_append)
     View button;
 
+    @BindString(R.string.pref_use_root)
+    String rootPref;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         cbm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -127,39 +134,22 @@ public class MainActivity extends BaseActivity implements
 
         super.onCreate(savedInstanceState);
 
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+
         setContentView(R.layout.file_manager);
 
         evaluateCurrentClip();
 
-        final OS unpriv;
-        final DirAdapter adapter;
-
-        OS os;
+        dirObserver = new DirObserver();
+        scrollerObserver = quickScroller.getAdapterDataObserver();
 
         state = getLastNonConfigurationInstance();
 
         if (state == null) {
-            try {
-                unpriv = OS.getInstance();
-            } catch (IOException e) {
-                Toast.makeText(this, "failed to initialize native libraries, exiting", Toast.LENGTH_SHORT).show();
-                finish();
-                return;
-            }
 
-            try {
-                os = RootSingleton.get(this);
-            } catch (IOException e) {
-                LogUtil.logCautiously("Failed to acquire root access, using unprivileged fallback", e);
+            boolean useRoot = prefs.getBoolean(rootPref, true);
 
-                os  = unpriv;
-            }
-
-            try {
-                state = GuardedState.create(os, this);
-            } catch (IOException e) {
-                Toast.makeText(this, "failed to create inotify descriptor, exiting", Toast.LENGTH_SHORT).show();
-                finish();
+            if (!initState(prefs, useRoot)) {
                 return;
             }
 
@@ -167,27 +157,22 @@ public class MainActivity extends BaseActivity implements
 
             @DirFd int directory;
             try {
+                final OS unpriv = OS.getInstance();
+
                 directory = unpriv.opendir(home.getPath(), OS.O_RDONLY, 0);
             } catch (IOException e) {
+                LogUtil.logCautiously("Failed to open home dir", e);
                 Toast.makeText(this, "failed to open " + home.getPath() + ", exiting", Toast.LENGTH_SHORT).show();
                 finish();
                 return;
             }
 
-            adapter = state.adapter;
-
-            adapter.swapDirectoryDescriptor(directory);
-        } else {
-            os = state.os;
-            adapter = state.adapter;
+            state.adapter.swapDirectoryDescriptor(directory);
         }
 
         final ThreadFactory priorityFactory = r -> new Thread(r, "Odd jobs thread");
 
         ioExec = Executors.newCachedThreadPool(priorityFactory);
-
-        dirObserver = new DirObserver();
-        scrollerObserver = quickScroller.getAdapterDataObserver();
 
         DirLayoutManager layoutManager = new DirLayoutManager(this);
         layoutManager.setCallback(dirObserver);
@@ -195,7 +180,6 @@ public class MainActivity extends BaseActivity implements
 
         decoration = new SaneDecor(this, LinearLayout.VERTICAL);
 
-        directoryList.setAdapter(adapter);
         directoryList.setItemAnimator(animator);
         directoryList.addItemDecoration(decoration);
         directoryList.setLayoutManager(layoutManager);
@@ -204,11 +188,84 @@ public class MainActivity extends BaseActivity implements
 
         quickScroller.setRecyclerView(directoryList);
 
+        registerForContextMenu(directoryList);
+
+        prefs.registerOnSharedPreferenceChangeListener(this);
+    }
+
+    private void setUpAdapter() {
+        final DirAdapter adapter = state.adapter;
+
         adapter.setItemClickListener(clickHandler);
         adapter.registerAdapterDataObserver(scrollerObserver);
         adapter.registerAdapterDataObserver(dirObserver);
+    }
 
-        registerForContextMenu(directoryList);
+    private void tearDownAdapter() {
+        final DirAdapter adapter = state.adapter;
+
+        if (scrollerObserver != null) {
+            adapter.unregisterAdapterDataObserver(scrollerObserver);
+        }
+        if (dirObserver != null) {
+            adapter.unregisterAdapterDataObserver(dirObserver);
+        }
+
+        adapter.setItemClickListener(null);
+    }
+
+    private boolean initState(SharedPreferences prefs, boolean useRoot) {
+        if (state != null) {
+            if (state.os.isPrivileged() == useRoot) {
+                return true;
+            }
+        }
+
+        OS os, unpriv;
+        try {
+            unpriv = OS.getInstance();
+        } catch (IOException e) {
+            toast("Failed to initialize native libraries, exiting");
+            finish();
+            return false;
+        }
+
+        if (useRoot) {
+            try {
+                os = RootSingleton.get(this);
+            } catch (IOException e) {
+                LogUtil.logCautiously("Failed to acquire root access, using unprivileged fallback", e);
+
+                prefs.edit().putBoolean(rootPref, false).apply();
+
+                os = unpriv;
+            }
+        } else {
+            os = unpriv;
+        }
+
+        try {
+            if (state == null) {
+                state = GuardedState.create(os, this);
+            } else {
+                tearDownAdapter();
+
+                try (GuardedState oldState = state) {
+                    state = oldState.swap(os);
+                }
+            }
+
+            setUpAdapter();
+
+            directoryList.setAdapter(state.adapter);
+        } catch (IOException e) {
+            LogUtil.logCautiously("Startup error", e);
+            toast("Failed to create inotify descriptor, exiting");
+            finish();
+            return false;
+        }
+
+        return true;
     }
 
     @Override
@@ -248,21 +305,18 @@ public class MainActivity extends BaseActivity implements
 
     @Override
     protected void onDestroy() {
+        ioExec.shutdown();
+
         cbm.removePrimaryClipChangedListener(this);
 
         unregisterForContextMenu(directoryList);
 
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+
+        prefs.unregisterOnSharedPreferenceChangeListener(this);
+
         if (state != null) {
-            final DirAdapter adapter = state.adapter;
-
-            if (scrollerObserver != null) {
-                adapter.unregisterAdapterDataObserver(scrollerObserver);
-            }
-            if (dirObserver != null) {
-                adapter.unregisterAdapterDataObserver(dirObserver);
-            }
-
-            adapter.setItemClickListener(null);
+            tearDownAdapter();
 
             if (!isChangingConfigurations()) {
                 state.close();
@@ -664,6 +718,27 @@ public class MainActivity extends BaseActivity implements
 
     private IntObjectMap<Action> pendingActions = new IntObjectHashMap<>();
 
+    @Override
+    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+        if (rootPref.equals(key)) {
+            final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+
+            final boolean useRoot = prefs.getBoolean(key, true);
+
+            if (useRoot != state.os.isPrivileged()) {
+                @DirFd int currentDir = state.adapter.getFd();
+
+                if (currentDir > 0) {
+                    currentDir = state.adapter.swapDirectoryDescriptor(DirFd.NIL);
+
+                    initState(prefs, useRoot);
+
+                    state.adapter.swapDirectoryDescriptor(currentDir);
+                }
+            }
+        }
+    }
+
     private interface Action {
         void act();
     }
@@ -857,6 +932,9 @@ public class MainActivity extends BaseActivity implements
         switch (item.getItemId()) {
             case R.id.menu_home:
                 openHomeDir();
+                return true;
+            case R.id.menu_settings:
+                startActivity(new Intent(this, SettingsActivity.class));
                 return true;
             case R.id.menu_paste:
                 final ClipData clip = cbm.getPrimaryClip();

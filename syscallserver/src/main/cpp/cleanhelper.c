@@ -434,7 +434,7 @@ static int ebitmap_write(ebitmap_t * e, struct policy_file *fp)
  *
  * -- end of interesting stuff --
  */
-patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_file_t* newPolicyFile) {
+patch_state_t flip_state(const char* type_name, policy_file_t* fp, policy_file_t* newPolicyFile, int targetPermissive) {
     const void* oldPolicy = fp -> data;
     void* newPolicy = newPolicyFile -> data;
 
@@ -570,8 +570,16 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
 
     LOG("Found %s under id %u", type_name, desirableTypeId);
 
-    if (!ebitmap_get_bit(&foobar, desirableTypeId)) {
-        if (ebitmap_set_bit(&foobar, desirableTypeId, 1)) {
+    if (!ebitmap_get_bit(&foobar, desirableTypeId) == !targetPermissive) {
+        if (targetPermissive) {
+            LOG("%s is already permissive", type_name);
+        } else {
+            LOG("%s is already non-permissive", type_name);
+        }
+
+        result = ALREADY_PATCHED;
+    } else {
+        if (ebitmap_set_bit(&foobar, desirableTypeId, targetPermissive)) {
             LOG("Could not set bit in permissive map");
             goto cleanup;
         }
@@ -608,14 +616,18 @@ patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_
         newPolicyFile -> data = newPolicy;
 
         result = PATCH_DONE;
-    } else {
-        LOG("%s is already permissive", type_name);
-
-        result = ALREADY_PATCHED;
     }
 
 cleanup:
     ebitmap_destroy(&foobar);
 
     return result;
+}
+
+patch_state_t issue_rollback(const char* type_name, policy_file_t* fp, policy_file_t* newPolicyFile) {
+    return flip_state(type_name, fp, newPolicyFile, 0);
+}
+
+patch_state_t issue_indulgence(const char* type_name, policy_file_t* fp, policy_file_t* newPolicyFile) {
+    return flip_state(type_name, fp, newPolicyFile, 1);
 }

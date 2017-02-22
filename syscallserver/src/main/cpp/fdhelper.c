@@ -59,6 +59,8 @@
 #define REQ_TYPE_LINKAT 9
 #define REQ_TYPE_FACCESS 10
 #define REQ_TYPE_STAT 11
+#define REQ_TYPE_INIT 12
+#define REQ_TYPE_CLEANUP 13
 
 #define INVALID_FD -1
 
@@ -270,7 +272,57 @@ static int Bootstrap(char *socket_name) {
     return sock;
 }
 
-static void fixPolicy(const char* context) {
+static int fixPolicy(const char* context) {
+    struct policy_file pf;
+    struct policy_file fp;
+
+    int outFd = load_policy_from_kernel(&pf);
+    if (outFd < 0) {
+        LOG("could not load SELinux policy");
+        return 1;
+    }
+
+    void* mapStart = pf.data;
+
+    size_t newSize = pf.size * 3/2;
+    void* newPolicy = malloc(newSize);
+    if (newPolicy == NULL) {
+        LOG("Unable to reserve space for new policy");
+        return 1;
+    }
+
+    policy_file_init(&fp);
+
+    fp.type = PF_USE_MEMORY;
+    fp.data = newPolicy;
+    fp.size = newSize;
+    fp.len = fp.size;
+
+    patch_state_t ret = issue_indulgence(context, &pf, &fp);
+
+    munmap(mapStart, pf.size);
+    close(outFd);
+
+    switch (ret) {
+        case PATCH_DONE:
+            if (load_policy_into_kernel(&fp)) {
+                LOG("failed to load policy into kernel");
+            } else {
+                LOG("Yay!");
+            }
+            break;
+        case ALREADY_PATCHED:
+            LOG("policy is already suitable, nothing to do");
+        default:
+            break;
+    }
+
+    free(newPolicy);
+
+    return ret;
+}
+
+static void rollbackPolicy(const char* context) {
     struct policy_file pf;
     struct policy_file fp;
 
@@ -279,6 +331,8 @@ static void fixPolicy(const char* context) {
         LOG("could not load SELinux policy");
         return;
     }
+
+    void* mapStart = pf.data;
 
     size_t newSize = pf.size * 3/2;
     void* newPolicy = malloc(newSize);
@@ -294,9 +348,9 @@ static void fixPolicy(const char* context) {
     fp.size = newSize;
     fp.len = fp.size;
 
-    patch_state_t ret = issue_indulgence(context, &pf, &fp);
+    patch_state_t ret = issue_rollback(context, &pf, &fp);
 
-    munmap(pf.data, pf.size);
+    munmap(mapStart, pf.size);
     close(outFd);
 
     switch (ret) {
@@ -319,7 +373,7 @@ static void fixPolicy(const char* context) {
 
 #define _LINUX_CAPABILITY_VERSION_3 0x20080522
 
-static void initFileContext(int sock, const char* context) {
+static void initFileContext(int sock) {
     umask(0);
 
     struct ucred creds;
@@ -355,14 +409,35 @@ static void initFileContext(int sock, const char* context) {
     free(hp);
     free(d);
 
-    fixPolicy(context);
-
     FILE* oom_adj = fopen(ENC("/proc/self/oom_score_adj"), "w");
     if (oom_adj != NULL) {
         LOG("Adjusting score to -1000");
 
         fputs("-1000", oom_adj);
         fclose(oom_adj);
+    }
+
+    // we know only how to work with SELinux, don't do anything if it isn't enabled
+    if (access(ENC("/sys/fs/selinux"), X_OK)) {
+        LOG("Nothing at /sys/fs - not switching contexts");
+        return;
+    }
+
+    char parentAttrBuf[30];
+
+    sprintf(parentAttrBuf, ENC("/proc/%d/attr/current"), creds.pid);
+
+    char context[1024] = {};
+
+    FILE* parentAttrFile = fopen(parentAttrBuf, "r");
+    if (parentAttrFile != NULL) {
+        int res = fscanf(parentAttrFile, "%*[^:]:%*[^:]:%[^:]", context);
+
+        fclose(parentAttrFile);
+
+        if (res != 1) {
+            return;
+        }
     }
 
     char fsCreatePathBuf[42];
@@ -1072,6 +1147,86 @@ static void invoke_fstatat(int sock) {
     }
 }
 
+static void invoke_cleanup(int sock) {
+    struct ucred creds;
+    socklen_t szCreds = sizeof(creds);
+
+    if (getsockopt(sock, SOL_SOCKET, SO_PEERCRED, &creds, &szCreds) < 0 || szCreds == 0) {
+        DieWithError("failed to retrieve peer credentials");
+    }
+
+    char parentAttr[30];
+
+    sprintf(parentAttr, "/proc/%d/attr/current", creds.pid);
+
+    FILE* parentAttrFile = fopen(parentAttr, "r");
+    if (parentAttrFile != NULL) {
+        char parentId[1024];
+
+        if (fscanf(parentAttrFile, "%*[^:]:%*[^:]:%[^:]", parentId) == 1) {
+            LOG("Adjusting policy for %s", parentId);
+
+            rollbackPolicy(parentId);
+        }
+    }
+
+    fprintf(stderr, "READY%c", '\0');
+}
+
+static void invoke_init(int sock) {
+    struct ucred creds;
+    socklen_t szCreds = sizeof(creds);
+
+    if (getsockopt(sock, SOL_SOCKET, SO_PEERCRED, &creds, &szCreds) < 0 || szCreds == 0) {
+        DieWithError("failed to retrieve peer credentials");
+    }
+
+    if (!access(ENC("/sys/fs/selinux"), X_OK)) {
+        char parentAttrBuf[30];
+
+        sprintf(parentAttrBuf, ENC("/proc/%d/attr/current"), creds.pid);
+
+        FILE* parentAttr = fopen(parentAttrBuf, "r");
+        if (parentAttr != NULL) {
+            char parentId[1024] = {};
+
+            int res = fscanf(parentAttr, "%*[^:]:%*[^:]:%[^:]", parentId);
+            fclose(parentAttr);
+
+            if (res == 1) {
+                LOG("Relaxing policy for %s", parentId);
+
+                if (fixPolicy(parentId)) {
+                    fprintf(stderr, "Failed to relax policy%c", '\0');
+
+                    return;
+                }
+            } else {
+                fprintf(stderr, "Failed to parse parent context%c", '\0');
+
+                return;
+            }
+        } else {
+            fprintf(stderr, "Failed to get parent context%c", '\0');
+
+            return;
+        }
+    }
+
+    int fd = open(ENC("/proc/self/oom_score_adj"), O_RDWR);
+
+    if (fd > 0) {
+        if (ancil_send_fds_with_buffer(sock, fd))
+            DieWithError("sending file descriptor failed");
+    } else {
+        const char *errmsg = strerror(errno);
+
+        LOG("Error: failed to open LMC file - %s\n", errmsg);
+
+        fprintf(stderr, "bootstrap error - %s%c", errmsg, '\0');
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         uid_t myuid= getuid();
@@ -1086,14 +1241,12 @@ int main(int argc, char *argv[]) {
         LOG("Failed to adjust proc settings: %s", strerror(errno));
     }
 
-    // connect to supplied address and send the greeting message to server
+    // connect to supplied address and send the greeting message to caller
     int sock = Bootstrap(argv[1]);
 
-    // Use the context of calling app for file manipulation (this ensures. that our files
-    // are created with same context as if they were created by the calling app)
-    if (argc > 2) {
-        initFileContext(sock, argv[2]);
-    }
+    // Use the SELinux context, UID and GID of calling app for all file manipulation (this ensures,
+    // that our files are created the same context as if they were created by the calling app)
+    initFileContext(sock);
 
     // process requests infinitely (we will be killed when done)
     while(1) {
@@ -1138,9 +1291,16 @@ int main(int argc, char *argv[]) {
             case REQ_TYPE_STAT:
                 invoke_fstatat(sock);
                 break;
+            case REQ_TYPE_INIT:
+                invoke_init(sock);
+                break;
+            case REQ_TYPE_CLEANUP:
+                invoke_cleanup(sock);
+                break;
             default:
                 DieWithError("Unknown request type");
         }
     }
 }
+
 #pragma clang diagnostic pop

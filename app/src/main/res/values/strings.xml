@@ -12,4 +12,7 @@
     <string name="perm_req">%1$s requested %2$s access to %3$s</string>
     <string name="allow">Allow</string>
     <string name="deny">Deny</string>
+    <string name="settings">Settings</string>
+    <string name="pref_use_root">use_root</string>
+    <string name="no_handler">No suitable application found</string>
 </resources>

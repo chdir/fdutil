@@ -149,6 +149,13 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             } catch (IOException e) {
                 LogUtil.logCautiously("Failed to add inotify watch", e);
             }
+
+            try {
+                // reset the directory descriptor offset in case it is not zero
+                iterator.moveToPosition(-1);
+            } catch (IOException e) {
+                LogUtil.logCautiously("Failed to reset iterator position", e);
+            }
         } else {
             if (directory != null) {
                 directory.close();

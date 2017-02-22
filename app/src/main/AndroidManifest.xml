@@ -35,6 +35,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SettingsActivity"
+            android:label="File Picker"/>
+
         <activity android:name=".PermissionActivity"
             android:theme="@style/AppDialogTheme"
             android:finishOnCloseSystemDialogs="true"

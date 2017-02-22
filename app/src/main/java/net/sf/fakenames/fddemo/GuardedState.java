@@ -30,6 +30,7 @@ import net.sf.xfd.provider.EpollThreadSingleton;
 import java.io.IOException;
 
 public final class GuardedState extends CloseableGuard {
+    public final Context appContext;
     public final OS os;
     public final SelectorThread selThread;
     public final Inotify inotify;
@@ -50,18 +51,36 @@ public final class GuardedState extends CloseableGuard {
 
         inotify.setSelector(selThread);
 
-        // no need to use root access here
         final BaseDirLayout layout = new BaseDirLayout(os, context.getApplicationContext());
 
         layout.init();
 
-        return new GuardedState(os, layout, selThread, inotify, adapter, inotifyFd);
+        final Context ctx = context.getApplicationContext();
+
+        return new GuardedState(os, ctx, layout, selThread, inotify, adapter, inotifyFd);
     }
 
-    private GuardedState(OS os, BaseDirLayout layout, SelectorThread selThread, Inotify inotify, DirAdapter adapter, int inotifyFd) {
+    public GuardedState swap(OS os) throws IOException {
+        final BaseDirLayout layout = new BaseDirLayout(os, appContext);
+
+        layout.init();
+
+        final @InotifyFd int inotifyFd = os.dup(this.inotifyFd);
+
+        final Inotify inotify = os.observe(inotifyFd);
+
+        final DirAdapter adapter = new DirAdapter(os, inotify);
+
+        inotify.setSelector(selThread);
+
+        return new GuardedState(os, appContext, layout, selThread, inotify, adapter, inotifyFd);
+    }
+
+    private GuardedState(OS os, Context appContext, BaseDirLayout layout, SelectorThread selThread, Inotify inotify, DirAdapter adapter, int inotifyFd) {
         super(adapter);
 
         this.os = os;
+        this.appContext = appContext;
         this.layout = layout;
         this.selThread = selThread;
         this.adapter = adapter;
@@ -76,6 +95,8 @@ public final class GuardedState extends CloseableGuard {
 
     @Override
     public void close() {
+        if (closed) return;
+
         super.close();
 
         inotify.close();
