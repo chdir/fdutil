@@ -2,7 +2,7 @@ def packageDesc = 'A ContentProvider & DocumentProvider for accessing files, ava
 def packageSite = 'https://github.com/chdir/fdutil'
 def mainLic = 'GPL-3.0'
 def libVcs = 'https://github.com/chdir/fdutil'
-def providersVer = '0.1'
+def providersVer = '0.2'
 
 def props = new Properties()
 
@@ -36,7 +36,7 @@ if (props) {
             <dependency>
                 <groupId>net.sf.xfd</groupId>
                 <artifactId>syscallserver</artifactId>
-                <version>0.1</version>
+                <version>0.2</version>
                 <type>jar</type>
                 <scope>compile</scope>
                 <optional>false</optional>

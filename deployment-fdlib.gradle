@@ -2,7 +2,7 @@ def packageDesc = 'A bunch of utility code for manipulating native Linux file de
 def packageSite = 'https://github.com/chdir/fdutil'
 def mainLic = 'Apache-2.0'
 def libVcs = 'https://github.com/chdir/fdutil'
-def xfdVer = '0.1'
+def xfdVer = '1.1'
 
 def props = new Properties()
 
@@ -83,7 +83,7 @@ if (props) {
 
             version {
                 name = xfdVer
-                vcsTag = "v${name}"
+                vcsTag = "v0.2"
             }
 
             publish = false
