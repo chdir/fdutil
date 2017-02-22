@@ -125,9 +125,22 @@ final class Android extends OS {
         }
     }
 
+    /**
+     * Create a wrapper around directory descriptor for convenient access.
+     *
+     * This method should never throw.
+     *
+     * Created wrapper won't own the descriptor, you have to close it separately.
+     *
+     * This method assumes, that received descriptor is positioned at zero offset (as all freshly
+     * open descriptors are). If that isn't the case, you should rewind the underlying descriptor
+     * to achieve reasonable behavior (you can always do so by calling {@code moveToPosition(-1)}).
+     *
+     * @param fd the directory descriptor
+     */
     @NonNull
     @Override
-    public Directory list(@Fd int fd) {
+    public Directory list(@DirFd int fd) {
         return new DirectoryImpl(fd, GuardFactory.getInstance(this));
     }
 

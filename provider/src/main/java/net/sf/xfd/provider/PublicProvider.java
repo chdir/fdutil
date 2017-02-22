@@ -169,7 +169,7 @@ public final class PublicProvider extends ContentProvider {
                         try (ObjectInputStream oos = new ObjectInputStream(c.openFileInput(COOKIE_FILE))) {
                             cookieSalt = (Key) oos.readObject();
                         } catch (ClassNotFoundException | IOException e) {
-                            LogUtil.logCautiously("Unable to read key file, probably corrupted", e);
+                            LogUtil.logCautiously("Unable to read key file, probably corrupted or missing", e);
 
                             final File corrupted = c.getFileStreamPath(COOKIE_FILE);
 
