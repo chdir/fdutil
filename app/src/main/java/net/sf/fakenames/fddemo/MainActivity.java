@@ -17,6 +17,7 @@
 package net.sf.fakenames.fddemo;
 
 import android.Manifest;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
@@ -422,10 +423,14 @@ public class MainActivity extends BaseActivity implements
             final Intent view = new Intent(Intent.ACTION_VIEW, uri);
 
             startActivity(view);
+        } catch (ActivityNotFoundException noHandler) {
+            toast(getString(R.string.no_handler));
         } catch (Throwable e) {
             toast("Error: " + e.getMessage());
         }
     }
+
+
 
     private void editfile(int parentDir, String name) {
         try {
@@ -436,6 +441,8 @@ public class MainActivity extends BaseActivity implements
             final Intent view = new Intent(Intent.ACTION_EDIT, uri);
 
             startActivity(view);
+        } catch (ActivityNotFoundException noHandler) {
+            toast(getString(R.string.no_handler));
         } catch (Throwable e) {
             toast("Error: " + e.getMessage());
         }
@@ -462,6 +469,8 @@ public class MainActivity extends BaseActivity implements
                     .setType(type);
 
             startActivity(view);
+        } catch (ActivityNotFoundException noHandler) {
+            toast(getString(R.string.no_handler));
         } catch (Throwable e) {
             toast("Error: " + e.getMessage());
         }
