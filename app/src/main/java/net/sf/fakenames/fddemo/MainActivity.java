@@ -494,6 +494,8 @@ public class MainActivity extends BaseActivity implements
 
     private Handler handler = new Handler(Looper.getMainLooper());
 
+    private final Stat tmpStat = new Stat();
+
     @Override
     public void onCreateContextMenu(ContextMenu menu, View v, ContextMenu.ContextMenuInfo menuInfo) {
         if (!(menuInfo instanceof FileMenuInfo)) {
@@ -510,6 +512,16 @@ public class MainActivity extends BaseActivity implements
 
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
+
+        if (info.fileInfo.type == null || info.fileInfo.type == FsType.LINK) {
+            try {
+                state.os.fstatat(info.parentDir, info.fileInfo.name, tmpStat, 0);
+
+                info.fileInfo.type = tmpStat.type;
+            } catch (IOException e) {
+                LogUtil.logCautiously("Failed to stat " + info.fileInfo.name, e);
+            }
+        }
 
         if (info.fileInfo.type != null && info.fileInfo.type.isNotDir()) {
             final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
