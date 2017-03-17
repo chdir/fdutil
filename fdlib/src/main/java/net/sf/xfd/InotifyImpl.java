@@ -294,13 +294,15 @@ public class InotifyImpl implements Inotify {
                     }
                 }
 
-                // the fd is owned by DatagramSocket and we have already closed it
-                // make sure, that ParcelFileDescriptor does not mess anything up
-                try {
-                    fakeHolder.detachFd();
-                    fakeHolder.close();
-                } catch (IOException e) {
-                    throw new WrappedIOException(e);
+                if (fakeHolder != null) {
+                    // the fd is owned by DatagramSocket and we have already closed it
+                    // make sure, that ParcelFileDescriptor does not mess anything up
+                    try {
+                        fakeHolder.detachFd();
+                        fakeHolder.close();
+                    } catch (IOException e) {
+                        throw new WrappedIOException(e);
+                    }
                 }
             }
         } finally {
