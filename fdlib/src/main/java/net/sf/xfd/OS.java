@@ -19,6 +19,7 @@ import android.os.Looper;
 import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
 
 import java.io.IOException;
@@ -39,8 +40,8 @@ public abstract class OS {
 
     public static final int R_OK  = 1 << 2;  /* Read */
     public static final int W_OK  = 1 << 1;  /* Write */
-    public static final int X_OK = 1;
-    public static final int F_OK = 0;
+    public static final int X_OK = 1;        /* Execute */
+    public static final int F_OK = 0;        /* File exists */
 
     @IntDef(value = {O_RDONLY, O_WRONLY, O_RDWR}, flag = true)
     @Documented
@@ -100,23 +101,19 @@ public abstract class OS {
 
     @CheckResult
     @WorkerThread
-    public abstract @Fd int open(String path, @OpenFlag int flags, int mode) throws IOException;
+    public abstract @Fd int open(@NonNull String path, @OpenFlag int flags, int mode) throws IOException;
 
     @CheckResult
     @WorkerThread
-    public abstract @Fd int openat(@DirFd int fd, String name, int flags, int mode) throws IOException;
+    public abstract @Fd int openat(@DirFd int fd, @NonNull String name, int flags, int mode) throws IOException;
 
     @CheckResult
     @WorkerThread
-    public abstract @DirFd int opendir(String path, @OpenFlag int flags, int mode) throws IOException;
+    public abstract @DirFd int opendir(@NonNull String path) throws IOException;
 
     @CheckResult
     @WorkerThread
-    public abstract @DirFd int opendirat(@DirFd int fd, String name, int flags, int mode) throws IOException;
-
-    @CheckResult
-    @WorkerThread
-    public abstract @NonNull String readlinkat(@DirFd int fd, String pathname) throws IOException;
+    public abstract @DirFd int opendirat(@DirFd int fd, @NonNull String name) throws IOException;
 
     @CheckResult
     public abstract @InotifyFd int inotify_init() throws IOException;
@@ -131,31 +128,43 @@ public abstract class OS {
 
     @NonNull
     @CheckResult
-    public abstract Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper);
+    public abstract Inotify observe(@InotifyFd int inotifyDescriptor, @Nullable Looper looper);
 
+    @NonNull
+    @CheckResult
+    public abstract MountInfo getMounts() throws IOException;
+
+    @CheckResult
+    @WorkerThread
+    public abstract @NonNull String readlinkat(@DirFd int fd, @NonNull String pathname) throws IOException;
+
+    @WorkerThread
     public abstract void fstatat(@DirFd int dir, @NonNull String pathname, @NonNull Stat stat, @StatAtFlags int flags) throws IOException;
 
-    public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
+    @WorkerThread
+    public abstract void renameat(@DirFd int fd, @Nullable String name, @DirFd int fd2, @Nullable String name2) throws IOException;
+
+    @WorkerThread
+    public abstract void symlinkat(@NonNull String name, @DirFd int target, @NonNull String newpath) throws IOException;
+
+    @WorkerThread
+    public abstract void linkat(@DirFd int oldDirFd, @NonNull String oldName, @DirFd int newDirFd, @NonNull String newName, @LinkAtFlags int flags) throws IOException;
+
+    @WorkerThread
+    public abstract void unlinkat(@DirFd int target, @NonNull String name, @UnlinkAtFlags int flags) throws IOException;
+
+    @WorkerThread
+    public abstract void mknodat(@DirFd int target, @NonNull String name, @FileTypeFlag int mode, int device) throws IOException;
+
+    @WorkerThread
+    public abstract void mkdirat(@DirFd int target, @NonNull String name, int mode) throws IOException;
+
+    @CheckResult
+    public abstract @Fd int dup(int source) throws IOException;
 
     public abstract void fsync(int fd) throws IOException;
 
-    public abstract MountInfo getMounts() throws IOException;
-
-    @WorkerThread
-    public abstract void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException;
-
-    public abstract void symlinkat(String name, @DirFd int target, String newpath) throws IOException;
-
-    public abstract void linkat(@DirFd int oldDirFd, String oldName, @DirFd int newDirFd, String newName, @LinkAtFlags int flags) throws IOException;
-
-    @WorkerThread
-    public abstract void unlinkat(@DirFd int target, String name, @UnlinkAtFlags int flags) throws IOException;
-
-    @WorkerThread
-    public abstract void mknodat(@DirFd int target, String name, @FileTypeFlag int mode, int device) throws IOException;
-
-    @WorkerThread
-    public abstract void mkdirat(@DirFd int target, String name, int mode) throws IOException;
+    public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
 
     public abstract void fallocate(int fd, int mode, long off, long count) throws IOException;
 
@@ -163,12 +172,9 @@ public abstract class OS {
 
     public abstract void fadvise(int fd, long off, long length, @fadvice int advice) throws IOException;
 
-    public abstract boolean faccessat(@DirFd int fd, String pathname, @AccessFlags int mode) throws IOException;
+    public abstract boolean faccessat(@DirFd int fd, @NonNull String pathname, @AccessFlags int mode) throws IOException;
 
     public abstract void dup2(@Fd int source, int dest) throws IOException;
-
-    @CheckResult
-    public abstract @Fd int dup(int source) throws IOException;
 
     public abstract void close(@Fd int fd) throws IOException;
 

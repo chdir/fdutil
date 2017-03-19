@@ -19,7 +19,7 @@ package net.sf.xfd.provider;
 import android.annotation.SuppressLint;
 import android.content.Context;
 
-import net.sf.fakenames.syscallserver.Rooted;
+import net.sf.xfd.Rooted;
 import net.sf.xfd.OS;
 
 import java.io.IOException;

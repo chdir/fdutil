@@ -78,7 +78,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         if (pathname == null) return;
 
         try {
-            swapDirectoryDescriptor(os.opendir(pathname, OS.O_RDONLY, 0));
+            swapDirectoryDescriptor(os.opendir(pathname));
         } catch (IOException e) {
             LogUtil.logCautiously("Failed to fetch name of directory", e);
         } finally {

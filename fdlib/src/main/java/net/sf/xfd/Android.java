@@ -15,15 +15,20 @@
  */
 package net.sf.xfd;
 
+import android.annotation.SuppressLint;
+import android.content.Context;
 import android.os.Build;
 import android.os.Looper;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
 import net.sf.fakenames.fdlib.BuildConfig;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+
+import static net.sf.xfd.NativeBits.*;
 
 final class Android extends OS {
     Android() {}
@@ -32,16 +37,30 @@ final class Android extends OS {
 
     public static Android getInstance() throws IOException {
         if (instance == null) {
-            try {
-                System.loadLibrary("coreio-" + BuildConfig.NATIVE_VER);
+            loadLibraries();
 
-                instance = new Android();
-            } catch (UnsatisfiedLinkError loadLibraryFailed) {
-                throw new IOException("Failed to load native library", loadLibraryFailed);
-            }
+            instance = new Android();
         }
 
         return instance;
+    }
+
+    private static volatile boolean loaded;
+
+    static void loadLibraries() throws IOException {
+        if (!loaded) {
+            synchronized (Android.class) {
+                if (!loaded) {
+                    try {
+                        System.loadLibrary("coreio-" + BuildConfig.NATIVE_VER);
+
+                        loaded = true;
+                    } catch (UnsatisfiedLinkError loadLibraryFailed) {
+                        throw new IOException("Failed to load native library", loadLibraryFailed);
+                    }
+                }
+            }
+        }
     }
 
     @Override
@@ -51,9 +70,12 @@ final class Android extends OS {
     }
 
     @Override
-    public @Fd int open(String path, int flags, int mode) throws IOException {
-        return nativeOpenAt(DirFd.AT_FDCWD, toNative(path), flags, mode);
+    @SuppressWarnings("WrongConstant")
+    public @Fd int open(@NonNull String path, int flags, int mode) throws IOException {
+        return openat(DirFd.AT_FDCWD, path, flags, mode);
     }
+
+    private static final int BLOCKING_FLAGS = O_NONBLOCK | O_DIRECTORY;
 
     @Override
     public @Fd int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
@@ -61,48 +83,50 @@ final class Android extends OS {
     }
 
     @Override
-    public @DirFd int opendir(String path, int flags, int mode) throws IOException {
-        return nativeOpenDirAt(DirFd.AT_FDCWD, toNative(path), flags, mode);
+    @SuppressWarnings("WrongConstant")
+    public @DirFd int opendir(@NonNull String path) throws IOException {
+        return opendirat(DirFd.AT_FDCWD, path);
     }
 
     @Override
-    public @DirFd int opendirat(@DirFd int fd, String name, int flags, int mode) throws IOException {
-        return nativeOpenDirAt(fd, toNative(name), flags, mode);
+    @SuppressWarnings("WrongConstant")
+    public @DirFd int opendirat(@DirFd int fd, @NonNull String name) throws IOException {
+        return nativeOpenAt(fd, toNative(name), O_NOCTTY | O_DIRECTORY, 0);
     }
 
     @NonNull
     @Override
-    public String readlinkat(@DirFd int fd, String pathname) throws IOException {
+    public String readlinkat(@DirFd int fd, @NonNull String pathname) throws IOException {
         return fromNative(nativeReadlink(fd, toNative(pathname)));
     }
 
     @Override
-    public void symlinkat(String name, @DirFd int target, String newpath) throws IOException {
+    public void symlinkat(@NonNull String name, @DirFd int target, @NonNull String newpath) throws IOException {
         nativeSymlinkAt(toNative(name), target, toNative(newpath));
     }
 
     @Override
-    public void linkat(@DirFd int oldDirFd, String oldName, @DirFd int newDirFd, String newName, @LinkAtFlags int flags) throws IOException {
+    public void linkat(@DirFd int oldDirFd, @NonNull String oldName, @DirFd int newDirFd, @NonNull String newName, @LinkAtFlags int flags) throws IOException {
         nativeLinkAt(oldDirFd, toNative(oldName), newDirFd, toNative(newName), flags);
     }
 
     @Override
-    public void unlinkat(@DirFd int target, String name, @UnlinkAtFlags int flags) throws IOException {
+    public void unlinkat(@DirFd int target, @NonNull String name, @UnlinkAtFlags int flags) throws IOException {
         nativeUnlinkAt(target, toNative(name), flags);
     }
 
     @Override
-    public void mknodat(@DirFd int target, String name, @FileTypeFlag int mode, int device) throws IOException {
+    public void mknodat(@DirFd int target, @NonNull String name, @FileTypeFlag int mode, int device) throws IOException {
         nativeMknodAt(target, toNative(name), mode, device);
     }
 
     @Override
-    public void mkdirat(@DirFd int target, String name, int mode) throws IOException {
+    public void mkdirat(@DirFd int target, @NonNull String name, int mode) throws IOException {
         nativeMkdirAt(target, toNative(name), mode);
     }
 
     @Override
-    public boolean faccessat(int fd, String pathname, int mode) throws IOException {
+    public boolean faccessat(int fd, @NonNull String pathname, int mode) throws IOException {
         return nativeFaccessAt(fd, toNative(pathname), mode);
     }
 
@@ -214,7 +238,7 @@ final class Android extends OS {
 
     private static native @Fd int nativeCreat(Object pathname, int mode) throws ErrnoException;
 
-    private static native @Fd int nativeOpenAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
+    private static native int nativeOpenAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
 
     private static native @DirFd int nativeOpenDirAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
 

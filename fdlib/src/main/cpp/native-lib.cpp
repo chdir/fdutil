@@ -102,8 +102,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     return JNI_VERSION_1_6;
 }
 
-JNIEXPORT jint JNICALL PKG_SYM(nativeOpenDirAt)(JNIEnv *env, jclass type, jint fd, jobject name, jint flags, jint mode) {
-    return coreio_openat(env, fd, name, flags | O_DIRECTORY, mode);
+JNIEXPORT void JNICALL Java_net_sf_xfd_NativeBits_fixConstants(JNIEnv *env, jclass type) {
+    jfieldID nonblock = env -> GetStaticFieldID(type, "O_NONBLOCK", "I");
+    env -> SetStaticIntField(type, nonblock, O_NONBLOCK);
+
+    jfieldID noctty = env -> GetStaticFieldID(type, "O_NOCTTY", "I");
+    env -> SetStaticIntField(type, noctty, O_NOCTTY);
 }
 
 JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, jobject path, jint flags, jint mode) {

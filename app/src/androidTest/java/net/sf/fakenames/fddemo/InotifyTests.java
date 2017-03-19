@@ -63,7 +63,7 @@ public class InotifyTests {
         String path = dir.getPath();
 
         try {
-            dirDescriptor = os.opendir(path, OS.O_RDONLY, 0);
+            dirDescriptor = os.opendir(path);
             inotifyDescriptor = os.inotify_init();
         } catch (IOException e) {
             throw new RuntimeException(e);

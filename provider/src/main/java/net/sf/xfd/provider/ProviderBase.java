@@ -273,7 +273,7 @@ public final class ProviderBase extends ContextWrapper {
         try {
             @Fd int fd = Fd.NIL;
 
-            @DirFd int parentFd = os.opendir(extractParent(path), OS.O_RDONLY, 0);
+            @DirFd int parentFd = os.opendir(extractParent(path));
             try {
                 int flags = 0;
 
@@ -414,7 +414,7 @@ public final class ProviderBase extends ContextWrapper {
         }
     }
 
-    @Nullable
+    @NonNull
     public static String extractParent(String chars) {
         final int lastSlash = chars.lastIndexOf('/');
 
@@ -423,9 +423,7 @@ public final class ProviderBase extends ContextWrapper {
                 return chars;
             case -1:
                 // oops
-                LogUtil.swallowError(chars + " must have at least one slash!");
-
-                return null;
+                throw new IllegalStateException(chars + " must have at least one slash!");
             default:
                 return chars.substring(0, lastSlash + 1);
         }
@@ -751,7 +749,7 @@ public final class ProviderBase extends ContextWrapper {
         try {
             final Stat s = new Stat();
 
-            @DirFd int parentFd = os.opendir(extractParent(filepath), OS.O_RDONLY, 0);
+            @DirFd int parentFd = os.opendir(extractParent(filepath));
 
             final String filename = extractName(filepath);
             try {

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package net.sf.fakenames.syscallserver;
+package net.sf.xfd;
 
 import android.content.Context;
 import android.os.Looper;
@@ -23,28 +23,14 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.WorkerThread;
 
-import net.sf.xfd.CloseableGuard;
-import net.sf.xfd.DirFd;
-import net.sf.xfd.Directory;
-import net.sf.xfd.Fd;
-import net.sf.xfd.GuardFactory;
-import net.sf.xfd.Inotify;
-import net.sf.xfd.InotifyFd;
-import net.sf.xfd.InotifyImpl;
-import net.sf.xfd.LogUtil;
-import net.sf.xfd.MountInfo;
-import net.sf.xfd.OS;
-import net.sf.xfd.Stat;
+import net.sf.fakenames.syscallserver.FactoryBrokenException;
+import net.sf.fakenames.syscallserver.SyscallFactory;
 
 import java.io.Closeable;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.lang.ref.PhantomReference;
-import java.util.Locale;
-import java.util.Scanner;
 
-import static android.os.Process.myPid;
+import static net.sf.xfd.NativeBits.O_DIRECTORY;
+import static net.sf.xfd.NativeBits.O_NOCTTY;
 
 public final class Rooted extends net.sf.xfd.OS implements Closeable {
     private final OS delegate;
@@ -117,26 +103,26 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public int open(String path, @OpenFlag int flags, int mode) throws IOException {
-        return openat(DirFd.AT_FDCWD, path, flags, mode);
-    }
-
-    @Override
-    @WorkerThread
-    public int opendir(String path, @OpenFlag int flags, int mode) throws IOException {
-        return opendirat(DirFd.AT_FDCWD, path, flags, mode);
+    public int opendir(@NonNull String path) throws IOException {
+        return opendirat(DirFd.NIL, path);
     }
 
     @Override
     @WorkerThread
     @SuppressWarnings("WrongConstant")
-    public int opendirat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
-        return openat(fd, pathname, flags, mode);
+    public int opendirat(@DirFd int fd, @NonNull String pathname) throws IOException {
+        return openat(fd, pathname, O_NOCTTY | O_DIRECTORY, 0);
     }
 
     @Override
     @WorkerThread
-    public int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
+    public int open(@NonNull String path, @OpenFlag int flags, int mode) throws IOException {
+        return openat(DirFd.NIL, path, flags, mode);
+    }
+
+    @Override
+    @WorkerThread
+    public int openat(@DirFd int fd, @NonNull String pathname, int flags, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -157,7 +143,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     @NonNull
     @Override
     @WorkerThread
-    public String readlinkat(int fd, String pathname) throws IOException {
+    public String readlinkat(int fd, @NonNull String pathname) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -186,6 +172,12 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     @Override
     public int inotify_init() throws IOException {
         return delegate.inotify_init();
+    }
+
+    @NonNull
+    @Override
+    public Copy copy(@Fd int source, @Nullable Stat sourceStat, @Fd int dest, @Nullable Stat destStat) {
+        return delegate.copy(source, sourceStat, dest, destStat);
     }
 
     @NonNull
@@ -229,18 +221,19 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         delegate.fsync(fd);
     }
 
+    @NonNull
     @Override
     public MountInfo getMounts() throws IOException {
         return new MountInfo(OS.getInstance(), open("/proc/self/mountinfo", OS.O_RDONLY, 0));
     }
 
     @Override
-    public void symlinkat(String name, @DirFd int target, String newpath) throws IOException {
+    public void symlinkat(@NonNull String name, @DirFd int target, @NonNull String newpath) throws IOException {
         delegate.symlinkat(name, target, newpath);
     }
 
     @Override
-    public void linkat(@DirFd int oldDirFd, String oldName, @DirFd int newDirFd, String newName, @LinkAtFlags int flags) throws IOException {
+    public void linkat(@DirFd int oldDirFd, @NonNull String oldName, @DirFd int newDirFd, @NonNull String newName, @LinkAtFlags int flags) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -254,7 +247,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void unlinkat(@DirFd int target, String pathname, @UnlinkAtFlags int flags) throws IOException {
+    public void unlinkat(@DirFd int target, @NonNull String pathname, @UnlinkAtFlags int flags) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -268,7 +261,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void mknodat(@DirFd int target, String pathname, @FileTypeFlag int mode, int device) throws IOException {
+    public void mknodat(@DirFd int target, @NonNull String pathname, @FileTypeFlag int mode, int device) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -282,7 +275,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void mkdirat(@DirFd int target, String pathname, int mode) throws IOException {
+    public void mkdirat(@DirFd int target, @NonNull String pathname, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
@@ -315,7 +308,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     }
 
     @Override
-    public boolean faccessat(int fd, String pathname, int mode) throws IOException {
+    public boolean faccessat(int fd, @NonNull String pathname, int mode) throws IOException {
         if (delegate.faccessat(fd, pathname, mode)) {
             return true;
         }

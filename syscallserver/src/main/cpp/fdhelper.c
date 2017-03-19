@@ -616,9 +616,9 @@ static void invoke_openat(int sock) {
 
     int targetFd;
     if (filepath[0] == '/') {
-        targetFd = sys_open(filepath, O_NONBLOCK | flags, S_IRWXU | S_IRWXG);
+        targetFd = sys_open(filepath, flags, S_IRWXU | S_IRWXG);
     } else {
-        targetFd = sys_openat(receivedFd, filepath, O_NONBLOCK | flags, S_IRWXU | S_IRWXG);
+        targetFd = sys_openat(receivedFd, filepath, flags, S_IRWXU | S_IRWXG);
     }
 
     if (targetFd > 0) {

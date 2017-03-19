@@ -185,7 +185,7 @@ public class BaseDirLayout extends ContextWrapper {
                     descFile.delete();
                 }
 
-                @Fd int dir = os.opendir(home.getPath(), OS.O_RDONLY, 0);
+                @Fd int dir = os.opendir(home.getPath());
 
                 os.symlinkat(mount.value.rootPath, dir, descFile.getName());
             }

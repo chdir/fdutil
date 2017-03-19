@@ -316,7 +316,7 @@ public final class FileProvider extends DocumentsProvider {
 
             final String parent = canonPath.substring(0, slashAt + 1);
 
-            final @DirFd int parentFd = os.opendir(parent, OS.O_RDONLY, 0);
+            final @DirFd int parentFd = os.opendir(parent);
             try {
                 os.renameat(parentFd, filename, parentFd, displayName);
 
@@ -344,7 +344,7 @@ public final class FileProvider extends DocumentsProvider {
 
         try {
 
-            final @DirFd int parentFd = rooted.opendir(parentDocumentId, OS.O_RDONLY, 0);
+            final @DirFd int parentFd = rooted.opendir(parentDocumentId);
             try {
                 if (mimeType.equals(MIME_TYPE_DIR)) {
                     rooted.mkdirat(parentFd, displayName, 0);
@@ -380,9 +380,9 @@ public final class FileProvider extends DocumentsProvider {
         final String fileName = extractName(sourceDocumentId);
 
         try {
-            @DirFd int fd1 = rooted.opendir(sourceParentDocumentId, OS.O_RDONLY, 0);
+            @DirFd int fd1 = rooted.opendir(sourceParentDocumentId);
             try {
-                @DirFd int fd2 = rooted.opendir(targetParentDocumentId, OS.O_RDONLY, 0);
+                @DirFd int fd2 = rooted.opendir(targetParentDocumentId);
                 try {
                     final long fs1, fs2;
 
@@ -570,7 +570,7 @@ public final class FileProvider extends DocumentsProvider {
 
         @DirFd int fd;
         try {
-            fd = os.opendir(parentDocumentId, OS.O_RDONLY, 0);
+            fd = os.opendir(parentDocumentId);
 
             try {
                 os.fstat(fd, stat);

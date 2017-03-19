@@ -54,7 +54,7 @@ public class IncrementalIteration {
         String path = dir.getPath();
 
         try {
-            descriptor = os.opendir(path, OS.O_RDONLY, 0);
+            descriptor = os.opendir(path);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

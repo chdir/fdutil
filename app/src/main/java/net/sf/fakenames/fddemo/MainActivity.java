@@ -25,10 +25,12 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -47,6 +49,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -69,6 +72,7 @@ import net.sf.xfd.ErrnoException;
 import net.sf.xfd.FsType;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
+import net.sf.xfd.NativeBits;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 import net.sf.xfd.provider.PublicProvider;
@@ -81,6 +85,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 
+import butterknife.BindColor;
 import butterknife.BindString;
 import butterknife.BindView;
 import butterknife.OnClick;
@@ -160,7 +165,7 @@ public class MainActivity extends BaseActivity implements
             try {
                 final OS unpriv = OS.getInstance();
 
-                directory = unpriv.opendir(home.getPath(), OS.O_RDONLY, 0);
+                directory = unpriv.opendir(home.getPath());
             } catch (IOException e) {
                 LogUtil.logCautiously("Failed to open home dir", e);
                 Toast.makeText(this, "failed to open " + home.getPath() + ", exiting", Toast.LENGTH_SHORT).show();
@@ -367,7 +372,7 @@ public class MainActivity extends BaseActivity implements
 
         int newFd = DirFd.NIL, prev = DirFd.NIL;
         try {
-            newFd = state.os.opendirat(base, pathname, OS.O_RDONLY, 0);
+            newFd = state.os.opendirat(base, pathname);
 
             final Stat stat = new Stat();
 
@@ -411,7 +416,7 @@ public class MainActivity extends BaseActivity implements
     private void openfile(@DirFd int base, String path) {
         try {
             final String resolved;
-            final int resolvedFd = state.os.openat(base, path, OS.O_RDONLY, 0);
+            final int resolvedFd = state.os.openat(base, path, NativeBits.O_NONBLOCK, 0);
             try {
                 resolved = state.os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + resolvedFd);
             } finally {
@@ -444,6 +449,8 @@ public class MainActivity extends BaseActivity implements
         } catch (ActivityNotFoundException noHandler) {
             toast(getString(R.string.no_handler));
         } catch (Throwable e) {
+            LogUtil.logCautiously("Failed to open file", e);
+
             toast("Error: " + e.getMessage());
         }
     }
@@ -472,6 +479,8 @@ public class MainActivity extends BaseActivity implements
         } catch (ActivityNotFoundException noHandler) {
             toast(getString(R.string.no_handler));
         } catch (Throwable e) {
+            LogUtil.logCautiously("Failed to open file for editing", e);
+
             toast("Error: " + e.getMessage());
         }
     }
