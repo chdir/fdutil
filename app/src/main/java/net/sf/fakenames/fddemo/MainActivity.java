@@ -130,6 +130,12 @@ public class MainActivity extends BaseActivity implements
     @BindView(R.id.act_main_btn_append)
     View button;
 
+    @BindColor(R.color.colorPrimary)
+    ColorStateList primaryBlue;
+
+    @BindColor(R.color.colorAccent)
+    ColorStateList ascentPurple;
+
     @BindString(R.string.pref_use_root)
     String rootPref;
 
@@ -141,6 +147,7 @@ public class MainActivity extends BaseActivity implements
         super.onCreate(savedInstanceState);
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        prefs.registerOnSharedPreferenceChangeListener(this);
 
         setContentView(R.layout.file_manager);
 
@@ -148,6 +155,9 @@ public class MainActivity extends BaseActivity implements
 
         dirObserver = new DirObserver();
         scrollerObserver = quickScroller.getAdapterDataObserver();
+
+        final ThreadFactory priorityFactory = r -> new Thread(r, "Odd jobs thread");
+        ioExec = Executors.newCachedThreadPool(priorityFactory);
 
         state = getLastNonConfigurationInstance();
 
@@ -176,9 +186,7 @@ public class MainActivity extends BaseActivity implements
             state.adapter.swapDirectoryDescriptor(directory);
         }
 
-        final ThreadFactory priorityFactory = r -> new Thread(r, "Odd jobs thread");
-
-        ioExec = Executors.newCachedThreadPool(priorityFactory);
+        updateButtonState(state.os.isPrivileged());
 
         DirLayoutManager layoutManager = new DirLayoutManager(this);
         layoutManager.setCallback(dirObserver);
@@ -195,8 +203,6 @@ public class MainActivity extends BaseActivity implements
         quickScroller.setRecyclerView(directoryList);
 
         registerForContextMenu(directoryList);
-
-        prefs.registerOnSharedPreferenceChangeListener(this);
     }
 
     private void setUpAdapter() {
@@ -242,8 +248,6 @@ public class MainActivity extends BaseActivity implements
             } catch (IOException e) {
                 LogUtil.logCautiously("Failed to acquire root access, using unprivileged fallback", e);
 
-                prefs.edit().putBoolean(rootPref, false).apply();
-
                 os = unpriv;
             }
         } else {
@@ -259,6 +263,10 @@ public class MainActivity extends BaseActivity implements
                 try (GuardedState oldState = state) {
                     state = oldState.swap(os);
                 }
+            }
+
+            if (state.os.isPrivileged() != useRoot) {
+                prefs.edit().putBoolean(rootPref, !useRoot).apply();
             }
 
             setUpAdapter();
@@ -755,7 +763,9 @@ public class MainActivity extends BaseActivity implements
 
             final boolean useRoot = prefs.getBoolean(key, true);
 
-            if (useRoot != state.os.isPrivileged()) {
+            updateButtonState(useRoot);
+
+            if (state != null && useRoot != state.os.isPrivileged()) {
                 @DirFd int currentDir = state.adapter.getFd();
 
                 if (currentDir > 0) {
@@ -766,6 +776,12 @@ public class MainActivity extends BaseActivity implements
                     state.adapter.swapDirectoryDescriptor(currentDir);
                 }
             }
+        }
+    }
+
+    private void updateButtonState(boolean useRoot) {
+        if (Build.VERSION.SDK_INT >= 21) {
+            button.setBackgroundTintList(useRoot ? ascentPurple : primaryBlue);
         }
     }
 
