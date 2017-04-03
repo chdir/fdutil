@@ -20,9 +20,11 @@ import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.Size;
 import android.support.annotation.WorkerThread;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -43,7 +45,7 @@ public abstract class OS {
     public static final int X_OK = 1;        /* Execute */
     public static final int F_OK = 0;        /* File exists */
 
-    @IntDef(value = {O_RDONLY, O_WRONLY, O_RDWR}, flag = true)
+    @IntDef(value = {O_RDONLY, O_WRONLY, O_RDWR})
     @Documented
     @Retention(RetentionPolicy.SOURCE)
     public @interface OpenFlag {}
@@ -99,6 +101,25 @@ public abstract class OS {
     @WorkerThread
     public abstract @Fd int creat(@NonNull String path, int mode) throws IOException;
 
+    /**
+     * Open the specified file. This method delegates to Linux {@code open} system call and has similar
+     * behavior (see {@code man 2 open}) except the differences, described here.
+     *
+     * This method might take additional steps to support Java Thread interruption, but only if the
+     * {@code flags} argument does not contain {@link NativeBits#O_NONBLOCK} or
+     * {@link NativeBits#O_DIRECTORY}. If the calling thread gets interrupted before or during the
+     * such invocation, the {@link InterruptedIOException} is thrown (without clearing the
+     * thread interruption status)
+     *
+     * @param path absolute path to the file
+     * @param flags one of {@link OpenFlag} constants bitwise-ored with other flags, accepted by {@code open} call
+     * @param mode filesystem mode of created file (ignored, if the call does not create a file)
+     *
+     * @return new descriptor, referring to specified file
+     *
+     * @throws InterruptedIOException if the thread gets interrupted during a blocked open call
+     * @throws IOException if another IO error occurs
+     */
     @CheckResult
     @WorkerThread
     public abstract @Fd int open(@NonNull String path, @OpenFlag int flags, int mode) throws IOException;
@@ -117,6 +138,10 @@ public abstract class OS {
 
     @CheckResult
     public abstract @InotifyFd int inotify_init() throws IOException;
+
+    @NonNull
+    @CheckResult
+    public abstract Copy copy();
 
     @NonNull
     @CheckResult
@@ -186,6 +211,11 @@ public abstract class OS {
 
     private static volatile OS defaultOs;
 
+    /**
+     * @return the singleton instance
+     *
+     * @throws IOException if loading the native components fails (usually because of corrupt/missing native libraries)
+     */
     public static OS getInstance() throws IOException {
         if (defaultOs == null) {
             synchronized (OS.class) {

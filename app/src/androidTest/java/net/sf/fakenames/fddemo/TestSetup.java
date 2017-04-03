@@ -5,7 +5,9 @@ import android.support.test.InstrumentationRegistry;
 import net.sf.xfd.CrappyDirectory;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
+import net.sf.xfd.FsType;
 import net.sf.xfd.OS;
+import net.sf.xfd.Stat;
 
 import java.io.File;
 import java.io.IOException;
@@ -14,11 +16,13 @@ import java.util.UUID;
 
 @SuppressWarnings("ResultOfMethodCallIgnored")
 public abstract class TestSetup {
+    public final Stat stat;
     public final File dir;
     public final int fCount;
     private final String name;
 
-    public TestSetup(File baseDir, String name) throws IOException {
+    public TestSetup(File baseDir, Stat stat, String name) throws IOException {
+        this.stat = stat;
         this.name = name;
 
         this.dir = new File(baseDir, UUID.randomUUID().toString());
@@ -60,6 +64,16 @@ public abstract class TestSetup {
         }
     }
 
+    public static TestSetup internal2() {
+        try {
+            final File dir = InstrumentationRegistry.getTargetContext().getFilesDir();
+
+            return new InternalWithTypeHint(dir, "internal_advanced");
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
+    }
+
     public static TestSetup external() {
         try {
             final File dir = InstrumentationRegistry.getTargetContext().getExternalFilesDir(null);
@@ -74,7 +88,7 @@ public abstract class TestSetup {
         OS os = OS.getInstance();
 
         private NormalSetup(File baseDir, String name) throws IOException {
-            super(baseDir, name);
+            super(baseDir, null, name);
         }
 
         @Override
@@ -87,7 +101,22 @@ public abstract class TestSetup {
         OS os = OS.getInstance();
 
         private FATSetup(File baseDir, String name) throws IOException {
-            super(baseDir, name);
+            super(baseDir, null, name);
+        }
+
+        @Override
+        public Directory forFd(@DirFd int fd) {
+            return new CrappyDirectory(os.list(fd));
+        }
+    }
+
+    private static final class InternalWithTypeHint extends TestSetup {
+        OS os = OS.getInstance();
+
+        private InternalWithTypeHint(File baseDir, String name) throws IOException {
+            super(baseDir, new Stat(), name);
+
+            stat.type = FsType.FILE;
         }
 
         @Override

@@ -2,7 +2,6 @@
 #define MOAR_SYSCALL_SUPPORT_H
 
 #include <sys/syscall.h>
-#include <sys/linux-syscalls.h>
 
 static inline int sys_symlinkat(const char *target, int newdirfd, const char *linkpath) {
     return syscall(__NR_symlinkat, target, newdirfd, linkpath);
@@ -28,6 +27,10 @@ static inline int sys_faccessat(int fd, const char *name, int mode) {
     return syscall(__NR_faccessat, fd, name, mode);
 }
 
+static inline int sys_rt_tgsigqueueinfo(pid_t pid, pid_t tid, int signo, siginfo_t *uinfo) {
+    return syscall(__NR_rt_tgsigqueueinfo, pid, tid, signo, uinfo);
+}
+
 static inline int sys_fstatat64_fixed(int dirfd, const char *filename, kernel_stat64* statbuf, int flags) {
     return syscall(__NR_fstatat64, dirfd, filename, statbuf, flags);
 }
@@ -38,6 +41,14 @@ static inline int sys_renameat(int dirfd, const char *filename, int dirfd2, cons
 
 static inline int sys_linkat(int dirfd, const char *filename, int dirfd2, const char *filename2, int flags) {
     return syscall(__NR_linkat, dirfd, filename, dirfd2, filename2, flags);
+}
+
+static inline ssize_t sys_splice(int fd_in, loff_t* off_in, int fd_out, loff_t* off_out, size_t len, uint flags) {
+    return syscall(__NR_splice, fd_in, off_in, fd_out, off_out, len, flags);
+}
+
+static inline ssize_t sys_sendfile(int fd_out, int fd_in, loff_t* off_in, size_t len) {
+    return syscall(__NR_sendfile64, fd_out, fd_in, off_in, len);
 }
 
 static inline int  sys_fadvise(int fd, off64_t offset, off64_t len, int advice) {

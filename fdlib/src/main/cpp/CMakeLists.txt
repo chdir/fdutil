@@ -19,13 +19,15 @@ add_library( # Sets the name of the library.
              # Associated headers in the same location as their source
              # file are automatically included.
              globals.cpp
+             interrupt.cpp
              dir-utils.cpp
              inotify.cpp
              native-lib.cpp )
 
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VERBOSE_MAKEFILE on)
 
-target_compile_options(coreio-${COREIO_NATIVE_VER} PRIVATE -Wall -Wunused-parameter -fvisibility=hidden)
+target_compile_options(coreio-${COREIO_NATIVE_VER} PRIVATE -Wall -Wunused-parameter -fno-omit-frame-pointer -fvisibility=hidden)
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because system libraries are included in the search path by

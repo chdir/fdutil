@@ -90,6 +90,10 @@ public class ParametrizedRunner implements ParametersRunnerFactory {
 
         @Override
         protected String testName(FrameworkMethod method) {
+            if (parameters.length == 0) {
+                return super.testName(method);
+            }
+
             return method.getName() + ' ' +
                     '[' +
                     (parameters.length == 1 ? parameters[0].toString() : Arrays.toString(parameters))

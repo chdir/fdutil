@@ -7,7 +7,9 @@
 int API_VERSION;
 
 jclass ioException;
+jclass iIoException;
 jclass oomError;
+jclass illegalStateException;
 jclass errnoException;
 jclass statContainer;
 

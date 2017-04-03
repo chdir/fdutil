@@ -15,8 +15,6 @@
  */
 package net.sf.xfd;
 
-import android.annotation.SuppressLint;
-import android.content.Context;
 import android.os.Build;
 import android.os.Looper;
 import android.support.annotation.CheckResult;
@@ -78,8 +76,13 @@ final class Android extends OS {
     private static final int BLOCKING_FLAGS = O_NONBLOCK | O_DIRECTORY;
 
     @Override
-    public @Fd int openat(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
-        return nativeOpenAt(fd, toNative(pathname), flags, mode);
+    @SuppressWarnings("WrongConstant")
+    public @Fd int openat(@DirFd int fd, @NonNull String pathname, int flags, int mode) throws IOException {
+        if ((flags & BLOCKING_FLAGS) != 0) {
+            return nativeOpenAt(fd, toNative(pathname), flags, mode);
+        } else {
+            return blockingOpen(fd, pathname, flags, mode);
+        }
     }
 
     @Override
@@ -161,6 +164,8 @@ final class Android extends OS {
      * to achieve reasonable behavior (you can always do so by calling {@code moveToPosition(-1)}).
      *
      * @param fd the directory descriptor
+     *
+     * @return a new instance of wrapper class
      */
     @NonNull
     @Override
@@ -168,18 +173,61 @@ final class Android extends OS {
         return new DirectoryImpl(fd, GuardFactory.getInstance(this));
     }
 
+    /**
+     * Create a wrapper around native memory allocation. The created object can be used
+     * to efficiently copy data between file descriptors.
+     *
+     * This method should never throw.
+     *
+     * @return a new instance of wrapper class
+     */
     @NonNull
     @Override
-    public Inotify observe(@InotifyFd int inotifyDescriptor) {
-        return observe(inotifyDescriptor, Looper.myLooper());
+    public Copy copy() {
+        return new CopyImpl(this);
     }
 
+    /**
+     * Create a wrapper around directory descriptor for convenient access.
+     *
+     * This method should never throw.
+     *
+     * Created wrapper won't own the descriptor, you have to close it separately (but there may
+     * be additional nuances if {@link Inotify#setSelector} is called).
+     *
+     * @param fd inotify descriptor, such as created by {@link #inotify_init}
+     *
+     * @return a new instance of wrapper class
+     */
     @NonNull
     @Override
-    public Inotify observe(@InotifyFd int inotifyDescriptor, Looper looper) {
-        return new InotifyImpl(inotifyDescriptor, looper, this, GuardFactory.getInstance(this));
+    public Inotify observe(@InotifyFd int fd) {
+        return observe(fd, Looper.myLooper());
     }
 
+    /**
+     * Create a wrapper around directory descriptor for convenient access.
+     *
+     * This method should never throw.
+     *
+     * Created wrapper won't own the descriptor, you have to close it separately (but there may
+     * be additional nuances if {@link Inotify#setSelector} is called).
+     *
+     * @param fd inotify descriptor, such as created by {@link #inotify_init}
+     * @param looper the Looper of Thread, used for dispatching notification callbacks (if {@code null}, the main thread will be used)
+     */
+    @NonNull
+    @Override
+    public Inotify observe(@InotifyFd int fd, @Nullable Looper looper) {
+        return new InotifyImpl(fd, looper, this, GuardFactory.getInstance(this));
+    }
+
+    /**
+     * Create a wrapper around system mountpoint list.
+     *
+     * This method returns a new instance each time it is called.
+     */
+    @NonNull
     @Override
     public MountInfo getMounts() throws IOException {
         return new MountInfo(this, open("/proc/self/mountinfo", OS.O_RDONLY, 0));
@@ -212,6 +260,17 @@ final class Android extends OS {
     @Override
     public native void close(int fd) throws ErrnoException;
 
+    private static int blockingOpen(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
+        final InterruptibleStageImpl stage = InterruptibleStageImpl.get();
+
+        stage.begin();
+        try {
+            return nativeOpenAt2(stage.i.nativePtr, fd, toNative(pathname), flags, mode);
+        } finally {
+            stage.end();
+        }
+    }
+
     private static Object toNative(String string) {
         return Build.VERSION.SDK_INT >= 23 ? string : string.getBytes(StandardCharsets.UTF_8);
     }
@@ -240,7 +299,7 @@ final class Android extends OS {
 
     private static native int nativeOpenAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
 
-    private static native @DirFd int nativeOpenDirAt(@DirFd int fd, Object pathname, int flags, int mode) throws ErrnoException;
+    private static native int nativeOpenAt2(long token, @DirFd int fd, Object pathname, int flags, int mode) throws IOException;
 
     private static native Object nativeReadlink(@DirFd int fd, Object pathname) throws IOException;
 }

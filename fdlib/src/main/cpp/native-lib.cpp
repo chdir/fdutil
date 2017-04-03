@@ -5,18 +5,9 @@
 
 #include <sys/inotify.h>
 #include <sys/stat.h>
+#include <limits>
 #include <stdio.h>
-
-
-inline static jclass saveClassRef(const char* name, JNIEnv *env) {
-    jclass found = env -> FindClass(name);
-
-    if (found == NULL) {
-        return NULL;
-    }
-
-    return reinterpret_cast<jclass>(env->NewGlobalRef(found));
-}
+#include <stdlib.h>
 
 inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint flags, jint mode) {
     const char *utf8Path = getUtf8(env, name);
@@ -26,7 +17,7 @@ inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint
         return -1;
     }
 
-    int newFd = TEMP_FAILURE_RETRY(sys_openat(fd, utf8Path, O_NONBLOCK | flags, mode));
+    int newFd = TEMP_FAILURE_RETRY(sys_openat(fd, utf8Path, flags, mode));
 
     if (newFd < 0) {
         handleError(env);
@@ -68,8 +59,18 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
+    iIoException = saveClassRef("java/io/InterruptedIOException", env);
+    if (iIoException == NULL) {
+        return -1;
+    }
+
     oomError = saveClassRef("java/lang/OutOfMemoryError", env);
     if (oomError == NULL) {
+        return -1;
+    }
+
+    illegalStateException = saveClassRef("java/lang/IllegalStateException", env);
+    if (illegalStateException == NULL) {
         return -1;
     }
 
@@ -114,6 +115,58 @@ JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, 
     return coreio_openat(env, fd, path, flags | O_LARGEFILE, mode);
 }
 
+JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt2)(JNIEnv *env, jclass type, jlong token, jint fd, jworkaroundstr path, jint flags, jint mode) {
+    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(token);
+
+    const char *utf8Path = getUtf8(env, path);
+
+    if (utf8Path == NULL) {
+        env->ThrowNew(oomError, "file name buffer");
+        return -1;
+    }
+
+    if (handler -> interrupted.load(memory_order_relaxed)) {
+        env -> ThrowNew(iIoException, "interrupted before opening");
+
+        handler -> clear_flag();
+
+        return -1;
+    }
+
+attempt_open:
+    int newFd = sys_openat(fd, utf8Path, flags, mode);
+
+    bool eintr;
+
+    if (newFd < 0) {
+        eintr = errno == EINTR;
+
+        if (!eintr) {
+            handleError(env);
+            goto cleanup;
+        }
+    } else {
+        eintr = false;
+    }
+
+    if (handler -> interrupted.load(memory_order_relaxed)) {
+        if (newFd >= 0) {
+            close(newFd);
+        }
+
+        env -> ThrowNew(iIoException, "interrupted before opening");
+
+        handler -> clear_flag();
+    } else if (eintr) {
+        goto attempt_open;
+    }
+
+cleanup:
+    freeUtf8(env, path, utf8Path);
+
+    return newFd;
+}
+
 JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
     if (close(fd) == -1) {
         handleError(env);
@@ -146,6 +199,261 @@ JNIEXPORT jint JNICALL PKG_SYM(inotify_1init)(JNIEnv *env, jobject instance) {
 
 JNIEXPORT void JNICALL Java_net_sf_xfd_BlockingGuards_free(JNIEnv *env, jclass cl, jlong pointer) {
     free(reinterpret_cast<void*>(pointer));
+}
+
+#define CHUNK_SIZE (64 * 1024)
+
+static_assert (CHUNK_SIZE < SIZE_MAX, "size_t has unexpected size");
+static_assert (CHUNK_SIZE < SSIZE_MAX, "ssize_t has unexpected size");
+
+JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_nativeInit(JNIEnv *env, jclass type) {
+    if (pageSize > 1024 * 1024 * 2) {
+        pageSize = 1024 * 4;
+    }
+
+    void *bufferAddress = memalign(pageSize, CHUNK_SIZE);
+
+    if (bufferAddress == NULL) {
+        env -> ThrowNew(oomError, "copy buffer");
+    }
+
+    return reinterpret_cast<jlong>(bufferAddress);
+}
+
+
+static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t size, jint fd1, jint fd2) {
+    int64_t totalWritten = 0;
+
+    ssize_t remaining;
+    do {
+        int64_t to_read = size - totalWritten;
+
+        if (to_read > CHUNK_SIZE) {
+            to_read = CHUNK_SIZE;
+        }
+
+        remaining = read(fd1, buf, (size_t) to_read);
+
+        switch (remaining) {
+            default:
+                break;
+            case 0:
+                return totalWritten;
+            case -1:
+                switch (errno) {
+                    case EINTR:
+                        remaining = 0;
+                        break;
+                    default:
+                        return -2;
+                }
+        }
+
+        if (handler -> interrupted.load(memory_order_relaxed)) {
+            return -1;
+        }
+
+        ssize_t written = remaining;
+
+        while (remaining > 0) {
+            ssize_t lastWritten = write(fd2, buf + written - remaining, (size_t) remaining);
+
+            if (lastWritten == -1) {
+                switch (errno) {
+                    case EINTR:
+                        lastWritten = 0;
+                        break;
+                    default:
+                        return -2;
+                }
+            }
+
+            remaining -= lastWritten;
+
+            if (handler -> interrupted.load(memory_order_relaxed)) {
+                return -1;
+            }
+        }
+
+        totalWritten += written;
+    }
+    while (totalWritten < size);
+
+    return totalWritten;
+}
+
+JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doSendfile(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
+    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
+
+    int64_t totalBytes,remaining;
+
+    totalBytes = remaining = total;
+
+    if (handler -> interrupted.load(memory_order_relaxed)) {
+        goto interrupted;
+    }
+
+    // attempt to do sendfile first
+    do {
+        size_t to_send = remaining > SSIZE_MAX ? SSIZE_MAX : (size_t) remaining;
+
+        ssize_t sent = sys_sendfile(fd2, fd1, NULL, to_send);
+
+        switch (sent) {
+            default:
+                break;
+            case 0:
+                goto enough;
+            case -1:
+                sent = 0;
+
+                switch (errno) {
+                    case EOPNOTSUPP:
+                    case EINVAL:
+                        goto enough;
+                    case EINTR:
+                        break;
+                    default:
+                        handleError(env);
+                        return -1;
+                }
+        }
+
+        remaining -= sent;
+
+        if (handler -> interrupted.load(memory_order_relaxed)) {
+            goto interrupted;
+        }
+    }
+    while (remaining > 0);
+
+    return totalBytes - remaining;
+
+enough:
+{
+    // make sure to write out any remaining data
+    char *b = reinterpret_cast<char *>(buffer);
+
+    jlong res = dumbCopy(handler, b, remaining, fd1, fd2);
+
+    switch (res) {
+        default:
+            break;
+        case -1:
+            goto interrupted;
+        case -2:
+            handleError(env);
+            return -1;
+    }
+
+    return res + (totalBytes - remaining);
+}
+
+interrupted:
+    env -> ThrowNew(iIoException, "The copy was interrupted");
+
+    handler -> clear_flag();
+
+    return -1;
+}
+
+JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doSplice(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
+    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
+
+    int64_t totalBytes,remaining;
+
+    totalBytes = remaining = total;
+
+    if (handler -> interrupted.load(memory_order_relaxed)) {
+        goto interrupted;
+    }
+
+    do {
+        size_t to_splice = remaining > CHUNK_SIZE ? CHUNK_SIZE : (size_t) remaining;
+
+        int spliced = sys_splice(fd1, NULL, fd2, NULL, to_splice, 0);
+
+        switch (spliced) {
+            default:
+                break;
+            case 0:
+                return totalBytes - remaining;
+            case -1:
+                switch (errno) {
+                    case EOPNOTSUPP:
+                    case EINVAL:
+                        goto enough;
+                    case EINTR:
+                        spliced = 0;
+                        break;
+                    default:
+                        handleError(env);
+                        return -1;
+                }
+        }
+
+        remaining -= spliced;
+
+        if (handler -> interrupted.load(memory_order_relaxed)) {
+            goto interrupted;
+        }
+    }
+    while (remaining > 0);
+
+    return totalBytes - remaining;
+
+enough:
+{
+    // make sure to write out any remaining data
+    char *b = reinterpret_cast<char *>(buffer);
+
+    int64_t res = dumbCopy(handler, b, remaining, fd1, fd2);
+
+    switch (res) {
+        default:
+            break;
+        case -1:
+            goto interrupted;
+        case -2:
+            handleError(env);
+            return -1;
+    }
+
+    return res + (totalBytes - remaining);
+}
+
+interrupted:
+    env -> ThrowNew(iIoException, "The copy was interrupted");
+
+    handler -> clear_flag();
+
+    return -1;
+}
+
+JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doDumbCopy(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong size, jint fd1, jint fd2) {
+    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
+
+    if (!handler -> interrupted.load(memory_order_relaxed)) {
+        char* b = reinterpret_cast<char*>(buffer);
+
+        int64_t res = dumbCopy(handler, b, size, fd1, fd2);
+
+        switch (res) {
+            default:
+                return res;
+            case -2:
+                handleError(env);
+                return -1;
+            case -1:
+                break;
+        }
+    }
+
+    env -> ThrowNew(iIoException, "The copy was interrupted");
+
+    handler -> clear_flag();
+
+    return -1;
 }
 
 const size_t RLINK_INITIAL_BUFFER_SIZE = 1000;

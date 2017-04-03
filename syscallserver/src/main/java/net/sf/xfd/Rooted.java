@@ -176,8 +176,8 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @NonNull
     @Override
-    public Copy copy(@Fd int source, @Nullable Stat sourceStat, @Fd int dest, @Nullable Stat destStat) {
-        return delegate.copy(source, sourceStat, dest, destStat);
+    public Copy copy() {
+        return delegate.copy();
     }
 
     @NonNull

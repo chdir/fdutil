@@ -22,18 +22,18 @@ import java.io.Closeable;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.ReferenceQueue;
 
-public abstract class CloseableGuard extends PhantomReference<Closeable> implements Guard {
+public abstract class CloseableGuard<T> extends PhantomReference<T> implements Guard {
     private static final String TAG = "CloseableGuard";
 
     static {
         new CleanerThread().start();
     }
 
-    private static final ReferenceQueue<Closeable> queue = new ReferenceQueue<>();
+    private static final ReferenceQueue<Object> queue = new ReferenceQueue<>();
 
     protected volatile boolean closed;
 
-    protected CloseableGuard(Closeable r) {
+    protected CloseableGuard(T r) {
         super(r, queue);
     }
 
@@ -55,11 +55,13 @@ public abstract class CloseableGuard extends PhantomReference<Closeable> impleme
         public void run() {
             for (;;) {
                 try {
-                    final CloseableGuard ref = (CloseableGuard) CloseableGuard.queue.remove();
+                    final CloseableGuard<?> ref = (CloseableGuard) CloseableGuard.queue.remove();
 
                     if (!ref.closed) {
                         ref.trigger();
                     }
+
+                    ref.clear();
                 } catch (InterruptedException e) {
                     Log.i(TAG, "Interrupted from outside, ignoring");
                 }
