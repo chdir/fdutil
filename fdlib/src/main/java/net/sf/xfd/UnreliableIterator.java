@@ -135,7 +135,7 @@ public interface UnreliableIterator<E> extends Iterator<E> {
     boolean moveToPosition(int position) throws IOException;
 
     /**
-     * @return the logical position current element, may be -1 or above highest present position
+     * @return the logical position of current element, may be -1 or above highest present position
      */
     int getPosition();
 }

@@ -21,11 +21,12 @@ android {
         externalNativeBuild {
             cmake {
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
-                arguments "-DCOREIO_NATIVE_VER:STRING=$nativeVersionCode"
-                cppFlags '-d', '-std=c++11', '-Wall', '-Werror=all'
+                arguments "-DCOREIO_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_TOOLCHAIN=gcc"
+                cppFlags '-std=c++11'
             }
         }
     }
+    //, '-d', '-Wall', '-Werror=all', '-fno-omit-frame-pointer'
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -58,7 +59,7 @@ dependencies {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
     compile 'com.carrotsearch:hppc:0.7.1'
-    compile 'net.openhft:zero-allocation-hashing:0.6'
+    compile 'net.openhft:zero-allocation-hashing:0.8'
     //compile 'it.unimi.dsi:fastutil:7.0.13'
     compile 'com.android.support:support-annotations:25.0.1'
     testCompile 'junit:junit:4.12'

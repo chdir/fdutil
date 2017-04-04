@@ -17,7 +17,8 @@ package net.sf.xfd;
 
 import android.support.annotation.NonNull;
 
-import net.openhft.hashing.XxHash_r39_Custom;
+import net.openhft.hashing.Access;
+import net.openhft.hashing.LongHashFunction;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ import java.util.NoSuchElementException;
  *
  * As the name implies, this API is meant to be used when you need to deal with really, really
  * terrible, non-Posix-compliant filesystems. This includes FAT32, exFAT and any FUSE/unionfs
- * filesystems, that does not support {@code telldir} and/or does not report proper inode numbers.
+ * filesystems, that does not support {@code telldir} and/or do not report proper inode numbers.
  *
  * <p/>
  *
@@ -50,10 +51,11 @@ public class CrappyDirectory implements Directory {
     }
 
     private static final class It implements UnreliableIterator<Entry> {
+        private static final Access<CharSequence> access = Access.toNativeCharSequence();
+
         private final UnreliableIterator<Entry> wrapped;
 
-        private final XxHash_r39_Custom.AsLongHashFunctionSeeded hash =
-                XxHash_r39_Custom.asLongHashFunctionWithSeed(System.currentTimeMillis());
+        private final LongHashFunction hash = LongHashFunction.xx(System.currentTimeMillis());
 
         It(UnreliableIterator<Entry> wrapped) {
             this.wrapped = wrapped;
@@ -121,8 +123,12 @@ public class CrappyDirectory implements Directory {
 
         private void appendEntry() {
             final Entry entry = new Entry();
+
             wrapped.get(entry);
-            entry.ino = hash.hashNativeChars(entry.name);
+
+            final String name = entry.name;
+            entry.ino = hash.hash(name, access, 0, name.length());
+
             entries.add(entry);
         }
 
