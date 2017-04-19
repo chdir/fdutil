@@ -10,4 +10,7 @@
     <item name="menu_item_cut" type="id" />
     <item name="req_open_file" type="id" />
     <item name="req_permission" type="id" />
+    <item name="foreground_nf" type="id" />
+    <item name="req_task" type="id" />
+    <item name="req_main" type="id" />
 </resources>

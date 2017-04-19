@@ -26,7 +26,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.CancellationSignal;
+import android.os.OperationCanceledException;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.RemoteException;
@@ -36,6 +36,8 @@ import android.support.annotation.CallSuper;
 import android.support.annotation.WorkerThread;
 import android.text.TextUtils;
 
+import net.sf.fakenames.fddemo.service.NotificationCallback;
+import net.sf.xfd.Copy;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Fd;
 import net.sf.xfd.FsType;
@@ -46,11 +48,11 @@ import net.sf.xfd.Stat;
 import java.io.Closeable;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.io.InterruptedIOException;
 import java.nio.channels.FileChannel;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static android.content.res.AssetFileDescriptor.UNKNOWN_LENGTH;
 import static net.sf.xfd.provider.ProviderBase.extractName;
@@ -59,13 +61,13 @@ import static net.sf.xfd.provider.ProviderBase.extractName;
  * Container for information about Uri-addressable object
  */
 public abstract class FileObject implements Closeable {
-    protected final CancellationSignal cancellationSignal = new CancellationSignal();
-
     protected final Context context;
     protected final OS os;
     protected final Stat stat;
 
     protected String description;
+
+    protected AtomicBoolean closed = new AtomicBoolean();
 
     FileObject(OS os, Context context) {
         this(os, context, new Stat());
@@ -78,16 +80,16 @@ public abstract class FileObject implements Closeable {
     }
 
     @WorkerThread
-    public abstract AssetFileDescriptor openForReading() throws IOException, RemoteException, RuntimeException;
+    public abstract AssetFileDescriptor openForReading(CancellationHelper ch) throws IOException, RemoteException, RuntimeException;
 
     @WorkerThread
-    public abstract AssetFileDescriptor openForWriting() throws IOException, RemoteException, RuntimeException;
+    public abstract AssetFileDescriptor openForWriting(CancellationHelper ch) throws IOException, RemoteException, RuntimeException;
 
     @WorkerThread
-    public abstract long getMaxSize() throws IOException, RemoteException, RuntimeException;
+    public abstract long getMaxSize(CancellationHelper ch) throws IOException, RemoteException, RuntimeException;
 
     @WorkerThread
-    public String getDescription() throws IOException, RemoteException, RuntimeException {
+    public String getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
         return TextUtils.isEmpty(description) ? "unnamed" + new Random().nextLong() : description;
     }
 
@@ -106,17 +108,12 @@ public abstract class FileObject implements Closeable {
     // We probably don't want to prefetch bigger pieces in memory at once
     private static final int READAHEAD_LIMIT = 512 * 1024 * 1024;
 
-    private static final ThreadLocal<ByteBuffer> copyBuffer = new ThreadLocal<ByteBuffer>() {
-        @Override
-        protected ByteBuffer initialValue() {
-            return ByteBuffer.allocateDirect(64 * 1024);
-        }
-    };
-
     volatile boolean copyCancelled;
 
-    public boolean copyTo(FileObject target) throws IOException, RemoteException {
-        final AssetFileDescriptor sourceAssetFd = this.openForReading();
+    public boolean copyTo(FileObject target, CancellationHelper ch, NotificationCallback callback) throws IOException, RemoteException {
+        callback.onProgressUpdate("Preparing to copy…");
+
+        final AssetFileDescriptor sourceAssetFd = this.openForReading(ch);
         final Stat s1 = new Stat();
 
         try (final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor()) {
@@ -134,7 +131,7 @@ public abstract class FileObject implements Closeable {
                 if (s1.st_size > 0) {
                     size = s1.st_size;
                 } else {
-                    size = getMaxSize();
+                    size = getMaxSize(ch);
                 }
             }
 
@@ -143,13 +140,13 @@ public abstract class FileObject implements Closeable {
                 os.fadvise(sourceFd.getFd(), offset, 0, OS.POSIX_FADV_SEQUENTIAL);
             }
 
-            try (final AssetFileDescriptor targetAssetFd = target.openForWriting()) {
+            try (final AssetFileDescriptor targetAssetFd = target.openForWriting(ch)) {
                 final Stat s2 = new Stat();
                 final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
                 os.fstat(targetFd.getFd(), s2);
 
                 try {
-                    if (s1.st_ino == s2.st_ino) {
+                    if (s1.st_dev == s2.st_dev && s1.st_ino == s2.st_ino) {
                         throw new IOException(context.getString(R.string.err_self_copy));
                     }
 
@@ -163,8 +160,14 @@ public abstract class FileObject implements Closeable {
                         doSkip(sourceFd, s1.type, offset);
                     }
 
-                    return dumbCopy(sourceFd, targetFd, cancellationSignal, limit);
+                    return doCopy(sourceFd, targetFd, size, limit, callback);
                 } catch (Throwable tooBad) {
+                    if (tooBad instanceof InterruptedIOException || tooBad instanceof OperationCanceledException) {
+                        Thread.interrupted();
+                    }
+
+                    callback.onDismiss();
+
                     try { sourceFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
                     try { targetFd.closeWithError(tooBad.getMessage()); } catch (Exception oops) { oops.printStackTrace(); }
 
@@ -174,51 +177,38 @@ public abstract class FileObject implements Closeable {
         }
     }
 
-    private boolean dumbCopy(ParcelFileDescriptor sFd, ParcelFileDescriptor tFd, CancellationSignal c, final long limit) throws IOException {
-        c.setOnCancelListener(() -> {
-            copyCancelled = true;
+    private static final long MACRO_BLOCK = 128 * 1024 * 1024;
 
-            Thread.currentThread().interrupt();
-        });
+    private boolean doCopy(ParcelFileDescriptor sourceFd, ParcelFileDescriptor targetFd, double limitHint, long limit, NotificationCallback callback) throws IOException {
+        @Fd int s = sourceFd.getFd(); @Fd int t = targetFd.getFd();
 
-        long remaining = limit < 0 ? limit : Long.MAX_VALUE;
+        long result;
 
-        try {
-            final ByteBuffer buffer = copyBuffer.get();
+        try (Copy copy = os.copy()) {
+            long max = limit <= 0 ? Long.MAX_VALUE : limit;
 
-            buffer.clear();
+            long sent;
 
-            try (FileChannel fc1 = new FileInputStream(sFd.getFileDescriptor()).getChannel();
-                 FileChannel fc2 = new FileOutputStream(tFd.getFileDescriptor()).getChannel()) {
-                int sent = 0;
-                while ((limit < 0 || (remaining -= sent) > 0) && (sent = fc1.read(buffer)) != -1) {
-                    buffer.flip();
-                    fc2.write(buffer);
-                    buffer.compact();
-
-                    if (copyCancelled) {
-                        return false;
-                    }
+            for (result = 0; result < max; ) {
+                if (limitHint > 0 && result > 0) {
+                    callback.onProgressUpdate((int) Math.round(result / limitHint * 100));
                 }
 
-                buffer.flip();
+                final long remaining = max - result;
+                final long toSend = Math.min(MACRO_BLOCK, remaining);
 
-                while (buffer.hasRemaining() && !copyCancelled) {
-                    fc2.write(buffer);
+                sent = copy.transfer(s, null, t, null, toSend);
+                result += sent;
+                if (sent < toSend) {
+                    break;
                 }
-
-                sFd.checkError();
-                tFd.checkError();
             }
-        } finally {
-            c.setOnCancelListener(null);
-
-            copyCancelled = false;
-
-            Thread.interrupted();
         }
 
-        return limit < 0 || remaining == 0;
+        sourceFd.checkError();
+        targetFd.checkError();
+
+        return limit <= 0 || result == limit;
     }
 
     private boolean doSkip(ParcelFileDescriptor fd, FsType fileType, long offset) throws IOException {
@@ -249,8 +239,8 @@ public abstract class FileObject implements Closeable {
         }
     }
 
-    public boolean moveTo(FileObject fileObject) throws IOException, RemoteException {
-        if (shortcutMove(fileObject) || copyTo(fileObject)) {
+    public boolean moveTo(FileObject fileObject, CancellationHelper ch, NotificationCallback callback) throws IOException, RemoteException {
+        if (shortcutMove(fileObject, ch) || copyTo(fileObject, ch, callback)) {
             delete();
 
             return true;
@@ -261,8 +251,8 @@ public abstract class FileObject implements Closeable {
 
     // try to use the fact that the file may be on the same partition to out advantage
     // to perform rename instead of copy/delete
-    protected boolean shortcutMove(FileObject target) throws IOException, RemoteException {
-        final AssetFileDescriptor sourceAssetFd = this.openForReading();
+    protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
+        final AssetFileDescriptor sourceAssetFd = this.openForReading(ch);
 
         try (final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor()) {
             os.fstat(sourceFd.getFd(), stat);
@@ -280,7 +270,7 @@ public abstract class FileObject implements Closeable {
                 return true;
             }
 
-            try (final AssetFileDescriptor targetAssetFd = target.openForWriting()) {
+            try (final AssetFileDescriptor targetAssetFd = target.openForWriting(ch)) {
                 final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
                 os.fstat(targetFd.getFd(), target.stat);
 
@@ -315,7 +305,6 @@ public abstract class FileObject implements Closeable {
     @Override
     @CallSuper
     public void close() {
-        cancellationSignal.cancel();
     }
 
     protected abstract boolean delete() throws IOException, RemoteException;
@@ -428,7 +417,7 @@ public abstract class FileObject implements Closeable {
             }
         }
 
-        private void fetchMetadata() throws RemoteException {
+        private void fetchMetadata(CancellationHelper ch) throws RemoteException {
             if (info == null) {
                 connect();
 
@@ -450,7 +439,8 @@ public abstract class FileObject implements Closeable {
                     };
                 }
 
-                info = cpc.query(uri, projection, null, null, null, cancellationSignal);
+                info = cpc.query(uri, projection, null, null, null, ch.getSignal());
+
                 if (info == null) {
                     return;
                 }
@@ -524,25 +514,25 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public AssetFileDescriptor openForReading() throws FileNotFoundException, RemoteException {
-            fetchMetadata();
+        public AssetFileDescriptor openForReading(CancellationHelper ch) throws FileNotFoundException, RemoteException {
+            fetchMetadata(ch);
 
             if (TextUtils.isEmpty(mime)) {
-                return cpc.openAssetFile(uri, "r", cancellationSignal);
+                return cpc.openAssetFile(uri, "r", ch.getSignal());
             } else {
-                return cpc.openTypedAssetFileDescriptor(uri, mime, Bundle.EMPTY, cancellationSignal);
+                return cpc.openTypedAssetFileDescriptor(uri, mime, Bundle.EMPTY, ch.getSignal());
             }
         }
 
         @Override
-        public AssetFileDescriptor openForWriting() throws FileNotFoundException, RemoteException {
+        public AssetFileDescriptor openForWriting(CancellationHelper ch) throws FileNotFoundException, RemoteException {
             connect();
 
-            return cpc.openAssetFile(uri, "w", cancellationSignal);
+            return cpc.openAssetFile(uri, "w", ch.getSignal());
         }
 
         @Override
-        public boolean copyTo(FileObject target) throws IOException, RemoteException {
+        public boolean copyTo(FileObject target, CancellationHelper ch, NotificationCallback callback) throws IOException, RemoteException {
             if (target instanceof ContentFileObject) {
                 final ContentFileObject t = (ContentFileObject) target;
 
@@ -555,7 +545,7 @@ public abstract class FileObject implements Closeable {
                         final String a1 = this.uri.getAuthority();
                         final String a2 = t.uri.getAuthority();
                         if (a1 != null && a1.equals(a2)) {
-                            fetchMetadata();
+                            fetchMetadata(ch);
 
                             if ((flags & DocumentsContract.Document.FLAG_SUPPORTS_COPY) != 0) {
                                 try {
@@ -575,7 +565,7 @@ public abstract class FileObject implements Closeable {
                 }
             }
 
-            return super.copyTo(target);
+            return super.copyTo(target, ch, callback);
         }
 
         @Override
@@ -588,32 +578,34 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public long getMaxSize() throws RemoteException, RuntimeException {
-            fetchMetadata();
+        public long getMaxSize(CancellationHelper ch) throws RemoteException, RuntimeException {
+            fetchMetadata(ch);
 
             return maxSize;
         }
 
         @Override
-        public String getDescription() throws RemoteException, IOException, RuntimeException {
+        public String getDescription(CancellationHelper ch) throws RemoteException, IOException, RuntimeException {
             if (TextUtils.isEmpty(description)) {
-                fetchMetadata();
+                fetchMetadata(ch);
             }
 
-            return TextUtils.isEmpty(description) ? super.getDescription() : description;
+            return TextUtils.isEmpty(description) ? super.getDescription(ch) : description;
         }
 
         @Override
         public void close() {
-            super.close();
+            if (closed.compareAndSet(false, true)) {
+                super.close();
 
-            if (cpc != null) {
-                //noinspection deprecation
-                cpc.release();
-            }
+                if (cpc != null) {
+                    //noinspection deprecation
+                    cpc.release();
+                }
 
-            if (info != null) {
-                info.close();
+                if (info != null) {
+                    info.close();
+                }
             }
         }
     }
@@ -634,22 +626,22 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public AssetFileDescriptor openForReading() throws IOException, RemoteException, RuntimeException {
+        public AssetFileDescriptor openForReading(CancellationHelper unused) throws IOException, RemoteException, RuntimeException {
             return new AssetFileDescriptor(ParcelFileDescriptor.fromFd(fd), 0, -1);
         }
 
         @Override
-        public AssetFileDescriptor openForWriting() throws IOException, RemoteException, RuntimeException {
+        public AssetFileDescriptor openForWriting(CancellationHelper unused) throws IOException, RemoteException, RuntimeException {
             return new AssetFileDescriptor(ParcelFileDescriptor.fromFd(fd), 0, -1);
         }
 
         @Override
-        public String getDescription() throws IOException, RemoteException, RuntimeException {
+        public String getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
             return fileInfo.name;
         }
 
         @Override
-        public long getMaxSize() throws IOException, RemoteException, RuntimeException {
+        public long getMaxSize(CancellationHelper unused) throws IOException, RemoteException, RuntimeException {
             return -1;
         }
 
@@ -666,24 +658,26 @@ public abstract class FileObject implements Closeable {
 
         @Override
         public void close() {
-            try {
-                super.close();
-            } finally {
+            if (closed.compareAndSet(false, true)) {
                 try {
-                    if (!deleted) {
-                        os.fsync(fd);
-
-                        if (os.faccessat(fileInfo.dirFd, tempName, OS.F_OK)) {
-                            os.renameat(fileInfo.dirFd, tempName, fileInfo.dirFd, fileInfo.name);
-                        } else {
-                            os.linkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + fd, fileInfo.dirFd, fileInfo.name, OS.AT_SYMLINK_FOLLOW);
-                        }
-                    }
-                } catch (IOException e) {
-                    // ignore
-                    LogUtil.logCautiously("Failed to clean up temp file", e);
+                    super.close();
                 } finally {
-                    os.dispose(fd);
+                    try {
+                        if (!deleted) {
+                            os.fsync(fd);
+
+                            if (os.faccessat(fileInfo.dirFd, tempName, OS.F_OK)) {
+                                os.renameat(fileInfo.dirFd, tempName, fileInfo.dirFd, fileInfo.name);
+                            } else {
+                                os.linkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + fd, fileInfo.dirFd, fileInfo.name, OS.AT_SYMLINK_FOLLOW);
+                            }
+                        }
+                    } catch (IOException e) {
+                        // ignore
+                        LogUtil.logCautiously("Failed to clean up temp file", e);
+                    } finally {
+                        os.dispose(fd);
+                    }
                 }
             }
         }
@@ -703,7 +697,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        protected boolean shortcutMove(FileObject target) throws IOException {
+        protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException {
             @Fd int sourceFd = os.open(path, OS.O_RDONLY, 0);
             try {
                 os.fstat(sourceFd, stat);
@@ -713,7 +707,7 @@ public abstract class FileObject implements Closeable {
                     return true;
                 }
 
-                try (final AssetFileDescriptor targetAssetFd = target.openForWriting()) {
+                try (final AssetFileDescriptor targetAssetFd = target.openForWriting(ch)) {
                     final ParcelFileDescriptor targetFd = targetAssetFd.getParcelFileDescriptor();
                     os.fstat(targetFd.getFd(), target.stat);
 
@@ -757,21 +751,21 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public AssetFileDescriptor openForReading() throws IOException {
+        public AssetFileDescriptor openForReading(CancellationHelper ch) throws IOException {
             @Fd int fd = os.open(path, OS.O_RDONLY, 0);
 
             return new AssetFileDescriptor(ParcelFileDescriptor.adoptFd(fd), 0, -1);
         }
 
         @Override
-        public AssetFileDescriptor openForWriting() throws IOException, RemoteException {
+        public AssetFileDescriptor openForWriting(CancellationHelper ch) throws IOException, RemoteException {
             @Fd int fd = os.open(path, OS.O_WRONLY, 0);
 
             return new AssetFileDescriptor(ParcelFileDescriptor.adoptFd(fd), 0, -1);
         }
 
         @Override
-        public boolean copyTo(FileObject target) throws IOException, RemoteException {
+        public boolean copyTo(FileObject target, CancellationHelper ch, NotificationCallback callback) throws IOException, RemoteException {
             if (target instanceof LocalFileObject) {
                 final LocalFileObject t = (LocalFileObject) target;
 
@@ -780,16 +774,16 @@ public abstract class FileObject implements Closeable {
                 }
             }
 
-            return super.copyTo(target);
+            return super.copyTo(target, ch, callback);
         }
 
         @Override
-        public long getMaxSize() {
+        public long getMaxSize(CancellationHelper unused) {
             return UNKNOWN_LENGTH;
         }
 
         @Override
-        public String getDescription() {
+        public String getDescription(CancellationHelper unused) {
             return name;
         }
 
@@ -813,22 +807,22 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public AssetFileDescriptor openForReading() throws IOException, RemoteException {
+        public AssetFileDescriptor openForReading(CancellationHelper unused) throws IOException, RemoteException {
             return resolver.openAssetFileDescriptor(uri, "r");
         }
 
         @Override
-        public AssetFileDescriptor openForWriting() throws IOException, RemoteException {
+        public AssetFileDescriptor openForWriting(CancellationHelper unused) throws IOException, RemoteException {
             return resolver.openAssetFileDescriptor(uri, "w");
         }
 
         @Override
-        protected boolean shortcutMove(FileObject target) throws IOException, RemoteException {
+        protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
             return false;
         }
 
         @Override
-        public long getMaxSize() {
+        public long getMaxSize(CancellationHelper ch) {
             return UNKNOWN_LENGTH;
         }
 
