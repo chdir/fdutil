@@ -37,11 +37,14 @@ public interface Copy extends Closeable {
      *
      * The exact approach to copying depends on types of the descriptors as specified by
      * {@code sourceStat} and {@code targetStat}, — currently supported are {@code splice}
-     * and {@code sendfile} with fallback to read/write loop.
+     * and {@code sendfile} with fallback to read/write loop. Some filesystems and file descriptors
+     * are incompatible with efficient copy modes (for example, FAT/FUSE might not work with
+     * {@code splice}, certain Linux versions do not support using sendfile with files open with
+     * O_APPEND flag etc.) In such cases this method will silently fall back to read/write loop.
      *
-     * @param source source file descriptor
+     * @param source source file descriptor (must be blocking)
      * @param sourceStat (optional) structure with information about source file descriptor
-     * @param target target file descriptor (currently should be blocking)
+     * @param target target file descriptor (must be blocking)
      * @param targetStat (optional) structure with information about target file descriptor
      * @param count total count of bytes to write (if zero or negative, {@link Long#MAX_VALUE} will be used)
      *
@@ -53,6 +56,16 @@ public interface Copy extends Closeable {
      */
     long transfer(@Fd int source, @Nullable Stat sourceStat, @Fd int target, @Nullable Stat targetStat, long count) throws IOException;
 
+    /**
+     * Release resources, associated with this wrapper.
+     *
+     * Do not call this method when a copy is in progress! To interrupt the ongoing copy,
+     * {@linkplain Thread#interrupt interrupt} the Thread, that performs it.
+     *
+     * <p/>
+     *
+     * This method is idempotent, second and following calls have no effect.
+     */
     @Override
     void close();
 }
