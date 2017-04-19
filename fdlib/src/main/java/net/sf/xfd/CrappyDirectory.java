@@ -17,6 +17,8 @@ package net.sf.xfd;
 
 import android.support.annotation.NonNull;
 
+import com.carrotsearch.hppc.XorShift128P;
+
 import net.openhft.hashing.Access;
 import net.openhft.hashing.LongHashFunction;
 
@@ -51,11 +53,13 @@ public class CrappyDirectory implements Directory {
     }
 
     private static final class It implements UnreliableIterator<Entry> {
+        private static final XorShift128P rand = new XorShift128P(System.nanoTime());
+
         private static final Access<CharSequence> access = Access.toNativeCharSequence();
 
         private final UnreliableIterator<Entry> wrapped;
 
-        private final LongHashFunction hash = LongHashFunction.xx(System.currentTimeMillis());
+        private final LongHashFunction hash = LongHashFunction.xx(rand.nextLong());
 
         It(UnreliableIterator<Entry> wrapped) {
             this.wrapped = wrapped;
