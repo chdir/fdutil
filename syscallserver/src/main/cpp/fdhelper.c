@@ -307,12 +307,16 @@ static int fixPolicy(const char* context) {
         case PATCH_DONE:
             if (load_policy_into_kernel(&fp)) {
                 LOG("failed to load policy into kernel");
+
+                ret = PATCH_ERR_RO;
             } else {
                 LOG("Yay!");
             }
             break;
         case ALREADY_PATCHED:
             LOG("policy is already suitable, nothing to do");
+
+            ret = PATCH_DONE;
         default:
             break;
     }
