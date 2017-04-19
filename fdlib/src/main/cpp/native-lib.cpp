@@ -174,7 +174,7 @@ JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
 }
 
 JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source, jint dest) {
-    if (sys_dup2(source, dest) == dest) {
+    if (dup2(source, dest) == dest) {
         return;
     }
 
