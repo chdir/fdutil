@@ -113,9 +113,8 @@ public class MainActivity extends BaseActivity implements
         ClipboardManager.OnPrimaryClipChangedListener,
         SharedPreferences.OnSharedPreferenceChangeListener,
         PopupMenu.OnMenuItemClickListener {
-    private static final String ACTION_CANCEL = "net.sf.fakenames.fddemo.action.CANCEL";
-
-    private static final String EXTRA_ACTION_CUT = "cut";
+    private static final String ACTION_MOVE = "net.sf.chdir.action.MOVE";
+    private static final String ACTION_CANCEL = "net.sf.chdir.action.CANCEL";
 
     private ClipboardManager cbm;
 
@@ -571,6 +570,8 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
+    private static final String[] MIMETYPES_TEXT_URILIST = new String[] { ClipDescription.MIMETYPE_TEXT_URILIST };
+
     @Override
     public boolean onMenuItemClick(MenuItem item) {
         FileMenuInfo info = (FileMenuInfo) item.getMenuInfo();
@@ -607,9 +608,9 @@ public class MainActivity extends BaseActivity implements
                         return true;
                     }
 
-                    final ClipData data = ClipData.newRawUri(info.fileInfo.name, uri);
-
-                    cbm.setPrimaryClip(data);
+                    final ClipDescription description = new ClipDescription(info.fileInfo.name, MIMETYPES_TEXT_URILIST);
+                    final ClipData.Item clipItem = new ClipData.Item(null, null, uri);
+                    cbm.setPrimaryClip(new ClipData(description, clipItem));
                 } catch (IOException e) {
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
@@ -625,10 +626,10 @@ public class MainActivity extends BaseActivity implements
                         return true;
                     }
 
-                    final ClipData data = ClipData.newRawUri(info.fileInfo.name,
-                            uri.buildUpon().fragment(EXTRA_ACTION_CUT).build());
-
-                    cbm.setPrimaryClip(data);
+                    final ClipDescription description = new ClipDescription(info.fileInfo.name, MIMETYPES_TEXT_URILIST);
+                    final Intent intent = new Intent(ACTION_MOVE);
+                    final ClipData.Item clipItem = new ClipData.Item(null, intent, uri);
+                    cbm.setPrimaryClip(new ClipData(description, clipItem));
                 } catch (IOException e) {
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
@@ -1185,22 +1186,38 @@ public class MainActivity extends BaseActivity implements
     @Override
     public boolean onPrepareOptionsMenu(Menu menu) {
         boolean ok = false;
+        CharSequence label = null;
 
+        final ClipData clip = clipData;
 
-        final CharSequence label;
-        final ClipDescription clipInfo = cbm.getPrimaryClipDescription();
-        if (clipInfo != null) {
-            label = clipInfo.getLabel();
-            ok = canHandleClip && !TextUtils.isEmpty(label);
-        } else {
-            label = null;
+        if (clip != null) {
+            final ClipDescription clipInfo = clip.getDescription();
+            if (clipInfo != null) {
+                label = clipInfo.getLabel();
+                ok = canHandleClip && !TextUtils.isEmpty(label);
+            }
         }
 
         final MenuItem paste = menu.findItem(R.id.menu_paste);
 
         if (ok) {
             paste.setEnabled(true);
-            paste.setTitle(getString(R.string.paste_name, massageInSensibleForm(label)));
+
+            boolean move = false;
+
+            final int itemCount = clip.getItemCount();
+            if (itemCount > 0) {
+                final ClipData.Item item = clip.getItemAt(0);
+                final Intent intent = item.getIntent();
+                if (intent != null && ACTION_MOVE.equals(intent.getAction())) {
+                    move = true;
+                }
+            }
+
+            final CharSequence labelText = getString(move ? R.string.move : R.string.paste_name,
+                    massageInSensibleForm(label));
+
+            paste.setTitle(labelText);
         } else {
             paste.setEnabled(false);
             paste.setTitle(getString(R.string.paste));
@@ -1219,7 +1236,7 @@ public class MainActivity extends BaseActivity implements
                 startActivity(new Intent(this, SettingsActivity.class));
                 return true;
             case R.id.menu_paste:
-                final ClipData clip = cbm.getPrimaryClip();
+                final ClipData clip = clipData;
 
                 if (clip == null || clip.getItemCount() == 0) {
                     toast("The clipboard is empty");
@@ -1234,10 +1251,10 @@ public class MainActivity extends BaseActivity implements
                 FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
                 if (fileObject != null) {
                     try {
-                        final Uri uri = clip.getItemAt(0).getUri();
+                        final Intent intent = clip.getItemAt(0).getIntent();
 
-                        final boolean canRemoveOriginal =
-                                EXTRA_ACTION_CUT.equals(uri.getEncodedFragment());
+                        final boolean canRemoveOriginal = intent != null
+                                && ACTION_MOVE.equals(intent.getAction());
 
                         pasteFile(fileObject, canRemoveOriginal);
                     } catch (IOException e) {
@@ -1253,9 +1270,14 @@ public class MainActivity extends BaseActivity implements
         return super.onOptionsItemSelected(item);
     }
 
+    private ClipData clipData;
     private boolean canHandleClip;
 
     private void evaluateCurrentClip() {
+        clipData = cbm.getPrimaryClip();
+
+        closeOptionsMenu();
+
         boolean canHandleNew = canHandleClip();
 
         if (canHandleNew != canHandleClip) {
@@ -1271,7 +1293,7 @@ public class MainActivity extends BaseActivity implements
     }
 
     private boolean canHandleClip() {
-        final ClipData clip = cbm.getPrimaryClip();
+        final ClipData clip = clipData;
 
         if (clip == null || clip.getItemCount() != 1) {
             return false;

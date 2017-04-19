@@ -35,14 +35,17 @@ android {
 }
 
 dependencies {
-    compile fileTree(dir: 'libs', include: ['*.jar'])
-
     //noinspection GradleCompatible
     compile 'com.android.support:recyclerview-v7:25.0.1'
     //noinspection GradleCompatible
     compile 'com.android.support:appcompat-v7:25.0.1'
     //noinspection GradleCompatible
     compile 'com.android.support:design:25.0.1'
+
+    compile 'org.parceler:parceler-api:1.1.6'
+    annotationProcessor 'org.parceler:parceler:1.1.6'
+
+    //compile 'net.sf.aidl2:compiler:0.4.0'
 
     compile 'com.jakewharton:butterknife:8.2.0'
     annotationProcessor 'com.jakewharton:butterknife-compiler:8.2.0'

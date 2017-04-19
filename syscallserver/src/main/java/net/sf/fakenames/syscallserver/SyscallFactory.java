@@ -45,6 +45,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.lang.Process;
@@ -175,7 +176,7 @@ public final class SyscallFactory implements Closeable {
     final Process clientProcess;
 
     private volatile Server serverThread;
-    private volatile FileDescriptor terminalFd;
+    private volatile ParcelFileDescriptor terminalFd;
 
     private SyscallFactory(final Process clientProcess, final LocalServerSocket serverSocket) {
         this.clientProcess = clientProcess;
@@ -379,7 +380,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -421,7 +422,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -467,7 +468,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -504,7 +505,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -534,7 +535,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -564,7 +565,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -594,7 +595,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -628,7 +629,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -658,7 +659,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -688,7 +689,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -722,7 +723,10 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            // open() can be blocking in case if FIFOs
+            // this means, that simply abandoning it may cause a call to hang
+            // so let's close it ASAP instead
+            // TODO: properly cancel this shit
         }
 
         close();
@@ -756,7 +760,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -786,7 +790,7 @@ public final class SyscallFactory implements Closeable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
-            throw new IOException("Interrupted before completion");
+            throw new InterruptedIOException("Interrupted before completion");
         }
 
         close();
@@ -838,7 +842,7 @@ public final class SyscallFactory implements Closeable {
                 throw new IOException("Unable to confirm root: expected UID 0, but was " + exitCode);
             }
         } catch (InterruptedException e) {
-            throw new IOException("Interrupted before completion", e);
+            throw new InterruptedIOException("Interrupted before completion");
         }
     }
 
@@ -952,12 +956,15 @@ public final class SyscallFactory implements Closeable {
                          WritableByteChannel wbc = Channels.newChannel(localSocket.getOutputStream())) {
 
                         final String socketMsg = readMessage(rbc);
-                        final FileDescriptor ptmxFd = getFd(localSocket);
+
+                        FileDescriptor ptmxFd = getFd(localSocket);
 
                         if (ptmxFd == null)
                             throw new Exception("Can't get client tty" + (socketMsg.length() == 0 ? "" : " : " + socketMsg));
 
-                        terminalFd = ptmxFd;
+                        terminalFd = FdCompat.adopt(ptmxFd);
+
+                        ptmxFd = terminalFd.getFileDescriptor();
 
                         logTrace(Log.DEBUG, "Response to tty request: '" + socketMsg + "', descriptor " + ptmxFd);
 
@@ -1616,6 +1623,8 @@ public final class SyscallFactory implements Closeable {
 
         static FdReq PLACEHOLDER = new FdReq(0, null, 0);
 
+        final AtomicBoolean done = new AtomicBoolean();
+
         final int reqType;
         final ParcelFileDescriptor[] outboundFd;
         final String fileName;
@@ -1652,9 +1661,11 @@ public final class SyscallFactory implements Closeable {
         }
 
         public void close() {
-            if (outboundFd != null) {
-                for (ParcelFileDescriptor ofd : outboundFd) {
-                    shut(ofd);
+            if (done.compareAndSet(false, true)) {
+                if (outboundFd != null) {
+                    for (ParcelFileDescriptor ofd : outboundFd) {
+                        shut(ofd);
+                    }
                 }
             }
         }
@@ -1674,6 +1685,8 @@ public final class SyscallFactory implements Closeable {
     }
 
     private static class FdResp implements Closeable {
+        final AtomicBoolean done = new AtomicBoolean();
+
         final FdReq request;
         final String message;
         @Nullable final FileDescriptor fd;
@@ -1694,7 +1707,9 @@ public final class SyscallFactory implements Closeable {
         }
 
         public void close() {
-            shut(fd);
+            if (done.compareAndSet(false, true)) {
+                shut(fd);
+            }
         }
     }
 
@@ -1709,15 +1724,17 @@ public final class SyscallFactory implements Closeable {
 
         @Override
         public void close() {
-            super.close();
+            if (done.compareAndSet(false, true)) {
+                shut(fd);
 
-            try {
-                final int sub = Integer.parseInt(message);
+                try {
+                    final int sub = Integer.parseInt(message);
 
-                inotify.removeSubscriptionInternal(sub);
-            } catch (IOException e) {
-                logException("Failed to close watch", e);
-            } catch (NumberFormatException ignored) {
+                    inotify.removeSubscriptionInternal(sub);
+                } catch (IOException e) {
+                    logException("Failed to close watch", e);
+                } catch (NumberFormatException ignored) {
+                }
             }
         }
     }
