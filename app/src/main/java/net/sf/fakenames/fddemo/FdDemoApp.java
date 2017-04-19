@@ -17,22 +17,42 @@
 package net.sf.fakenames.fddemo;
 
 import android.app.Application;
+import android.app.NotificationManager;
 import android.os.Handler;
 import android.os.StrictMode;
 
 import net.sf.fakenames.syscallserver.SyscallFactory;
 import net.sf.xfd.OS;
 
-public final class FdDemoApp extends Application {
+public final class FdDemoApp extends Application implements Thread.UncaughtExceptionHandler {
     static {
         System.setProperty(SyscallFactory.DEBUG_MODE, "true");
         System.setProperty(OS.DEBUG_MODE, "true");
     }
 
+    private NotificationManager nm;
+
+    private volatile Thread.UncaughtExceptionHandler defaultHandler;
+
     @Override
     public void onCreate() {
         super.onCreate();
 
+        nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+        defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
+
+        Thread.setDefaultUncaughtExceptionHandler(this);
+
         new Handler().post(() -> StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder().build()));
+    }
+
+    @Override
+    public void uncaughtException(Thread t, Throwable e) {
+        try {
+            nm.cancelAll();
+        } finally {
+            defaultHandler.uncaughtException(t, e);
+        }
     }
 }
