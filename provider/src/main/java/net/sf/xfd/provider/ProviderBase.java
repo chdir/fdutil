@@ -749,61 +749,64 @@ public final class ProviderBase extends ContextWrapper {
         try {
             final Stat s = new Stat();
 
+            final String filename = extractName(filepath);
+
             @DirFd int parentFd = os.opendir(extractParent(filepath));
 
-            final String filename = extractName(filepath);
             try {
-                os.fstatat(parentFd, filename, s, 0);
-            } catch (IOException ioe) {
-                LogUtil.logCautiously("Failed to invoke stat() on " + filename, ioe);
+                try {
+                    os.fstatat(parentFd, filename, s, 0);
+                } catch (IOException ioe) {
+                    LogUtil.logCautiously("Failed to invoke stat() on " + filename, ioe);
+                }
+
+                FsType origType = null;
+
+                if (s.type != null) {
+                    origType = s.type;
+
+                    switch (s.type) {
+                        case DIRECTORY:
+                            return new String[] { MIME_TYPE_DIR, ALT_DIR_MIME };
+                        case CHAR_DEV:
+                            return new String[] { CHAR_DEV_MIME };
+                        case NAMED_PIPE:
+                            mimeCandidates.add(FIFO_MIME);
+                            break;
+                        case DOMAIN_SOCKET:
+                            mimeCandidates.add(SOCK_MIME);
+                            break;
+                        case BLOCK_DEV:
+                            mimeCandidates.add(BLOCK_MIME);
+                        case FILE:
+                            try {
+                                fd = os.openat(parentFd, filename, OS.O_RDONLY, 0);
+                            } catch (IOException ioe) {
+                                LogUtil.logCautiously("Failed to invoke open() on " + filename, ioe);
+                            }
+                        default:
+                    }
+                }
+
+                os.fstatat(parentFd, filename, s, OS.AT_SYMLINK_NOFOLLOW);
+
+                if (s.type == FsType.LINK) {
+                    try {
+                        final String resolved = os.readlinkat(parentFd, filename);
+
+                        if (!filepath.equals(resolved)) {
+                            addNameCandidates(resolved, mimeCandidates);
+                        }
+
+                        if (origType == FsType.FILE) {
+                            fd = os.openat(parentFd, resolved, OS.O_RDONLY, 0);
+                        }
+                    } catch (IOException e) {
+                        LogUtil.logCautiously("Error during path resolution", e);
+                    }
+                }
             } finally {
                 os.dispose(parentFd);
-            }
-
-            FsType origType = null;
-
-            if (s.type != null) {
-                origType = s.type;
-
-                switch (s.type) {
-                    case DIRECTORY:
-                        return new String[] { MIME_TYPE_DIR, ALT_DIR_MIME };
-                    case CHAR_DEV:
-                        return new String[] { CHAR_DEV_MIME };
-                    case NAMED_PIPE:
-                        mimeCandidates.add(FIFO_MIME);
-                        break;
-                    case DOMAIN_SOCKET:
-                        mimeCandidates.add(SOCK_MIME);
-                        break;
-                    case BLOCK_DEV:
-                        mimeCandidates.add(BLOCK_MIME);
-                    case FILE:
-                        try {
-                            fd = os.openat(parentFd, filename, OS.O_RDONLY, 0);
-                        } catch (IOException ioe) {
-                            LogUtil.logCautiously("Failed to invoke open() on " + filename, ioe);
-                        }
-                    default:
-                }
-            }
-
-            os.fstatat(parentFd, filename, s, OS.AT_SYMLINK_NOFOLLOW);
-
-            if (s.type == FsType.LINK) {
-                try {
-                    final String resolved = os.readlinkat(parentFd, filename);
-
-                    if (!filepath.equals(resolved)) {
-                        addNameCandidates(resolved, mimeCandidates);
-                    }
-
-                    if (origType == FsType.FILE) {
-                        fd = os.openat(parentFd, resolved, OS.O_RDONLY, 0);
-                    }
-                } catch (IOException e) {
-                    LogUtil.logCautiously("Error during path resolution", e);
-                }
             }
 
             if (fd > 0) {
