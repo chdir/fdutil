@@ -21,6 +21,8 @@ public final class ErrnoException extends IOException {
     public static final int EOPNOTSUPP = 95;
     public static final int ENOTDIR = 20;
     public static final int ENOENT = 2;
+    public static final int EAGAIN = 11;
+    public static final int EINVAL = 22;
 
     private final int errno;
 

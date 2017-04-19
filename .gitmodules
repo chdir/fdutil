@@ -4,3 +4,6 @@
 [submodule "app/src/main/cpp/magic"]
 	path = provider/src/main/cpp/magic
 	url = https://github.com/Alexander--/file.git
+[submodule "goro"]
+	path = goro
+	url = https://github.com/Alexander--/goro.git
