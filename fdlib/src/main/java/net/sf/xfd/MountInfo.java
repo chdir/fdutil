@@ -26,6 +26,7 @@ import android.os.Message;
 import android.os.ParcelFileDescriptor;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
+import android.util.Log;
 
 import com.carrotsearch.hppc.LongObjectHashMap;
 import com.carrotsearch.hppc.LongObjectMap;
@@ -34,6 +35,7 @@ import com.carrotsearch.hppc.ObjectSet;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
@@ -54,6 +56,8 @@ import static android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
 
 public class MountInfo {
+    private static final String TAG = "MountInfo";
+
     private static final ThreadLocal<ByteBuffer> throwawayBuffer = new ThreadLocal<ByteBuffer>() {
         @Override
         protected ByteBuffer initialValue() {
@@ -172,12 +176,8 @@ public class MountInfo {
 
             CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
 
-            try {
-                parseFilesystems(decoder, true);
-                parseMounts(decoder, true);
-            } catch (IOException e) {
-                throw new WrappedIOException(e);
-            }
+            parseFilesystems(decoder, true);
+            parseMounts(decoder, true);
         } finally {
             primaryLock.unlock();
         }
@@ -211,7 +211,7 @@ public class MountInfo {
         return totalRead;
     }
 
-    private void parseMounts(CharsetDecoder d, boolean force) throws IOException {
+    private void parseMounts(CharsetDecoder d, boolean force) {
         try (ParcelFileDescriptor pfd = ParcelFileDescriptor.fromFd(mountinfo);
              FileChannel fc = new FileInputStream(pfd.getFileDescriptor()).getChannel()) {
 
@@ -252,12 +252,14 @@ public class MountInfo {
                     throw new IOException("Failed to parse mounts list", nse);
                 }
             }
+        } catch (IOException e) {
+            throw new WrappedIOException(e);
         }
 
         parseMounts(d, false);
     }
 
-    private void parseFilesystems(CharsetDecoder d, boolean force) throws IOException {
+    private void parseFilesystems(CharsetDecoder d, boolean force) {
         try (ParcelFileDescriptor pfd = ParcelFileDescriptor.open(new File("/proc/filesystems"), MODE_READ_ONLY);
              FileChannel fc = new FileInputStream(pfd.getFileDescriptor()).getChannel()) {
 
@@ -280,9 +282,15 @@ public class MountInfo {
             } catch (NoSuchElementException nse) {
                 // oops..
                 if (!force) {
-                    throw new IOException("Failed to parse fs list", nse);
+                    Log.e(TAG, "Failed to parse fs list", nse);
+
+                    return;
                 }
             }
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to parse fs list", e);
+
+            return;
         }
 
         parseFilesystems(d, false);
