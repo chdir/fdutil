@@ -52,6 +52,7 @@ import com.carrotsearch.hppc.ObjectIntMap;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Fd;
 import net.sf.xfd.LogUtil;
+import net.sf.xfd.NativeBits;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 
@@ -557,7 +558,7 @@ public final class PublicProvider extends ContentProvider {
                 throw new FileNotFoundException("Failed to open " + uri.getPath() + ": unable to acquire access");
             }
 
-            final int openFlags;
+            int openFlags;
 
             if ((readableMode & MODE_READ_ONLY) == readableMode) {
                 openFlags = OS.O_RDONLY;
@@ -567,6 +568,11 @@ public final class PublicProvider extends ContentProvider {
                 openFlags = OS.O_RDWR;
             }
 
+            if (signal == null) {
+                openFlags |= NativeBits.O_NONBLOCK;
+            }
+
+            //noinspection WrongConstant
             @Fd int fd = rooted.open(path, openFlags, 0);
 
             return ParcelFileDescriptor.adoptFd(fd);
