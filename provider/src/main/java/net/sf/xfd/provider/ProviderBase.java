@@ -55,6 +55,7 @@ public final class ProviderBase extends ContextWrapper {
     private static final String SOCK_MIME = "inode/socket";
     private static final String LINK_MIME = "inode/symlink";
     private static final String BLOCK_MIME = "inode/blockdevice";
+    private static final String EMPTY_MIME = "application/x-empty";
 
     private static final LruCache<String, TimestampedMime> fileTypeCache = new LruCache<>(7);
 
@@ -255,6 +256,10 @@ public final class ProviderBase extends ContextWrapper {
                 return SOCK_MIME;
             case NAMED_PIPE:
                 return FIFO_MIME;
+            case FILE:
+                if (stat.st_size == 0) {
+                    return EMPTY_MIME;
+                }
             default:
                 return DEFAULT_MIME;
         }
@@ -362,6 +367,10 @@ public final class ProviderBase extends ContextWrapper {
                         return SOCK_MIME;
                     case NAMED_PIPE:
                         return FIFO_MIME;
+                    case FILE:
+                        if (stat.st_size == 0) {
+                            return EMPTY_MIME;
+                        }
                     default:
                         return DEFAULT_MIME;
                 }
