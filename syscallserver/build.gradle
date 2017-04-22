@@ -28,8 +28,8 @@ android {
             cmake {
                 targets "fdhelper-$nativeVersionCode"
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
-                cppFlags '-std=c++11', '-Wall', '-Werror=all -O'
-                arguments "-DFDHELPER_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_PIE=ON"
+                cFlags '-std=gnu11', '-Wall'
+                arguments "-DFDHELPER_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_PIE=ON", "-DANDROID_TOOLCHAIN=gcc"
             }
         }
     }
@@ -78,15 +78,13 @@ project.android.libraryVariants.all { variant ->
         exclude '**/*.jar'
         exclude '**/*.so'
         rename(/(.+)/, true ? 'lib$1_PIC_exec.so' : 'lib$1_exec.so')
+
+        doLast {
+            IOHelper.processFiles(logger, outputs.files as File[])
+        }
     }
 
-    def patchExecutablesTaskName = "patchExecutables${variant.name.capitalize()}"
-
-    Task processExecutables = task(dependsOn: renameExecutables, patchExecutablesTaskName) << {
-        IOHelper.processFiles(logger, renameExecutables.outputs.files as File[])
-    }
-
-    variant.javaCompile.dependsOn(processExecutables)
+    variant.javaCompile.dependsOn(renameExecutables)
 }
 
 import groovy.transform.CompileStatic;
