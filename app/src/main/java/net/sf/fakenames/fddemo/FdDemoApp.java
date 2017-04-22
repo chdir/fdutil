@@ -18,19 +18,35 @@ package net.sf.fakenames.fddemo;
 
 import android.app.Application;
 import android.app.NotificationManager;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.StrictMode;
+import android.preference.PreferenceManager;
 
 import net.sf.fakenames.syscallserver.SyscallFactory;
+import net.sf.xfd.Interruption;
 import net.sf.xfd.OS;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+
 public final class FdDemoApp extends Application implements Thread.UncaughtExceptionHandler {
+    static final String FILE_TASKS = "net.sf.chdir.FILES";
+
+    static final String PREFS = "net.sf.chdir.PREFS";
+
     static {
         System.setProperty(SyscallFactory.DEBUG_MODE, "true");
         System.setProperty(OS.DEBUG_MODE, "true");
+        Interruption.unblockSignal();
     }
 
     private NotificationManager nm;
+
+    private FileTasks fileTasks;
+
+    private LazyPrefs prefs;
 
     private volatile Thread.UncaughtExceptionHandler defaultHandler;
 
@@ -38,13 +54,33 @@ public final class FdDemoApp extends Application implements Thread.UncaughtExcep
     public void onCreate() {
         super.onCreate();
 
-        nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-
         defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
 
         Thread.setDefaultUncaughtExceptionHandler(this);
 
+        prefs = new LazyPrefs(this);
+
+        new Thread(prefs).start();
+
+        nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+        fileTasks = new FileTasks(this, nm);
+
+        registerActivityLifecycleCallbacks(fileTasks);
+
         new Handler().post(() -> StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder().build()));
+    }
+
+    @Override
+    public Object getSystemService(String name) {
+        switch (name) {
+            case FILE_TASKS:
+                return fileTasks;
+            case PREFS:
+                return prefs.get();
+            default:
+                return super.getSystemService(name);
+        }
     }
 
     @Override
@@ -53,6 +89,33 @@ public final class FdDemoApp extends Application implements Thread.UncaughtExcep
             nm.cancelAll();
         } finally {
             defaultHandler.uncaughtException(t, e);
+        }
+    }
+
+    private static final class LazyPrefs extends FutureTask<SharedPreferences>  {
+        private SharedPreferences preferences;
+
+        private LazyPrefs(Context context) {
+            super(() -> PreferenceManager.getDefaultSharedPreferences(context));
+        }
+
+        public SharedPreferences get() {
+            if (preferences == null) {
+                synchronized (this) {
+                    do {
+                        try {
+                            preferences = super.get();
+
+                            break;
+                        } catch (ExecutionException e) {
+                            throw new RuntimeException(e.getCause());
+                        } catch (InterruptedException ignored) {
+                        }
+                    } while (true);
+                }
+            }
+
+            return preferences;
         }
     }
 }

@@ -160,7 +160,11 @@ public abstract class FileObject implements Closeable {
                         doSkip(sourceFd, s1.type, offset);
                     }
 
-                    return doCopy(sourceFd, targetFd, size, limit, callback);
+                    boolean copied = doCopy(sourceFd, targetFd, size, limit, callback);
+
+                    callback.onProgressUpdate("Flushing buffers");
+
+                    return copied;
                 } catch (Throwable tooBad) {
                     if (tooBad instanceof InterruptedIOException || tooBad instanceof OperationCanceledException) {
                         Thread.interrupted();
@@ -596,8 +600,6 @@ public abstract class FileObject implements Closeable {
         @Override
         public void close() {
             if (closed.compareAndSet(false, true)) {
-                super.close();
-
                 if (cpc != null) {
                     //noinspection deprecation
                     cpc.release();
@@ -606,6 +608,8 @@ public abstract class FileObject implements Closeable {
                 if (info != null) {
                     info.close();
                 }
+
+                super.close();
             }
         }
     }
@@ -668,6 +672,8 @@ public abstract class FileObject implements Closeable {
 
                             if (os.faccessat(fileInfo.dirFd, tempName, OS.F_OK)) {
                                 os.renameat(fileInfo.dirFd, tempName, fileInfo.dirFd, fileInfo.name);
+
+                                os.fsync(fd);
                             } else {
                                 os.linkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + fd, fileInfo.dirFd, fileInfo.name, OS.AT_SYMLINK_FOLLOW);
                             }
