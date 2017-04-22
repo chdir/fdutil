@@ -270,53 +270,47 @@ public final class PublicProvider extends ContentProvider {
             return null;
         }
 
-        int fd;
         try {
+            final MatrixCursor cursor = new MatrixCursor(projection, 1);
+
+            final Object[] row = new Object[projection.length];
+
+            final Stat stat = new Stat();
             final String name = extractName(path);
+            final String mime = base.getTypeFast(path, name, stat);
 
-            fd = os.openat(DirFd.NIL, path, OS.O_RDONLY, 0);
-            try {
-                final Stat stat = new Stat();
+            for (int i = 0; i < projection.length; ++i) {
+                String col = projection[i];
 
-                os.fstat(fd, stat);
-
-                final MatrixCursor cursor = new MatrixCursor(projection);
-
-                final ArrayList<Object> columns = new ArrayList<>(projection.length);
-
-                for (String col : projection) {
-                    switch (col) {
-                        case BaseColumns._ID:
-                            columns.add(stat.st_ino);
-                            break;
-                        case COLUMN_DISPLAY_NAME:
-                            columns.add(name);
-                            break;
-                        case COLUMN_SIZE:
-                            columns.add(stat.st_size);
-                            break;
-                        case COLUMN_MIME_TYPE:
-                            columns.add(base.getTypeFast(path, name, stat));
-                            break;
-                        default:
-                            columns.add(null);
-                    }
+                switch (col) {
+                    case BaseColumns._ID:
+                        row[i] = stat.st_ino;
+                        break;
+                    case COLUMN_DISPLAY_NAME:
+                        row[i] = name;
+                        break;
+                    case COLUMN_SIZE:
+                        row[i] = stat.st_size;
+                        break;
+                    case COLUMN_MIME_TYPE:
+                        row[i] = mime;
+                        break;
+                    default:
+                        row[i] = null;
                 }
-
-                cursor.addRow(columns);
-
-                final Context context = getContext();
-                assert context != null;
-
-                final String packageName = context.getPackageName();
-
-                cursor.setNotificationUri(context.getContentResolver(),
-                        DocumentsContract.buildDocumentUri(packageName + FileProvider.AUTHORITY_SUFFIX, path));
-
-                return cursor;
-            } finally {
-                os.dispose(fd);
             }
+
+            cursor.addRow(row);
+
+            final Context context = getContext();
+            assert context != null;
+
+            final String packageName = context.getPackageName();
+
+            cursor.setNotificationUri(context.getContentResolver(),
+                    DocumentsContract.buildDocumentUri(packageName + FileProvider.AUTHORITY_SUFFIX, path));
+
+            return cursor;
         } catch (IOException e) {
             e.printStackTrace();
 
