@@ -17,6 +17,7 @@
 package net.sf.xfd.provider;
 
 import android.annotation.SuppressLint;
+import android.content.ClipDescription;
 import android.content.ComponentName;
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -25,6 +26,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
@@ -579,6 +581,30 @@ public final class PublicProvider extends ContentProvider {
 
             Thread.interrupted();
         }
+    }
+
+    @Nullable
+    @Override
+    public AssetFileDescriptor openAssetFile(@NonNull Uri uri, @NonNull String mode, @Nullable CancellationSignal signal) throws FileNotFoundException {
+        ParcelFileDescriptor fd = openFile(uri, mode, signal);
+
+        return fd != null ? new AssetFileDescriptor(fd, 0, -1) : null;
+    }
+
+    @Nullable
+    @Override
+    public AssetFileDescriptor openTypedAssetFile(@NonNull Uri uri, @NonNull String mimeTypeFilter, @Nullable Bundle opts, @Nullable CancellationSignal signal) throws FileNotFoundException {
+        if ("*/*".equals(mimeTypeFilter)) {
+            // If they can take anything, the untyped open call is good enough.
+            return openAssetFile(uri, "r", signal);
+        }
+        String baseType = getType(uri);
+        if (baseType != null && ClipDescription.compareMimeTypes(baseType, mimeTypeFilter)) {
+            // Use old untyped open call if this provider has a type for this
+            // URI and it matches the request.
+            return openAssetFile(uri, "r", signal);
+        }
+        throw new FileNotFoundException("Can't open " + uri + " as type " + mimeTypeFilter);
     }
 
     @Override
