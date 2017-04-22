@@ -8,6 +8,7 @@
     <string name="home">Home</string>
     <string name="paste">Paste</string>
     <string name="move">Move %s here</string>
+    <string name="symlink">Symlink %s here</string>
     <string name="paste_name">Paste %s</string>
     <string name="err_self_copy">Unable to copy a file to self</string>
     <string name="perm_req">%1$s requested %2$s access to %3$s</string>

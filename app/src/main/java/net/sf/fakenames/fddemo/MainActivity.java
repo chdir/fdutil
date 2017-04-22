@@ -876,7 +876,8 @@ public class MainActivity extends BaseActivity implements
         if (clip != null) {
             final ClipDescription clipInfo = clip.getDescription();
             if (clipInfo != null) {
-                label = clipInfo.getLabel();
+                label = massageInSensibleForm(clipInfo.getLabel());
+
                 ok = canHandleClip && !TextUtils.isEmpty(label);
             }
         }
@@ -897,13 +898,21 @@ public class MainActivity extends BaseActivity implements
                 }
             }
 
-            final CharSequence labelText = getString(move ? R.string.move : R.string.paste_name,
-                    massageInSensibleForm(label));
+            final CharSequence labelText = getString(move ? R.string.move : R.string.paste_name, label);
 
             paste.setTitle(labelText);
         } else {
             paste.setEnabled(false);
             paste.setTitle(getString(R.string.paste));
+        }
+
+        final MenuItem symlink = menu.findItem(R.id.menu_symlink);
+
+        if (ok && canSymlinkClip) {
+            symlink.setTitle(getString(R.string.symlink, label));
+            symlink.setVisible(true);
+        } else {
+            symlink.setVisible(false);
         }
 
         return super.onPrepareOptionsMenu(menu);
@@ -918,18 +927,11 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_settings:
                 startActivity(new Intent(this, SettingsActivity.class));
                 return true;
+            case R.id.menu_symlink:
+                trySymlink();
+                return true;
             case R.id.menu_paste:
                 final ClipData clip = clipData;
-
-                if (clip == null || clip.getItemCount() == 0) {
-                    toast("The clipboard is empty");
-                    return true;
-                }
-
-                if (clip.getItemCount() > 1) {
-                    toast("Multi-item paste is not supported yet");
-                    return true;
-                }
 
                 FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
                 if (fileObject != null) {
@@ -953,8 +955,29 @@ public class MainActivity extends BaseActivity implements
         return super.onOptionsItemSelected(item);
     }
 
+    private void trySymlink() {
+        final ClipData clip = clipData;
+
+        final ClipData.Item item = clip.getItemAt(0);
+
+        final Uri uri = item.getUri();
+
+        final String filepath = uri.getPath();
+
+        final String name = uri.getLastPathSegment();
+
+        try {
+            state.os.symlinkat(filepath, state.adapter.getFd(), name);
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to create symlink", e);
+
+            toast(e.getMessage());
+        }
+    }
+
     private ClipData clipData;
     private boolean canHandleClip;
+    private boolean canSymlinkClip;
 
     private void evaluateCurrentClip() {
         clipData = cbm.getPrimaryClip();
@@ -962,9 +985,11 @@ public class MainActivity extends BaseActivity implements
         closeOptionsMenu();
 
         boolean canHandleNew = canHandleClip();
+        boolean canSymlinkNew = canHandleNew && canSymlinkClip();
 
-        if (canHandleNew != canHandleClip) {
+        if (canHandleNew != canHandleClip || canSymlinkClip != canSymlinkNew) {
             canHandleClip = canHandleNew;
+            canSymlinkClip = canSymlinkNew;
 
             invalidateOptionsMenu();
         }
@@ -973,6 +998,27 @@ public class MainActivity extends BaseActivity implements
     @Override
     public void onPrimaryClipChanged() {
         evaluateCurrentClip();
+    }
+
+    private boolean canSymlinkClip() {
+        final ClipData clip = clipData;
+
+        final ClipData.Item item = clip.getItemAt(0);
+
+        final Uri uri = item.getUri();
+
+        final String scheme = uri.getScheme();
+        switch (scheme == null ? "" : scheme) {
+            case ContentResolver.SCHEME_FILE:
+                return true;
+            case ContentResolver.SCHEME_CONTENT:
+                final String authority = uri.getAuthority();
+                final String packageName = getPackageName();
+                final String myAuthority = packageName + PublicProvider.AUTHORITY_SUFFIX;
+                return myAuthority.equals(authority);
+        }
+
+        return false;
     }
 
     private boolean canHandleClip() {
