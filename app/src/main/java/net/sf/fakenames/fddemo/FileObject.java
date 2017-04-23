@@ -384,6 +384,7 @@ public abstract class FileObject implements Closeable {
 
                 result = new LocalFileObject(os, context, uri);
 
+                break;
             case ContentResolver.SCHEME_ANDROID_RESOURCE:
                 result = new ResourceObject(os, context, uri);
 
