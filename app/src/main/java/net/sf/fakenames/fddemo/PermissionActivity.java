@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright © 2017 Alexander Rvachev
  *
  * This program is free software: you can redistribute it and/or modify

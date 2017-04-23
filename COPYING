@@ -1,5 +1,5 @@
-The files in app/ subdirectory are licensed under GNU GPL 3+: see file called 'GPL' in the 
-repository root.
+The files in app/ and provider/ subdirectories are licensed under GNU GPL 3+: see file called 'GPL'
+in the repository root.
 
 The files in provider/ subdirectory are linked to the libmagic. See corresponding 'COPYING' file
 for it's license terms.
