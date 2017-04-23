@@ -515,17 +515,21 @@ public class MainActivity extends BaseActivity implements
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
 
+        FsType type = null;
+
         if (info.fileInfo.type == null || info.fileInfo.type == FsType.LINK) {
             try {
                 state.os.fstatat(info.parentDir, info.fileInfo.name, tmpStat, 0);
 
-                info.fileInfo.type = tmpStat.type;
+                type = tmpStat.type;
             } catch (IOException e) {
                 LogUtil.logCautiously("Failed to stat " + info.fileInfo.name, e);
             }
+        } else {
+            type = info.fileInfo.type;
         }
 
-        if (info.fileInfo.type != null && info.fileInfo.type.isNotDir()) {
+        if (type != null && type.isNotDir()) {
             final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
             cutItem.setOnMenuItemClickListener(this);
 
