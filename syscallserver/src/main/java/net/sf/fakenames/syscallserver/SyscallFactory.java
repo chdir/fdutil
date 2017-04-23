@@ -1563,13 +1563,13 @@ public final class SyscallFactory implements Closeable {
                     byte lastByte = statusMsg.get(statusMsg.position() - 1);
 
                     if (lastByte == '\0') {
-                        errorMsg = new String(statusMsg.array(), statusMsg.arrayOffset() + hdr, statusMsg.position() - hdr);
+                        errorMsg = new String(statusMsg.array(), statusMsg.arrayOffset() + hdr, statusMsg.position() - hdr - 1);
                     } else {
                         statusMsg.limit(statusMsg.position());
                         statusMsg.position(hdr);
                         statusMsg.compact();
 
-                        errorMsg = readMessageInner(rbc, lastRead);
+                        errorMsg = readMessageInner(rbc, lastRead - hdr);
                     }
 
                     statusMsg.clear();
