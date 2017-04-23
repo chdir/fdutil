@@ -32,6 +32,7 @@ import android.util.Log;
 import com.carrotsearch.hppc.ObjectArrayList;
 
 import net.sf.xfd.DirFd;
+import net.sf.xfd.ErrnoException;
 import net.sf.xfd.Fd;
 import net.sf.xfd.InotifyFd;
 import net.sf.xfd.InotifyImpl;
@@ -348,6 +349,66 @@ public final class SyscallFactory implements Closeable {
         return FdCompat.adopt(creatInternal(filepath, mode));
     }
 
+    private static void throwException(String message) throws IOException {
+        final int idx = message.indexOf(' ');
+        if (idx < 0) {
+            throw new IOException(message);
+        }
+
+        final int maybeErrno = parseErrno(message, idx);
+        if (maybeErrno < 0) {
+            throw new IOException(message);
+        }
+
+        throw new ErrnoException(maybeErrno, message.substring(idx + 1));
+    }
+
+    // copy-pasted from Integer.parseInt
+    private static int parseErrno(String s, int len) {
+        final int radix = 10;
+
+        int result = 0;
+        boolean negative = false;
+        int i = 0;
+        int limit = -Integer.MAX_VALUE;
+        int multmin;
+        int digit;
+
+        if (len > 0) {
+            char firstChar = s.charAt(0);
+            if (firstChar < '0') { // Possible leading "+" or "-"
+                if (firstChar == '-') {
+                    negative = true;
+                    limit = Integer.MIN_VALUE;
+                } else if (firstChar != '+')
+                    return -1;
+
+                if (len == 1) // Cannot have lone "+" or "-"
+                    return -1;
+                i++;
+            }
+            multmin = limit / radix;
+            while (i < len) {
+                // Accumulating negatively avoids surprises near MAX_VALUE
+                digit = Character.digit(s.charAt(i++),radix);
+                if (digit < 0) {
+                    return -1;
+                }
+                if (result < multmin) {
+                    return -1;
+                }
+                result *= radix;
+                if (result < limit + digit) {
+                    return -1;
+                }
+                result -= digit;
+            }
+        } else {
+            return -1;
+        }
+        return negative ? result : -result;
+    }
+
     /**
      * Trigger optional startup bookkeeping.
      *
@@ -370,7 +431,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException(response.message);
+                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {
@@ -381,8 +442,6 @@ public final class SyscallFactory implements Closeable {
             Thread.currentThread().interrupt();
 
             throw new InterruptedIOException("Interrupted before completion");
-        } catch (IOException e) {
-            e.printStackTrace();
         }
 
         close();
@@ -410,7 +469,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException(response.message);
+                    throwException(response.message);
                 }
 
                 response.close();
@@ -423,8 +482,6 @@ public final class SyscallFactory implements Closeable {
             Thread.currentThread().interrupt();
 
             throw new InterruptedIOException("Interrupted before completion");
-        } catch (IOException e) {
-            e.printStackTrace();
         }
 
         close();
@@ -457,7 +514,7 @@ public final class SyscallFactory implements Closeable {
                     try {
                         return Integer.parseInt(response.message);
                     } catch (NumberFormatException nfe) {
-                        throw new IOException("Failed to add inotify watch: " + response.message);
+                        throwException(response.message);
                     }
                 }
 
@@ -469,8 +526,6 @@ public final class SyscallFactory implements Closeable {
             Thread.currentThread().interrupt();
 
             throw new InterruptedIOException("Interrupted before completion");
-        } catch (IOException e) {
-            e.printStackTrace();
         }
 
         close();
@@ -494,7 +549,7 @@ public final class SyscallFactory implements Closeable {
                         case "":
                             throw new IOException("Unable to access " + path + ": unknown error");
                         default:
-                            throw new IOException(response.message);
+                            throwException(response.message);
                     }
                 }
 
@@ -525,7 +580,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException("Failed to delete: " + response.message);
+                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {
@@ -555,7 +610,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException("Failed to rename: " + response.message);
+                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {
@@ -585,7 +640,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException("Failed to rename: " + response.message);
+                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {
@@ -618,7 +673,7 @@ public final class SyscallFactory implements Closeable {
 
                         return;
                     } else {
-                        throw new IOException("Failed to stat file: " + response.message);
+                        throwException(response.message);
                     }
                 }
 
@@ -649,7 +704,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException("Failed to create a node: " + response.message);
+                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {
@@ -679,7 +734,7 @@ public final class SyscallFactory implements Closeable {
                         return;
                     }
 
-                    throw new IOException("Failed to create directory: " + response.message);
+                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {
@@ -714,7 +769,7 @@ public final class SyscallFactory implements Closeable {
 
                 if (response.message != null) {
                     if (response.request == request) {
-                        throw new IOException("Failed to open file: " + response.message);
+                        throwException(response.message);
                     } else {
                         LogUtil.swallowError(response.message);
                     }
@@ -751,7 +806,7 @@ public final class SyscallFactory implements Closeable {
 
                 if (response.message != null) {
                     if (response.request == request) {
-                        throw new IOException("Failed to create file: " + response.message);
+                        throwException(response.message);
                     } else {
                         LogUtil.swallowError(response.message);
                     }
@@ -781,7 +836,7 @@ public final class SyscallFactory implements Closeable {
                     }
 
                     if (response.request == request) {
-                        throw new IOException("Failed to resolve link path: " + response.message);
+                        throwException(response.message);
                     } else {
                         LogUtil.swallowError(response.message);
                     }

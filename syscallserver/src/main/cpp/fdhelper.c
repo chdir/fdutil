@@ -508,11 +508,13 @@ static void invoke_mkdirat(int sock) {
     }
 
     if (sys_mkdirat(receivedFd, filepath, *(mode_t*)&mode) != 0) {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to create a directory - %s\n", errmsg);
 
-        fprintf(stderr, "directory creation error - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d directory creation error - %s%c", err, errmsg, '\0');
     } else {
         fprintf(stderr, "READY%c", '\0');
     }
@@ -545,11 +547,13 @@ static void invoke_mknodat(int sock) {
     }
 
     if (sys_mknodat(receivedFd, filepath, *(mode_t*)&mode, *(dev_t*)&device)) {
+        int err = errno;
+
         const char *errmsg = strerror(errno);
 
         LOG("Error: failed to open a file - %s\n", errmsg);
 
-        fprintf(stderr, "mknod error - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d mknod error - %s%c", err, errmsg, '\0');
     } else {
         fprintf(stderr, "READY%c", '\0');
     }
@@ -582,11 +586,13 @@ static void invoke_unlinkat(int sock) {
     }
 
     if (sys_unlinkat(receivedFd, filepath, flags)) {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to unlink - %s\n", errmsg);
 
-        fprintf(stderr, "unlink error  - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d unlink error  - %s%c", err, errmsg, '\0');
     } else {
         fprintf(stderr, "READY%c", '\0');
     }
@@ -629,11 +635,13 @@ static void invoke_openat(int sock) {
         if (ancil_send_fds_with_buffer(sock, targetFd))
             DieWithError("sending file descriptor failed");
     } else {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to open a file - %s\n", errmsg);
 
-        fprintf(stderr, "open error - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d open error - %s%c", err, errmsg, '\0');
     }
 
     free(filepath);
@@ -668,11 +676,13 @@ static void invoke_add_watch(int sock) {
         int rc = sys_readlink(addWatchBuff, readLinkBuf, filenameSize);
 
         if (rc == -1) {
-            const char *errmsg = strerror(errno);
+            int err = errno;
+
+            const char *errmsg = strerror(err);
 
             LOG("failed to readlink - %s\n", errmsg);
 
-            fprintf(stderr, "readlink error - %s%c", errmsg, '\0');
+            fprintf(stderr, "%d readlink error - %s%c", err, errmsg, '\0');
 
             free(readLinkBuf);
             readLinkBuf = NULL;
@@ -714,11 +724,13 @@ static void invoke_add_watch(int sock) {
         free(readLinkBuf);
 
         if (addedWatch == -1) {
-            const char *errmsg = strerror(errno);
+            int err = errno;
+
+            const char *errmsg = strerror(err);
 
             LOG("failed to add watch - %s\n", errmsg);
 
-            fprintf(stderr, "inotify error - %s%c", errmsg, '\0');
+            fprintf(stderr, "%d inotify error - %s%c", err, errmsg, '\0');
         } else {
             fprintf(stderr, "%d%c", addedWatch, '\0');
         }
@@ -898,11 +910,13 @@ static void invoke_readlink(int sock) {
     char *resolved = (char *) resolve_link(receivedFd, filepath, &stringSize);
 
     if (resolved == NULL) {
+        int err = errno;
+
         char *errmsg = strerror(errno);
 
         LOG("failed to resolve symlink, - %s\n", errmsg);
 
-        fprintf(stderr, "symlink resolution error, - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d symlink resolution error, - %s%c", err, errmsg, '\0');
     } else {
         resolved[stringSize] = '\0';
 
@@ -937,11 +951,13 @@ static void invoke_rename(int sock) {
     }
 
     if (sys_renameat(fds[0], filepath1, fds[1], filepath2)) {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to rename - %s\n", errmsg);
 
-        fprintf(stderr, "rename error  - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d rename error  - %s%c", err, errmsg, '\0');
     } else {
         fprintf(stderr, "READY%c", '\0');
     }
@@ -975,11 +991,13 @@ static void invoke_creat(int sock) {
         if (ancil_send_fds_with_buffer(sock, targetFd))
             DieWithError("sending file descriptor failed");
     } else {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to create a file - %s\n", errmsg);
 
-        fprintf(stderr, "creat error - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d creat error - %s%c", err, errmsg, '\0');
     }
 
     free(filepath);
@@ -1009,11 +1027,13 @@ static void invoke_linkat(int sock) {
     if (verbose) LOG("Attempting to link %s at %s", filepath1, filepath2);
 
     if (sys_linkat(fds[0], filepath1, fds[1], filepath2, flags)) {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to link - %s\n", errmsg);
 
-        fprintf(stderr, "link creation error  - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d link creation error  - %s%c", err, errmsg, '\0');
     } else {
         fprintf(stderr, "READY%c", '\0');
     }
@@ -1051,7 +1071,9 @@ static void invoke_faccessat(int sock) {
     }
 
     if (sys_faccessat(receivedFd, filepath, flags)) {
-        switch (errno) {
+        int err = errno;
+
+        switch (err) {
             case EACCES:
             case ELOOP:
             case ENOENT:
@@ -1059,7 +1081,7 @@ static void invoke_faccessat(int sock) {
                 fprintf(stderr, "false%c", '\0');
                 break;
             default:
-                fprintf(stderr, "%s%c", strerror(errno), '\0');
+                fprintf(stderr, "%d %s%c", err, strerror(err), '\0');
         }
     } else {
         fprintf(stderr, "true%c", '\0');
@@ -1104,7 +1126,9 @@ static void invoke_fstatat(int sock) {
     struct kernel_stat64 stat;
 
     if (sys_fstatat64_fixed(receivedFd, filepath, &stat, flags)) {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to stat - %s\n", errmsg);
 
@@ -1112,7 +1136,7 @@ static void invoke_fstatat(int sock) {
 
         write(STDERR_FILENO, &errState, sizeof(errState));
 
-        fprintf(stderr, "stat error  - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d stat error  - %s%c", err, errmsg, '\0');
     } else {
         struct dumbStat;
 
@@ -1223,11 +1247,13 @@ static void invoke_init(int sock) {
         if (ancil_send_fds_with_buffer(sock, fd))
             DieWithError("sending file descriptor failed");
     } else {
-        const char *errmsg = strerror(errno);
+        int err = errno;
+
+        const char *errmsg = strerror(err);
 
         LOG("Error: failed to open LMC file - %s\n", errmsg);
 
-        fprintf(stderr, "bootstrap error - %s%c", errmsg, '\0');
+        fprintf(stderr, "%d bootstrap error - %s%c", err, errmsg, '\0');
     }
 }
 
