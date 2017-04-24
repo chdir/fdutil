@@ -33,7 +33,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
-import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.DefaultItemAnimator;
@@ -59,6 +58,7 @@ import net.sf.fakenames.fddemo.view.DirItemHolder;
 import net.sf.fakenames.fddemo.view.DirLayoutManager;
 import net.sf.fakenames.fddemo.view.FileMenuInfo;
 import net.sf.fakenames.fddemo.view.NameInputFragment;
+import net.sf.fakenames.fddemo.view.NewLinkInputFragment;
 import net.sf.fakenames.fddemo.view.RenameNameInputFragment;
 import net.sf.fakenames.fddemo.view.SaneDecor;
 import net.sf.xfd.DirFd;
@@ -70,6 +70,7 @@ import net.sf.xfd.MountInfo;
 import net.sf.xfd.NativeBits;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
+import net.sf.xfd.provider.ProviderBase;
 import net.sf.xfd.provider.PublicProvider;
 import net.sf.xfd.provider.RootSingleton;
 
@@ -89,6 +90,7 @@ import static net.sf.xfd.provider.ProviderBase.isPosix;
 public class MainActivity extends BaseActivity implements
         MenuItem.OnMenuItemClickListener,
         NameInputFragment.FileNameReceiver,
+        NewLinkInputFragment.LinkNameReceiver,
         RenameNameInputFragment.FileNameReceiver,
         ClipboardManager.OnPrimaryClipChangedListener,
         SharedPreferences.OnSharedPreferenceChangeListener,
@@ -143,9 +145,6 @@ public class MainActivity extends BaseActivity implements
 
         evaluateCurrentClip();
 
-        dirObserver = new DirObserver();
-        scrollerObserver = quickScroller.getAdapterDataObserver();
-
         state = getLastNonConfigurationInstance();
 
         if (state == null) {
@@ -196,8 +195,8 @@ public class MainActivity extends BaseActivity implements
         final DirAdapter adapter = state.adapter;
 
         adapter.setItemClickListener(clickHandler);
-        adapter.registerAdapterDataObserver(scrollerObserver);
-        adapter.registerAdapterDataObserver(dirObserver);
+        adapter.registerAdapterDataObserver(scrollerObserver = quickScroller.getAdapterDataObserver());
+        adapter.registerAdapterDataObserver(dirObserver = new DirObserver());
     }
 
     private void tearDownAdapter() {
@@ -629,6 +628,12 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_socket:
                 showCreateNewDialog(getString(R.string.socket).toLowerCase(), item.getItemId());
                 break;
+            case R.id.menu_symlink:
+                showCreateLinkDialog(getString(R.string.symlink).toLowerCase(), item.getItemId());
+                break;
+            case R.id.menu_link:
+                showCreateLinkDialog(getString(R.string.hardlink).toLowerCase(), item.getItemId());
+                break;
         }
 
         return true;
@@ -650,6 +655,10 @@ public class MainActivity extends BaseActivity implements
 
     private void showCreateNewDialog(String name, int type) {
         new NameInputFragment(name, type).show(getFragmentManager(), null);
+    }
+
+    private void showCreateLinkDialog(String name, int type) {
+        new NewLinkInputFragment(name, type).show(getFragmentManager(), null);
     }
 
     @Override
@@ -724,14 +733,65 @@ public class MainActivity extends BaseActivity implements
 
         action.act();
     }
+
     @Override
     public void onNameChosen(String name, int type) {
         try {
             final @DirFd int fd = state.adapter.getFd();
 
-            doWithAccessChecks(OS.W_OK, fd, fdPath(fd), () -> doMknod(name, type));
+            final String dirName = name.charAt(0) == '/' ? ProviderBase.extractParent(name) : fdPath(fd);
+
+            doWithAccessChecks(OS.W_OK, fd, dirName, () -> doMknod(name, type));
         } catch (IOException e) {
             toast("Unable to create a file. " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onLinkParamsChosen(String name, String target, int type) {
+        try {
+            final @DirFd int cur = state.adapter.getFd();
+
+            final String dirName = name.charAt(0) == '/' ? ProviderBase.extractParent(name) : fdPath(cur);
+
+            switch (type) {
+                case R.id.menu_symlink:
+                    doWithAccessChecks(OS.W_OK, cur, dirName, () -> doSymlink(name, target));
+                    break;
+                case R.id.menu_link:
+                    doWithAccessChecks(OS.W_OK, cur, dirName, () -> {
+                        try {
+                            doWithAccessChecks(OS.F_OK, cur, target, () -> doHardlink(name, target));
+                        } catch (IOException e) {
+                            toast("Unable to create a link. " + e.getMessage());
+                        }
+                    });
+                    break;
+            }
+        } catch (IOException e) {
+            toast("Unable to create a link. " + e.getMessage());
+        }
+    }
+
+    private void doHardlink(String name, String target) {
+        try {
+            final int dir = state.adapter.getFd();
+
+            state.os.linkat(dir, target, dir, name, 0);
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to create a link", e);
+
+            toast("Unable to create a link. " + e.getMessage());
+        }
+    }
+
+    private void doSymlink(String name, String target) {
+        try {
+            state.os.symlinkat(target, state.adapter.getFd(), name);
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to create a symlink", e);
+
+            toast("Failed to create a symlink. " + e.getMessage());
         }
     }
 
@@ -913,7 +973,7 @@ public class MainActivity extends BaseActivity implements
         final MenuItem symlink = menu.findItem(R.id.menu_symlink);
 
         if (ok && canSymlinkClip) {
-            symlink.setTitle(getString(R.string.symlink, label));
+            symlink.setTitle(getString(R.string.symlink_name, label));
             symlink.setVisible(true);
         } else {
             symlink.setVisible(false);

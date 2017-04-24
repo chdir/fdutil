@@ -4,4 +4,6 @@
     <item android:id="@+id/menu_dir" android:title="@string/directory"/>
     <item android:id="@+id/menu_fifo" android:title="@string/fifo"/>
     <item android:id="@+id/menu_socket" android:title="@string/socket"/>
+    <item android:id="@+id/menu_symlink" android:title="@string/symlink"/>
+    <item android:id="@+id/menu_link" android:title="@string/hardlink"/>
 </menu>

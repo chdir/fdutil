@@ -13,4 +13,5 @@
     <item name="foreground_nf" type="id" />
     <item name="req_task" type="id" />
     <item name="req_main" type="id" />
+    <item name="menu_link" type="id" />
 </resources>
