@@ -140,7 +140,7 @@ public class MountsTests {
 
                         gotIt = true;
 
-                        ready.signal();
+                        ready.signalAll();
                     } finally {
                         lock.unlock();
                     }
@@ -212,7 +212,7 @@ public class MountsTests {
                                 try {
                                     gotIt = true;
 
-                                    ready.signal();
+                                    ready.signalAll();
                                 } finally {
                                     lock.unlock();
                                 }
