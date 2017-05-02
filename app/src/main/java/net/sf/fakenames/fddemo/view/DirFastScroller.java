@@ -49,6 +49,8 @@ public final class DirFastScroller extends ViewGroup {
     private final ViewDrugHelper drugHelper;
     private final GestureDetectorCompat trackHandler;
 
+    private final OnLayoutChangeListener layoutListener = (v, l, t, r, b, l0, t0, r0, b0) -> onCreateScrollProgressCalculator();
+
     public DirFastScroller(Context context) {
         this(context, null, 0);
     }
@@ -87,6 +89,7 @@ public final class DirFastScroller extends ViewGroup {
             case R.id.scroll_bar:
                 track = child;
                 track.setOnTouchListener((v, event) -> trackHandler.onTouchEvent(event));
+                track.addOnLayoutChangeListener(layoutListener);
                 break;
             case R.id.scroll_handle:
                 thumb = child;
@@ -103,6 +106,7 @@ public final class DirFastScroller extends ViewGroup {
             case R.id.scroll_bar:
                 track = null;
                 child.setOnTouchListener(null);
+                child.removeOnLayoutChangeListener(layoutListener);
                 break;
             case R.id.scroll_handle:
                 thumb = null;
@@ -352,16 +356,6 @@ public final class DirFastScroller extends ViewGroup {
     }
 
     @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-
-        if (recycler != null && ViewCompat.isLaidOut(this)) {
-            // synchronize the handle position to the RecyclerView
-            onCreateScrollProgressCalculator();
-        }
-    }
-
-    @Override
     protected void dispatchDraw(Canvas canvas) {
         if (!canComputeFastScroll) {
             return;
@@ -422,7 +416,17 @@ public final class DirFastScroller extends ViewGroup {
     final class DragCallback extends ViewDrugHelper.Callback {
         @Override
         public boolean tryCaptureView(View child, int pointerId) {
-            return child == thumb;
+            if (child == thumb && recycler != null) {
+                final int range = recycler.computeVerticalScrollRange();
+
+                if (range > 0) {
+                    final int extent = recycler.computeVerticalScrollExtent();
+
+                    return extent < range;
+                }
+            }
+
+            return false;
         }
 
         @Override
