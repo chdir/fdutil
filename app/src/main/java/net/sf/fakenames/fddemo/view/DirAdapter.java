@@ -41,6 +41,7 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 import static net.sf.xfd.provider.ProviderBase.fdPath;
 
@@ -243,18 +244,22 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private static final int MSG_COUNTED = 0;
 
+    private enum EventType {
+        COUNTED,
+        RESET,
+        ERROR,
+    }
+
+    private void noteError() {
+        isStalled = true;
+
+        dispatchEventDelayed(EventType.ERROR, 0);
+    }
+
     private void advanceCount(int newCount) {
-        if (recyclerView != null && recyclerView.isComputingLayout()) {
-            isStalled = true;
+        isStalled = true;
 
-            notificationHandler.removeMessages(MSG_COUNTED);
-
-            final Message m = Message.obtain(notificationHandler, MSG_COUNTED, newCount, 0);
-
-            m.sendToTarget();
-        } else {
-            setCount(newCount);
-        }
+        dispatchEventDelayed(EventType.COUNTED, 0, newCount);
     }
 
     private void setCount(int count) {
@@ -289,7 +294,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             } catch (IOException e) {
                 Log.i(IO_ERR, "IO error during iteration", e);
 
-                handleIterationErrors();
+                noteError();
             }
         }
 
@@ -314,7 +319,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             } catch (IOException e) {
                 Log.i(IO_ERR, "IO error during iteration", e);
 
-                handleIterationErrors();
+                noteError();
             }
         }
 
@@ -324,11 +329,68 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     private final Handler notificationHandler = new Handler(Looper.getMainLooper()) {
         @Override
         public void handleMessage(Message msg) {
-            isStalled = false;
-
-            setCount(msg.arg1);
+            dispatchEventDelayed(msg);
         }
     };
+
+    private static final int DEBOUNCE_INTERVAL = (int) TimeUnit.MILLISECONDS.toNanos(520);
+
+    private long lastEvent;
+
+    void dispatchEventDelayed(Message event) {
+        int arg = event.arg1, delay = event.arg2;
+
+        dispatchEventDelayed((EventType) event.obj, delay, arg);
+    }
+
+    private void dispatchEventDelayed(EventType type, int debounceDelay) {
+        dispatchEventDelayed(type, debounceDelay, 0);
+    }
+
+    private void dispatchEventDelayed(EventType type, int delay, int arg) {
+        notificationHandler.removeCallbacksAndMessages(null);
+
+        if (recyclerView != null && recyclerView.isComputingLayout()) {
+            final Message m = Message.obtain(notificationHandler, MSG_COUNTED, arg, delay, type);
+            m.sendToTarget();
+            return;
+        }
+
+        final long currentTime = System.nanoTime();
+
+        if (delay != 0) {
+            final long diff = Math.abs(currentTime - lastEvent);
+
+            if (diff < DEBOUNCE_INTERVAL) {
+                final long extra = DEBOUNCE_INTERVAL - diff;
+
+                final Message m = Message.obtain(notificationHandler, MSG_COUNTED, arg, delay, type);
+                notificationHandler.sendMessageDelayed(m, TimeUnit.NANOSECONDS.toMillis(extra));
+                return;
+            }
+        }
+
+        lastEvent = currentTime;
+
+        handleEvent(type, arg);
+    }
+
+    private void handleEvent(EventType type, int arg) {
+        isStalled = false;
+
+        switch (type) {
+            case COUNTED:
+                setCount(arg);
+
+                break;
+            case ERROR:
+                handleIterationErrors();
+
+                break;
+            case RESET:
+                refresh();
+        }
+    }
 
     private void handleIterationErrors() {
         try {
@@ -346,20 +408,20 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             }
         } else {
             ioFail = true;
-        }
 
-        notificationHandler.post(this::notifyDataSetChanged);
+            notifyDataSetChanged();
+        }
     }
 
     private final Inotify.InotifyListener notificationListener = new Inotify.InotifyListener() {
         @Override
         public void onChanges() {
-            refresh();
+            dispatchEventDelayed(EventType.RESET, DEBOUNCE_INTERVAL);
         }
 
         @Override
         public void onReset() {
-            swapDirectoryDescriptor(DirFd.NIL);
+            onChanges();
         }
     };
 
