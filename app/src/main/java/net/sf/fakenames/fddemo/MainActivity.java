@@ -1071,6 +1071,10 @@ public class MainActivity extends BaseActivity implements
 
         final Uri uri = item.getUri();
 
+        if (uri.getPath() == null) {
+            return false;
+        }
+
         final String scheme = uri.getScheme();
         switch (scheme == null ? "" : scheme) {
             case ContentResolver.SCHEME_FILE:
