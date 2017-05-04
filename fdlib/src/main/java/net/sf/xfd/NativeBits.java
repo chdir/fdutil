@@ -28,6 +28,10 @@ public final class NativeBits {
 
     public static final int O_NOCTTY = nativeInit();
 
+    public static final int O_NOFOLLOW = nativeInit();
+
+    public static final int RLIMIT_NOFILE = nativeInit();
+
     private static int nativeInit() { return 0; }
 
     private static native void fixConstants();

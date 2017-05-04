@@ -185,11 +185,15 @@ public abstract class OS {
     public abstract void mkdirat(@DirFd int target, @NonNull String name, int mode) throws IOException;
 
     @CheckResult
-    public abstract @Fd int dup(int source) throws IOException;
+    public abstract int dup(int source) throws IOException;
 
     public abstract void fsync(int fd) throws IOException;
 
     public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
+
+    public abstract void getrlimit(int type, @NonNull Limit stat) throws IOException;
+
+    public abstract void setrlimit(int type, @NonNull Limit stat) throws IOException;
 
     public abstract void fallocate(int fd, int mode, long off, long count) throws IOException;
 

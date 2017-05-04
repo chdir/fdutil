@@ -255,6 +255,12 @@ final class Android extends OS {
     public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
 
     @Override
+    public native void getrlimit(int type, @NonNull Limit stat) throws IOException;
+
+    @Override
+    public native void setrlimit(int type, @NonNull Limit stat) throws IOException;
+
+    @Override
     public native void fsync(int fd) throws IOException;
 
     @Override

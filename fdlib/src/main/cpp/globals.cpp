@@ -12,14 +12,18 @@ jclass oomError;
 jclass illegalStateException;
 jclass errnoException;
 jclass statContainer;
+jclass limitContainer;
 
 jmethodID errnoExceptionConstructor;
 jmethodID statContainerInit;
+jmethodID limitContainerInit;
 
 size_t pageSize;
 
 jfieldID directoryImplPointerField;
 jfieldID inotifyImplPointerField;
+jfieldID limitContainerCur;
+jfieldID limitContainerMax;
 
 inline static void throwErrnoError(JNIEnv* env, jint errCode, const char* message) {
     jstring errorString = env -> NewStringUTF(message);

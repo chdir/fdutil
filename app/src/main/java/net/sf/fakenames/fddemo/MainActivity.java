@@ -65,6 +65,7 @@ import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
 import net.sf.xfd.ErrnoException;
 import net.sf.xfd.FsType;
+import net.sf.xfd.Limit;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.NativeBits;
@@ -263,6 +264,15 @@ public class MainActivity extends BaseActivity implements
             toast("Failed to create inotify descriptor, exiting");
             finish();
             return false;
+        }
+
+        final Limit limit = new Limit();
+        try {
+            os.getrlimit(NativeBits.RLIMIT_NOFILE, limit);
+            limit.current = limit.max;
+            os.setrlimit(NativeBits.RLIMIT_NOFILE, limit);
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to adjust rlimits", e);
         }
 
         return true;

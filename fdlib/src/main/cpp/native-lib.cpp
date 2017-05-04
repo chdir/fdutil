@@ -84,6 +84,26 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
+    limitContainer = saveClassRef("net/sf/xfd/Limit", env);
+    if (limitContainer == NULL) {
+        return -1;
+    }
+
+    limitContainerInit = env->GetMethodID(limitContainer, "init", "(JJ)V");
+    if (limitContainerInit == NULL) {
+        return -1;
+    }
+
+    limitContainerCur = env -> GetFieldID(limitContainer, "current", "J");
+    if (limitContainerCur == NULL) {
+        return -1;
+    }
+
+    limitContainerMax = env -> GetFieldID(limitContainer, "max", "J");
+    if (limitContainerMax == NULL) {
+        return -1;
+    }
+
     errnoException = saveClassRef("net/sf/xfd/ErrnoException", env);
     if (errnoException == NULL) {
         return -1;
@@ -109,6 +129,12 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_NativeBits_fixConstants(JNIEnv *env, jcla
 
     jfieldID noctty = env -> GetStaticFieldID(type, "O_NOCTTY", "I");
     env -> SetStaticIntField(type, noctty, O_NOCTTY);
+
+    jfieldID nofollow = env -> GetStaticFieldID(type, "O_NOFOLLOW", "I");
+    env -> SetStaticIntField(type, nofollow, O_NOFOLLOW);
+
+    jfieldID rlimit_nofile = env -> GetStaticFieldID(type, "RLIMIT_NOFILE", "I");
+    env -> SetStaticIntField(type, rlimit_nofile, RLIMIT_NOFILE);
 }
 
 JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, jobject path, jint flags, jint mode) {
@@ -179,6 +205,30 @@ JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source,
     }
 
     handleError(env);
+}
+
+JNIEXPORT void JNICALL PKG_SYM(getrlimit)(JNIEnv *env, jobject instance, int type, jobject limitStruct) {
+    rlimit l;
+
+    if (getrlimit(type, &l)) {
+        handleError(env);
+
+        return;
+    }
+
+    env -> CallNonvirtualVoidMethod(limitStruct, limitContainer, limitContainerInit, (jlong) l.rlim_cur, (jlong) l.rlim_max);
+}
+
+JNIEXPORT void JNICALL PKG_SYM(setrlimit)(JNIEnv *env, jobject instance, int type, jobject limitStruct) {
+    kernel_rlimit l;
+
+    l.rlim_cur = (unsigned long) env -> GetLongField(limitStruct, limitContainerCur);
+    l.rlim_max = (unsigned long) env -> GetLongField(limitStruct, limitContainerMax);
+
+    if (sys_setrlimit(type, &l)) {
+        handleError(env);
+        return;
+    }
 }
 
 JNIEXPORT jint JNICALL PKG_SYM(inotify_1init)(JNIEnv *env, jobject instance) {

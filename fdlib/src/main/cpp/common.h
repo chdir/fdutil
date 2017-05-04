@@ -30,14 +30,18 @@ extern jclass oomError;
 extern jclass illegalStateException;
 extern jclass errnoException;
 extern jclass statContainer;
+extern jclass limitContainer;
 
 extern jmethodID errnoExceptionConstructor;
 extern jmethodID statContainerInit;
+extern jmethodID limitContainerInit;
 
 extern size_t pageSize;
 
 extern jfieldID directoryImplPointerField;
 extern jfieldID inotifyImplPointerField;
+extern jfieldID limitContainerCur;
+extern jfieldID limitContainerMax;
 
 extern void handleError(JNIEnv *env);
 extern void handleError(JNIEnv *env, int lastError);

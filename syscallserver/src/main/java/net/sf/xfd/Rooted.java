@@ -217,6 +217,16 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     }
 
     @Override
+    public void getrlimit(int type, @NonNull Limit stat) throws IOException {
+        delegate.getrlimit(type, stat);
+    }
+
+    @Override
+    public void setrlimit(int type, @NonNull Limit stat) throws IOException {
+        delegate.setrlimit(type, stat);
+    }
+
+    @Override
     public void fsync(int fd) throws IOException {
         delegate.fsync(fd);
     }
@@ -330,7 +340,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     }
 
     @Override
-    public @Fd int dup(int source) throws IOException {
+    public int dup(int source) throws IOException {
         return delegate.dup(source);
     }
 
