@@ -23,6 +23,7 @@ public final class ErrnoException extends IOException {
     public static final int ENOENT = 2;
     public static final int EAGAIN = 11;
     public static final int EINVAL = 22;
+    public static final int ENOTEMPTY = 39;
 
     private final int errno;
 

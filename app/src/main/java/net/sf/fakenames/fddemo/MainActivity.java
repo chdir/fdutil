@@ -52,6 +52,7 @@ import com.carrotsearch.hppc.IntObjectMap;
 
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
+import net.sf.fakenames.fddemo.view.ConfirmationDialog;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
 import net.sf.fakenames.fddemo.view.DirItemHolder;
@@ -93,6 +94,7 @@ public class MainActivity extends BaseActivity implements
         NameInputFragment.FileNameReceiver,
         NewLinkInputFragment.LinkNameReceiver,
         RenameNameInputFragment.FileNameReceiver,
+        ConfirmationDialog.ConfirmationReceiver,
         ClipboardManager.OnPrimaryClipChangedListener,
         SharedPreferences.OnSharedPreferenceChangeListener,
         PopupMenu.OnMenuItemClickListener {
@@ -379,16 +381,14 @@ public class MainActivity extends BaseActivity implements
         try {
             newFd = state.os.opendirat(base, pathname);
 
-            final Stat stat = new Stat();
+            state.os.fstat(newFd, tmpStat);
 
-            state.os.fstat(newFd, stat);
-
-            if (stat.type != FsType.DIRECTORY) {
+            if (tmpStat.type != FsType.DIRECTORY) {
                 openfile(base, pathname);
                 return;
             }
 
-            final MountInfo.Mount m = state.layout.getFs(stat.st_dev);
+            final MountInfo.Mount m = state.layout.getFs(tmpStat.st_dev);
 
             final boolean canUseTellDir = m != null && isPosix(m.fstype);
 
@@ -564,10 +564,24 @@ public class MainActivity extends BaseActivity implements
 
         switch (item.getItemId()) {
             case R.id.menu_item_delete:
-
                 try {
-                    state.os.unlinkat(info.parentDir, info.fileInfo.name,
-                            info.fileInfo.type == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
+                    final String targetName = info.fileInfo.name;
+                    try {
+                        FsType fsType = info.fileInfo.type;
+                        if (fsType == null) {
+                            state.os.fstatat(info.parentDir, info.fileInfo.name, tmpStat, 0);
+                            fsType = tmpStat.type;
+                        }
+
+                        state.os.unlinkat(info.parentDir, targetName, fsType == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
+                    } catch (ErrnoException errno) {
+                        if (errno.code() == ErrnoException.ENOTEMPTY) {
+                            new ConfirmationDialog(targetName, R.string.rmdir_title, R.string.rmdir_msg, R.string.remove)
+                                    .show(getFragmentManager(), null);
+                        } else {
+                            throw errno;
+                        }
+                    }
                 } catch (IOException e) {
                     toast("Unable to perform removal. " + e.getMessage());
                 }
@@ -601,11 +615,10 @@ public class MainActivity extends BaseActivity implements
                     final ClipDescription description = new ClipDescription(info.fileInfo.name, MIMETYPES_TEXT_URILIST);
                     final Intent intent = new Intent(cut ? ACTION_MOVE : ACTION_COPY);
                     if (type != null && type.isNotDir()) {
-                        final Stat s = new Stat();
                         try {
-                            state.os.fstat(state.adapter.getFd(), s);
+                            state.os.fstat(state.adapter.getFd(), tmpStat);
                             intent.putExtra(EXTRA_NOT_DIR, true);
-                            intent.putExtra(EXTRA_DIR_FS, s.st_dev);
+                            intent.putExtra(EXTRA_DIR_FS, tmpStat.st_dev);
                         } catch (IOException ioe) {
                             LogUtil.logCautiously("Failed to stat target file", ioe);
                         }
@@ -724,10 +737,9 @@ public class MainActivity extends BaseActivity implements
         }
 
         try {
-            final Stat stat = new Stat();
-            state.os.fstat(dirFd, stat);
+            state.os.fstat(dirFd, tmpStat);
 
-            final MountInfo.Mount mount = state.layout.getFs(stat.st_dev);
+            final MountInfo.Mount mount = state.layout.getFs(tmpStat.st_dev);
             if (mount != null) {
                 if (mount.askForPermission(this, R.id.req_permission)) {
                     state.adapter.packState();
@@ -758,6 +770,17 @@ public class MainActivity extends BaseActivity implements
             doWithAccessChecks(OS.W_OK, fd, dirName, () -> doMknod(name, type));
         } catch (IOException e) {
             toast("Unable to create a file. " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onAffirmed(String fileName) {
+        FileTasks ft = FileTasks.getInstance(this);
+
+        try {
+            ft.rmdir(state.os, fileName, state.adapter.getFd());
+        } catch (IOException e) {
+            toast(e.getMessage());
         }
     }
 
@@ -1002,11 +1025,10 @@ public class MainActivity extends BaseActivity implements
 
         if (canSymlinkClip && intent != null) {
             if (intent.getBooleanExtra(EXTRA_NOT_DIR, false) && intent.hasExtra(EXTRA_DIR_FS)) {
-                final Stat s = new Stat();
                 try {
-                    state.os.fstat(state.adapter.getFd(), s);
+                    state.os.fstat(state.adapter.getFd(), tmpStat);
 
-                    allowHardLink = s.st_dev == intent.getLongExtra(EXTRA_DIR_FS, -1);
+                    allowHardLink = tmpStat.st_dev == intent.getLongExtra(EXTRA_DIR_FS, -1);
                 } catch (IOException e) {
                     LogUtil.logCautiously("Failed to stat current dir", e);
                 }

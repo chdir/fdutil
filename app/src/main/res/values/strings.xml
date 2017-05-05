@@ -21,4 +21,7 @@
     <string name="pref_use_root">use_root</string>
     <string name="no_handler">No suitable application found</string>
     <string name="hardlink_name">Link %s here</string>
+    <string name="rmdir_title">Remove directory?</string>
+    <string name="rmdir_msg">The directory \'%s\' is not empty. Remove it with all contents?</string>
+    <string name="remove">Remove</string>
 </resources>

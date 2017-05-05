@@ -97,6 +97,27 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         ioExec = new ThreadPoolExecutor(0, Integer.MAX_VALUE, 20L, TimeUnit.SECONDS, new SynchronousQueue<>(), priorityFactory);
     }
 
+    private SerialExecutor getExecutor(long fsId) {
+        SerialExecutor exec = execs.get(fsId);
+        if (exec == null) {
+            if (execs.size() > 3) {
+                cleanupExecutors();
+            }
+
+            exec = new SerialExecutor(ioExec);
+            execs.put(fsId, exec);
+        }
+        return exec;
+    }
+
+    private int nextTask() {
+        if (++lastTaskId < 0) {
+            lastTaskId = 0;
+        }
+
+        return lastTaskId;
+    }
+
     public void copy(OS os, BaseDirLayout layout, FileObject sourceFile, @DirFd int dir, boolean canRemoveOriginal) throws IOException {
         final Context context = this;
 
@@ -104,25 +125,13 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
         os.fstat(dir, targetDirStat);
 
-        SerialExecutor exec = execs.get(targetDirStat.st_dev);
-        if (exec == null) {
-            if (execs.size() > 3) {
-                cleanupExecutors();
-            }
-
-            exec = new SerialExecutor(ioExec);
-            execs.put(targetDirStat.st_dev, exec);
-        }
+        final SerialExecutor exec = getExecutor(targetDirStat.st_dev);
 
         final MountInfo.Mount m = layout.getFs(targetDirStat.st_dev);
 
         final boolean canUseExtChars = m != null && isPosix(m.fstype);
 
-        if (++lastTaskId < 0) {
-            lastTaskId = 0;
-        }
-
-        final int taskId = lastTaskId;
+        final int taskId = nextTask();
 
         final NotificationCallback callback = makeCallback(taskId);
 
@@ -415,6 +424,142 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
             ch.cancel();
         }
+    }
+
+    public void rmdir(OS os, String dirName, @DirFd int dir) throws IOException {
+        final @DirFd int dirCopy = os.dup(dir);
+
+        final @DirFd int dirFd = os.opendirat(dir, dirName);
+
+        final Stat targetDirStat = new Stat();
+
+        os.fstat(dirFd, targetDirStat);
+
+        final SerialExecutor exec = getExecutor(targetDirStat.st_dev);
+
+        final int taskId = nextTask();
+
+        final NotificationCallback callback = makeCallback(taskId);
+
+        final AsyncTask<CancellationHelper, ?, ?> at = new AsyncTask<CancellationHelper, Void, Throwable>() {
+            @Override
+            protected Throwable doInBackground(CancellationHelper... params) {
+                try (Directory directory = os.list(dirFd)) {
+                    callback.onProgressUpdate("Deleting files");
+
+                    removeContents(targetDirStat, new Directory.Entry(), directory, dirFd);
+
+                    os.unlinkat(dirCopy, dirName, OS.AT_REMOVEDIR);
+
+                    return null;
+                } catch (ErrnoException errnoe) {
+                    return errnoe.code() == ErrnoException.ENOENT ? null : errnoe;
+                } catch (CancellationException | InterruptedIOException t) {
+                    Thread.interrupted();
+
+                    return t;
+                } catch (Throwable t) {
+                    t.printStackTrace();
+
+                    return t;
+                } finally {
+                    os.dispose(dirCopy);
+                    os.dispose(dirFd);
+                }
+            }
+
+            private void removeContents(Stat tempStat,
+                                        Directory.Entry tempEntry,
+                                        Directory directory,
+                                        @DirFd int dirFd) throws IOException
+            {
+                if (isCancelled()) {
+                    throw new CancellationException();
+                }
+
+                final UnreliableIterator<Directory.Entry> iterator = directory.iterator();
+
+                while (iterator.moveToNext()) {
+                    iterator.get(tempEntry);
+
+                    final String entryName = tempEntry.name;
+
+                    if (".".equals(entryName) || "..".equals(entryName)) continue;
+
+                    try {
+                        if (tempEntry.type == null) {
+                            os.fstatat(dirFd, tempEntry.name, tempStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                            tempEntry.type = tempStat.type;
+                        }
+
+                        if (tempEntry.type == FsType.DIRECTORY) {
+                            @DirFd int innerDirFd = os.openat(dirFd, entryName,
+                                    NativeBits.O_DIRECTORY | NativeBits.O_NOFOLLOW, 0);
+
+                            try (Directory newDir = os.list(innerDirFd)) {
+                                removeContents(tempStat, tempEntry, newDir, innerDirFd);
+
+                                os.unlinkat(dirFd, entryName, OS.AT_REMOVEDIR);
+                            } finally {
+                                os.dispose(innerDirFd);
+                            }
+                        } else {
+                            os.unlinkat(dirFd, tempEntry.name, 0);
+                        }
+                    } catch (ErrnoException errno) {
+                        if (errno.code() != ErrnoException.ENOENT) {
+                            throw new IOException("Failed to remove " + entryName + ": " + errno.toString(), errno);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            protected void onCancelled() {
+                removeTask(taskId);
+
+                callback.onDismiss();
+            }
+
+            @Override
+            protected void onPostExecute(Throwable s) {
+                removeTask(taskId);
+
+                if (s == null) {
+                    final String msg = "Deletion complete";
+
+                    callback.onStatusUpdate(msg, dirName);
+
+                    toast(msg);
+                } else {
+                    if (s instanceof InterruptedIOException) {
+                        callback.onDismiss();
+                    } else {
+                        String result = s.getMessage();
+
+                        if (TextUtils.isEmpty(result)) {
+                            result = "Deletion failed";
+                        }
+
+                        callback.onStatusUpdate(result, dirName);
+
+                        toast(result);
+                    }
+                }
+            }
+        };
+
+        final CancellationHelper ch = new CancellationHelper(at);
+
+        tasks.put(taskId, ch);
+
+        UpkeepService.start(this);
+
+        callback.onProgressUpdate("Preparing to delete…");
+
+        //noinspection unchecked
+        at.executeOnExecutor(exec, ch);
     }
 
     volatile boolean hasFgActivity;
