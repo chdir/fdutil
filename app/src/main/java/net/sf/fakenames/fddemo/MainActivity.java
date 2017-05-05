@@ -368,7 +368,7 @@ public class MainActivity extends BaseActivity implements
         try {
             doWithAccessChecks(OS.R_OK | OS.X_OK, base, pathname, () -> doOpendir(pathname));
         } catch (IOException e) {
-            toast("Failed to open directory: permission denied");
+            toast("Failed to open directory. " + e.getMessage());
         }
     }
 
@@ -723,21 +723,26 @@ public class MainActivity extends BaseActivity implements
             return;
         }
 
-        final Stat stat = new Stat();
-        state.os.fstat(dirFd, stat);
+        try {
+            final Stat stat = new Stat();
+            state.os.fstat(dirFd, stat);
 
-        final MountInfo.Mount mount = state.layout.getFs(stat.st_dev);
-        if (mount != null) {
-            if (mount.askForPermission(this, R.id.req_permission)) {
-                state.adapter.packState();
+            final MountInfo.Mount mount = state.layout.getFs(stat.st_dev);
+            if (mount != null) {
+                if (mount.askForPermission(this, R.id.req_permission)) {
+                    state.adapter.packState();
 
-                pendingActions.put(R.id.req_permission, () -> {
-                    state.adapter.recoverState();
+                    pendingActions.put(R.id.req_permission, () -> {
+                        state.adapter.recoverState();
 
-                    action.act();
-                });
-                return;
+                        action.act();
+                    });
+                    return;
+                }
             }
+        } catch (ErrnoException errno) {
+            // fstat can fail for unlinked directories. Ignore that
+            LogUtil.logCautiously("Failed to stat", errno);
         }
 
         action.act();
