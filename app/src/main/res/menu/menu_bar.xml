@@ -18,6 +18,13 @@
         tools:ignore="AppCompatResource" />
 
     <item
+        android:id="@+id/menu_hardlink"
+        android:title="@string/hardlink_name"
+        android:showAsAction="never"
+        app:showAsAction="never"
+        tools:ignore="AppCompatResource" />
+
+    <item
         android:id="@+id/menu_symlink"
         android:title="@string/symlink_name"
         android:showAsAction="never"

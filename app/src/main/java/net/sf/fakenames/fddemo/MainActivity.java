@@ -97,7 +97,10 @@ public class MainActivity extends BaseActivity implements
         SharedPreferences.OnSharedPreferenceChangeListener,
         PopupMenu.OnMenuItemClickListener {
     static final String ACTION_MOVE = "net.sf.chdir.action.MOVE";
+    static final String ACTION_COPY = "net.sf.chdir.action.COPY";
     static final String ACTION_CANCEL = "net.sf.chdir.action.CANCEL";
+    static final String EXTRA_NOT_DIR = "net.sf.chdir.extra.IS_FILE";
+    static final String EXTRA_DIR_FS = "net.sf.chdir.extra.FS_ID";
 
     private ClipboardManager cbm;
 
@@ -581,36 +584,32 @@ public class MainActivity extends BaseActivity implements
                 }
                 break;
             case R.id.menu_item_copy:
-                try {
-                    final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
-
-                    final Uri uri = PublicProvider.publicUri(this, path);
-
-                    if (uri == null) {
-                        toast("Failed to generate shareable uri");
-                        return true;
-                    }
-
-                    final ClipDescription description = new ClipDescription(info.fileInfo.name, MIMETYPES_TEXT_URILIST);
-                    final ClipData.Item clipItem = new ClipData.Item(null, null, uri);
-                    cbm.setPrimaryClip(new ClipData(description, clipItem));
-                } catch (IOException e) {
-                    toast("Unable to resolve full path. "  + e.getMessage());
-                }
-                break;
             case R.id.menu_item_cut:
                 try {
+                    boolean cut = item.getItemId() == R.id.menu_item_cut;
+
                     final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
 
-                    final Uri uri = PublicProvider.publicUri(this, path, "rw");
+                    final Uri uri = PublicProvider.publicUri(this, path, cut ? "rw" : "r");
 
                     if (uri == null) {
                         toast("Failed to generate shareable uri");
                         return true;
                     }
 
+                    final FsType type = info.fileInfo.type;
                     final ClipDescription description = new ClipDescription(info.fileInfo.name, MIMETYPES_TEXT_URILIST);
-                    final Intent intent = new Intent(ACTION_MOVE);
+                    final Intent intent = new Intent(cut ? ACTION_MOVE : ACTION_COPY);
+                    if (type != null && type.isNotDir()) {
+                        final Stat s = new Stat();
+                        try {
+                            state.os.fstat(state.adapter.getFd(), s);
+                            intent.putExtra(EXTRA_NOT_DIR, true);
+                            intent.putExtra(EXTRA_DIR_FS, s.st_dev);
+                        } catch (IOException ioe) {
+                            LogUtil.logCautiously("Failed to stat target file", ioe);
+                        }
+                    }
                     final ClipData.Item clipItem = new ClipData.Item(null, intent, uri);
                     cbm.setPrimaryClip(new ClipData(description, clipItem));
                 } catch (IOException e) {
@@ -947,14 +946,16 @@ public class MainActivity extends BaseActivity implements
 
         final ClipData clip = clipData;
 
-        if (clip != null) {
+        if (canHandleClip) {
             final ClipDescription clipInfo = clip.getDescription();
             if (clipInfo != null) {
                 label = massageInSensibleForm(clipInfo.getLabel());
 
-                ok = canHandleClip && !TextUtils.isEmpty(label);
+                ok = !TextUtils.isEmpty(label);
             }
         }
+
+        Intent intent = null;
 
         final MenuItem paste = menu.findItem(R.id.menu_paste);
 
@@ -963,11 +964,12 @@ public class MainActivity extends BaseActivity implements
 
             boolean move = false;
 
-            final int itemCount = clip.getItemCount();
-            if (itemCount > 0) {
-                final ClipData.Item item = clip.getItemAt(0);
-                final Intent intent = item.getIntent();
-                if (intent != null && ACTION_MOVE.equals(intent.getAction())) {
+            final ClipData.Item item = clip.getItemAt(0);
+
+            intent = item.getIntent();
+
+            if (intent != null) {
+                if (ACTION_MOVE.equals(intent.getAction())) {
                     move = true;
                 }
             }
@@ -989,6 +991,29 @@ public class MainActivity extends BaseActivity implements
             symlink.setVisible(false);
         }
 
+        final MenuItem hardlink = menu.findItem(R.id.menu_hardlink);
+
+        boolean allowHardLink = false;
+
+        if (canSymlinkClip && intent != null) {
+            if (intent.getBooleanExtra(EXTRA_NOT_DIR, false) && intent.hasExtra(EXTRA_DIR_FS)) {
+                final Stat s = new Stat();
+                try {
+                    state.os.fstat(state.adapter.getFd(), s);
+
+                    allowHardLink = s.st_dev == intent.getLongExtra(EXTRA_DIR_FS, -1);
+                } catch (IOException e) {
+                    LogUtil.logCautiously("Failed to stat current dir", e);
+                }
+            }
+        }
+
+        hardlink.setVisible(allowHardLink);
+
+        if (allowHardLink) {
+            hardlink.setTitle(getString(R.string.hardlink_name, label));
+        }
+
         return super.onPrepareOptionsMenu(menu);
     }
 
@@ -1004,6 +1029,9 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_symlink:
                 trySymlink();
                 return true;
+            case R.id.menu_hardlink:
+                tryHardlink();
+                break;
             case R.id.menu_paste:
                 final ClipData clip = clipData;
 
@@ -1038,12 +1066,38 @@ public class MainActivity extends BaseActivity implements
 
         final String filepath = uri.getPath();
 
-        final String name = uri.getLastPathSegment();
+        String name = uri.getLastPathSegment();
+        if (name == null) {
+            name = "/";
+        }
 
         try {
             state.os.symlinkat(filepath, state.adapter.getFd(), name);
         } catch (IOException e) {
             LogUtil.logCautiously("Failed to create symlink", e);
+
+            toast(e.getMessage());
+        }
+    }
+
+    private void tryHardlink() {
+        final ClipData clip = clipData;
+
+        final ClipData.Item item = clip.getItemAt(0);
+
+        final Uri uri = item.getUri();
+
+        final String filepath = uri.getPath();
+
+        String name = uri.getLastPathSegment();
+        if (name == null) {
+            name = "/";
+        }
+
+        try {
+            state.os.linkat(DirFd.NIL, filepath, state.adapter.getFd(), name, 0);
+        } catch (IOException e) {
+            LogUtil.logCautiously("Failed to create hard link", e);
 
             toast(e.getMessage());
         }
