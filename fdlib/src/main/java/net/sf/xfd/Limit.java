@@ -18,10 +18,8 @@ package net.sf.xfd;
 import android.support.annotation.Keep;
 
 public final class Limit {
-    @Keep
     public long current;
 
-    @Keep
     public long max;
 
     @Keep

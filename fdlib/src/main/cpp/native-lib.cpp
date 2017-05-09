@@ -210,7 +210,7 @@ JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source,
 JNIEXPORT void JNICALL PKG_SYM(getrlimit)(JNIEnv *env, jobject instance, int type, jobject limitStruct) {
     rlimit l;
 
-    if (getrlimit(type, &l)) {
+    if (TEMP_FAILURE_RETRY(getrlimit(type, &l))) {
         handleError(env);
 
         return;
@@ -219,13 +219,13 @@ JNIEXPORT void JNICALL PKG_SYM(getrlimit)(JNIEnv *env, jobject instance, int typ
     env -> CallNonvirtualVoidMethod(limitStruct, limitContainer, limitContainerInit, (jlong) l.rlim_cur, (jlong) l.rlim_max);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(setrlimit)(JNIEnv *env, jobject instance, int type, jobject limitStruct) {
+JNIEXPORT void JNICALL PKG_SYM(nativeSetrlimit)(JNIEnv *env, jclass clazz, jlong cur, jlong max, jint type) {
     kernel_rlimit l;
 
-    l.rlim_cur = (unsigned long) env -> GetLongField(limitStruct, limitContainerCur);
-    l.rlim_max = (unsigned long) env -> GetLongField(limitStruct, limitContainerMax);
+    l.rlim_cur = (unsigned long) cur;
+    l.rlim_max = (unsigned long) max;
 
-    if (sys_setrlimit(type, &l)) {
+    if (TEMP_FAILURE_RETRY(sys_setrlimit(type, &l))) {
         handleError(env);
         return;
     }
@@ -865,10 +865,37 @@ JNIEXPORT jint JNICALL PKG_SYM(nativeCreat)(JNIEnv *env, jclass type, jobject pa
     return coreio_openat(env, -1, pathname, O_CREAT | O_RDWR | O_TRUNC, mode);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(fsync)(JNIEnv *env, jobject instance, jint fd) {
-    if (fsync(fd)) {
-        handleError(env);
+JNIEXPORT void JNICALL PKG_SYM(nativeFsync)(JNIEnv *env, jclass type, jlong nativePtr, jint fd) {
+    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(nativePtr);
+
+    if (handler -> interrupted.load(memory_order_relaxed)) {
+        env -> ThrowNew(iIoException, "interrupted before syncing");
+
+        handler -> clear_flag();
+
+        return;
     }
+
+    bool eintr = false;
+
+    do {
+        if (fsync(fd)) {
+            eintr = errno == EINTR;
+
+            if (!eintr) {
+                handleError(env);
+                return;
+            }
+        }
+
+        if (handler -> interrupted.load(memory_order_relaxed)) {
+            env -> ThrowNew(iIoException, "interrupted before syncing");
+
+            handler -> clear_flag();
+
+            return;
+        }
+    } while (eintr);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeLinkAt)(JNIEnv *env, jclass type, jint oldDirFd, jworkaroundstr o, jint newDirFd, jworkaroundstr o1, jint flags) {

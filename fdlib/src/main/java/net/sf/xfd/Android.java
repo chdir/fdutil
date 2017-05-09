@@ -234,6 +234,24 @@ final class Android extends OS {
     }
 
     @Override
+    public void fsync(int fd) throws IOException {
+        InterruptibleStageImpl stage = InterruptibleStageImpl.get();
+        try {
+            nativeFsync(stage.i.nativePtr, fd);
+        } finally {
+            stage.end();
+        }
+    }
+
+    @Override
+    public void setrlimit(int type, @NonNull Limit stat) throws IOException {
+        nativeSetrlimit(stat.current, stat.max, type);
+    }
+
+    @Override
+    public native void getrlimit(int type, @NonNull Limit stat) throws IOException;
+
+    @Override
     public native void fallocate(@Fd int fd, int mode, long off, long length) throws IOException;
 
     @Override
@@ -253,15 +271,6 @@ final class Android extends OS {
 
     @Override
     public native void fstat(int dir, @NonNull Stat stat) throws ErrnoException;
-
-    @Override
-    public native void getrlimit(int type, @NonNull Limit stat) throws IOException;
-
-    @Override
-    public native void setrlimit(int type, @NonNull Limit stat) throws IOException;
-
-    @Override
-    public native void fsync(int fd) throws IOException;
 
     @Override
     public native void close(int fd) throws ErrnoException;
@@ -308,4 +317,8 @@ final class Android extends OS {
     private static native int nativeOpenAt2(long token, @DirFd int fd, Object pathname, int flags, int mode) throws IOException;
 
     private static native Object nativeReadlink(@DirFd int fd, Object pathname) throws IOException;
+
+    private static native void nativeSetrlimit(long cur, long max, int type) throws ErrnoException;
+
+    private static native void nativeFsync(long nativePtr, int fd) throws ErrnoException;
 }
