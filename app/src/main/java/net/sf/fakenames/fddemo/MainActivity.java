@@ -154,7 +154,6 @@ public class MainActivity extends BaseActivity implements
         state = getLastNonConfigurationInstance();
 
         if (state == null) {
-
             boolean useRoot = prefs.getBoolean(rootPref, true);
 
             if (!initState(prefs, useRoot)) {
@@ -176,6 +175,10 @@ public class MainActivity extends BaseActivity implements
             }
 
             state.adapter.swapDirectoryDescriptor(directory);
+        } else {
+            setUpAdapter();
+
+            directoryList.setAdapter(state.adapter);
         }
 
         updateButtonState(state.os.isPrivileged());
@@ -210,9 +213,11 @@ public class MainActivity extends BaseActivity implements
 
         if (scrollerObserver != null) {
             adapter.unregisterAdapterDataObserver(scrollerObserver);
+            scrollerObserver = null;
         }
         if (dirObserver != null) {
             adapter.unregisterAdapterDataObserver(dirObserver);
+            dirObserver = null;
         }
 
         adapter.setItemClickListener(null);
@@ -260,16 +265,16 @@ public class MainActivity extends BaseActivity implements
             if (state.os.isPrivileged() != useRoot) {
                 prefs.edit().putBoolean(rootPref, !useRoot).apply();
             }
-
-            setUpAdapter();
-
-            directoryList.setAdapter(state.adapter);
         } catch (IOException e) {
             LogUtil.logCautiously("Startup error", e);
             toast("Failed to create inotify descriptor, exiting");
             finish();
             return false;
         }
+
+        setUpAdapter();
+
+        directoryList.setAdapter(state.adapter);
 
         final Limit limit = new Limit();
         try {
@@ -1231,18 +1236,7 @@ public class MainActivity extends BaseActivity implements
 
         @Override
         public void onLaidOut(RecyclerView.LayoutManager dirLayoutManager) {
-            RecyclerView.RecycledViewPool pool = directoryList.getRecycledViewPool();
-
-            final int visibleViews = dirLayoutManager.getChildCount();
-            final int knownCount = state.adapter.getItemCount();
-
-            int visibility;
-
-            if (knownCount != Integer.MAX_VALUE && visibleViews < knownCount) {
-                visibility = View.VISIBLE;
-            } else {
-                visibility = View.GONE;
-            }
+            int visibility = quickScroller.canScroll() ? View.VISIBLE : View.GONE;
 
             if (quickScroller.getVisibility() != visibility) {
                 quickScroller.setVisibility(visibility);
@@ -1253,6 +1247,10 @@ public class MainActivity extends BaseActivity implements
             }
 
             waitForLayout = false;
+
+            RecyclerView.RecycledViewPool pool = directoryList.getRecycledViewPool();
+
+            final int visibleViews = dirLayoutManager.getChildCount();
 
             if (visibleViews > 0 && directoryList.getItemAnimator() == null) {
                 handler.removeCallbacksAndMessages(null);

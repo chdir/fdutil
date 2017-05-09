@@ -49,7 +49,24 @@ public final class DirFastScroller extends ViewGroup {
     private final ViewDrugHelper drugHelper;
     private final GestureDetectorCompat trackHandler;
 
-    private final OnLayoutChangeListener layoutListener = (v, l, t, r, b, l0, t0, r0, b0) -> onCreateScrollProgressCalculator();
+    private final OnLayoutChangeListener layoutListener = (v, l, t, r, b, l0, t0, r0, b0) -> makeNewObserver();
+
+    private final Runnable delayed = new Runnable() {
+        @Override
+        public void run() {
+            if (canComputeFastScroll) {
+                onCreateScrollProgressCalculator();
+
+                moveHandleToPosition();
+            }
+        }
+    };
+
+    private void makeNewObserver() {
+        removeCallbacks(delayed);
+
+        post(delayed);
+    }
 
     public DirFastScroller(Context context) {
         this(context, null, 0);
@@ -191,10 +208,7 @@ public final class DirFastScroller extends ViewGroup {
         }
 
         if (screenPositionCalculator == null) {
-            // not laid out yet, postpone the call
-            if (ViewCompat.isAttachedToWindow(this) && !ViewCompat.isLaidOut(this)) {
-                getHandler().post(this::moveHandleToPosition);
-            }
+            // not laid out yet, ignore the call
             return;
         }
 
@@ -345,7 +359,7 @@ public final class DirFastScroller extends ViewGroup {
 
                     if (canComputeFastScroll) {
                         if (screenPositionCalculator == null) {
-                            onCreateScrollProgressCalculator();
+                            makeNewObserver();
                         }
                     }
                 } else {
@@ -416,17 +430,7 @@ public final class DirFastScroller extends ViewGroup {
     final class DragCallback extends ViewDrugHelper.Callback {
         @Override
         public boolean tryCaptureView(View child, int pointerId) {
-            if (child == thumb && recycler != null) {
-                final int range = recycler.computeVerticalScrollRange();
-
-                if (range > 0) {
-                    final int extent = recycler.computeVerticalScrollExtent();
-
-                    return extent < range;
-                }
-            }
-
-            return false;
+            return child == thumb && canScroll();
         }
 
         @Override
@@ -662,36 +666,52 @@ public final class DirFastScroller extends ViewGroup {
     private boolean canComputeFastScroll;
 
     private void checkValidity() {
-        if (thumb == null || track == null) {
-            canComputeFastScroll = false;
-            return;
-        }
+        boolean canComputeFastScroll = canShowThumb();
 
-        if (recycler == null || !ViewCompat.isLaidOut(recycler)) {
-            canComputeFastScroll = false;
-            return;
-        }
-
-        final RecyclerView.Adapter<?> adapter = recycler.getAdapter();
-
-        if (adapter == null) {
-            canComputeFastScroll = false;
-            return;
-        }
-
-        final int itemCount = adapter.getItemCount();
-
-        if (itemCount <= 0 || itemCount == Integer.MAX_VALUE) {
-            canComputeFastScroll = false;
-            return;
-        }
-
-        if (!canComputeFastScroll) {
-            canComputeFastScroll = true;
+        if (canComputeFastScroll != this.canComputeFastScroll) {
+            this.canComputeFastScroll = canComputeFastScroll;
 
             if (!ViewCompat.isInLayout(this)) {
                 requestLayout();
             }
         }
+    }
+
+    public boolean canShowThumb() {
+        if (thumb == null || track == null) {
+            return false;
+        }
+
+        if (recycler == null || !ViewCompat.isLaidOut(recycler)) {
+            return false;
+        }
+
+        final RecyclerView.Adapter<?> adapter = recycler.getAdapter();
+
+        if (adapter == null) {
+            return false;
+        }
+
+        final int itemCount = adapter.getItemCount();
+
+        if (itemCount <= 0 || itemCount == Integer.MAX_VALUE) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public boolean canScroll() {
+        if (!canShowThumb()) return false;
+
+        final int range = recycler.computeVerticalScrollRange();
+
+        if (range <= 0) {
+            return false;
+        }
+
+        final int extent = recycler.computeVerticalScrollExtent();
+
+        return extent * 1.5 < range;
     }
 }
