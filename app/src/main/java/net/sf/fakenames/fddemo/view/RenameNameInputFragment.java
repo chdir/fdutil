@@ -77,6 +77,7 @@ public final class RenameNameInputFragment extends DialogFragment implements Dia
         assert editText != null;
 
         editText.setText(fileName);
+        editText.setSelection(editText.length());
 
         return new AlertDialog.Builder(getActivity())
                 .setCancelable(true)

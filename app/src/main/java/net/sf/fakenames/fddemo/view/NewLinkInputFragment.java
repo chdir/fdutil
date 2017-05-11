@@ -22,6 +22,7 @@ import android.app.Dialog;
 import android.app.DialogFragment;
 import android.content.DialogInterface;
 import android.os.Bundle;
+import android.support.annotation.StringRes;
 import android.support.design.widget.TextInputEditText;
 import android.support.design.widget.TextInputLayout;
 import android.support.v7.app.AlertDialog;
@@ -29,6 +30,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 
 import net.sf.fakenames.fddemo.R;
+import net.sf.fakenames.fddemo.util.Utils;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
@@ -40,14 +42,14 @@ public final class NewLinkInputFragment extends DialogFragment implements Dialog
     public NewLinkInputFragment() {}
 
     @SuppressLint("ValidFragment")
-    public NewLinkInputFragment(String fileTypeTitle, int type) {
+    public NewLinkInputFragment(@StringRes int fileTypeTitle, int type) {
         final Bundle bundle = new Bundle();
-        bundle.putString(ARG_TITLE, fileTypeTitle);
+        bundle.putInt(ARG_TITLE, fileTypeTitle);
         bundle.putInt(ARG_TYPE, type);
         setArguments(bundle);
     }
 
-    private String fileTypeTitle;
+    private @StringRes int fileTypeTitle;
     private int type;
 
     @BindView(R.id.dlg_sym_input)
@@ -68,7 +70,7 @@ public final class NewLinkInputFragment extends DialogFragment implements Dialog
         super.onAttach(activity);
 
         final Bundle bundle = getArguments();
-        fileTypeTitle = bundle.getString(ARG_TITLE);
+        fileTypeTitle = bundle.getInt(ARG_TITLE);
         type = bundle.getInt(ARG_TYPE);
     }
 
@@ -79,8 +81,10 @@ public final class NewLinkInputFragment extends DialogFragment implements Dialog
 
         ButterKnife.bind(this, view);
 
-        editLayout.setHint(getString(R.string.enter_name, fileTypeTitle));
-        editTargetLayout.setHint(getString(R.string.enter_target, fileTypeTitle));
+        final String str = Utils.toLowerCase(getString(fileTypeTitle));
+
+        editLayout.setHint(getString(R.string.enter_name, str));
+        editTargetLayout.setHint(getString(R.string.enter_target, str));
 
         return new AlertDialog.Builder(getActivity())
                 .setCancelable(true)

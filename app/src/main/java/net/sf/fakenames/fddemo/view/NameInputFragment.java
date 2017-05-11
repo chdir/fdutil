@@ -20,18 +20,17 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
 import android.app.DialogFragment;
-import android.content.Context;
 import android.content.DialogInterface;
 import android.os.Bundle;
+import android.support.annotation.StringRes;
 import android.support.design.widget.TextInputEditText;
 import android.support.design.widget.TextInputLayout;
-import android.support.v4.view.LayoutInflaterCompat;
 import android.support.v7.app.AlertDialog;
-import android.support.v7.app.AppCompatDialog;
 import android.view.LayoutInflater;
 import android.view.View;
 
 import net.sf.fakenames.fddemo.R;
+import net.sf.fakenames.fddemo.util.Utils;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
@@ -43,14 +42,14 @@ public final class NameInputFragment extends DialogFragment implements DialogInt
     public NameInputFragment() {}
 
     @SuppressLint("ValidFragment")
-    public NameInputFragment(String fileTypeTitle, int type) {
+    public NameInputFragment(@StringRes int fileTypeTitle, int type) {
         final Bundle bundle = new Bundle();
-        bundle.putString(ARG_TITLE, fileTypeTitle);
+        bundle.putInt(ARG_TITLE, fileTypeTitle);
         bundle.putInt(ARG_TYPE, type);
         setArguments(bundle);
     }
 
-    private String fileTypeTitle;
+    private @StringRes int fileTypeTitle;
     private int type;
 
     @BindView(R.id.dlg_input)
@@ -65,7 +64,7 @@ public final class NameInputFragment extends DialogFragment implements DialogInt
         super.onAttach(activity);
 
         final Bundle bundle = getArguments();
-        fileTypeTitle = bundle.getString(ARG_TITLE);
+        fileTypeTitle = bundle.getInt(ARG_TITLE);
         type = bundle.getInt(ARG_TYPE);
     }
 
@@ -76,7 +75,9 @@ public final class NameInputFragment extends DialogFragment implements DialogInt
 
         ButterKnife.bind(this, view);
 
-        editLayout.setHint(getString(R.string.enter_name, fileTypeTitle));
+        final String str = Utils.toLowerCase(getString(fileTypeTitle));
+
+        editLayout.setHint(getString(R.string.enter_name, str));
 
         return new AlertDialog.Builder(getActivity())
                 .setCancelable(true)

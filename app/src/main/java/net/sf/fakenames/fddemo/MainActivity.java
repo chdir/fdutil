@@ -35,6 +35,7 @@ import android.os.Looper;
 import android.os.Process;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.StringRes;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
@@ -52,6 +53,7 @@ import com.carrotsearch.hppc.IntObjectMap;
 
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
+import net.sf.fakenames.fddemo.util.Utils;
 import net.sf.fakenames.fddemo.view.ConfirmationDialog;
 import net.sf.fakenames.fddemo.view.DirAdapter;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
@@ -644,22 +646,22 @@ public class MainActivity extends BaseActivity implements
                 showRenameDialog(info.fileInfo.name);
                 break;
             case R.id.menu_fifo:
-                showCreateNewDialog(getString(R.string.fifo), item.getItemId());
+                showCreateNewDialog(R.string.fifo, item.getItemId());
                 break;
             case R.id.menu_dir:
-                showCreateNewDialog(getString(R.string.directory).toLowerCase(), item.getItemId());
+                showCreateNewDialog(R.string.directory, item.getItemId());
                 break;
             case R.id.menu_file:
-                showCreateNewDialog(getString(R.string.file).toLowerCase(), item.getItemId());
+                showCreateNewDialog(R.string.file, item.getItemId());
                 break;
             case R.id.menu_socket:
-                showCreateNewDialog(getString(R.string.socket).toLowerCase(), item.getItemId());
+                showCreateNewDialog(R.string.socket, item.getItemId());
                 break;
             case R.id.menu_symlink:
-                showCreateLinkDialog(getString(R.string.symlink).toLowerCase(), item.getItemId());
+                showCreateLinkDialog(R.string.symlink, item.getItemId());
                 break;
             case R.id.menu_link:
-                showCreateLinkDialog(getString(R.string.hardlink).toLowerCase(), item.getItemId());
+                showCreateLinkDialog(R.string.hardlink, item.getItemId());
                 break;
         }
 
@@ -680,11 +682,11 @@ public class MainActivity extends BaseActivity implements
         new RenameNameInputFragment(name).show(getFragmentManager(), null);
     }
 
-    private void showCreateNewDialog(String name, int type) {
+    private void showCreateNewDialog(@StringRes int name, int type) {
         new NameInputFragment(name, type).show(getFragmentManager(), null);
     }
 
-    private void showCreateLinkDialog(String name, int type) {
+    private void showCreateLinkDialog(@StringRes int name, int type) {
         new NewLinkInputFragment(name, type).show(getFragmentManager(), null);
     }
 
