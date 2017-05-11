@@ -64,6 +64,7 @@ import net.sf.fakenames.fddemo.view.NameInputFragment;
 import net.sf.fakenames.fddemo.view.NewLinkInputFragment;
 import net.sf.fakenames.fddemo.view.RenameNameInputFragment;
 import net.sf.fakenames.fddemo.view.SaneDecor;
+import net.sf.fakenames.fddemo.view.ShortcutNameInputFragment;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
 import net.sf.xfd.ErrnoException;
@@ -97,6 +98,7 @@ public class MainActivity extends BaseActivity implements
         NewLinkInputFragment.LinkNameReceiver,
         RenameNameInputFragment.FileNameReceiver,
         ConfirmationDialog.ConfirmationReceiver,
+        ShortcutNameInputFragment.ShortcutNameReceiver,
         ClipboardManager.OnPrimaryClipChangedListener,
         SharedPreferences.OnSharedPreferenceChangeListener,
         PopupMenu.OnMenuItemClickListener {
@@ -162,16 +164,28 @@ public class MainActivity extends BaseActivity implements
                 return;
             }
 
-            final File home = state.layout.getHome();
+            final Intent intent = getIntent();
+
+            final String dest = intent.getStringExtra(ShortcutActivity.EXTRA_FSO);
+
+            final String dirToOpen;
+
+            if (dest != null) {
+                dirToOpen = dest;
+            } else {
+                final File home = state.layout.getHome();
+
+                dirToOpen = home.getAbsolutePath();
+            }
 
             @DirFd int directory;
             try {
                 final OS unpriv = OS.getInstance();
 
-                directory = unpriv.opendir(home.getPath());
+                directory = unpriv.opendir(dirToOpen);
             } catch (IOException e) {
                 LogUtil.logCautiously("Failed to open home dir", e);
-                Toast.makeText(this, "failed to open " + home.getPath() + ", exiting", Toast.LENGTH_SHORT).show();
+                Utils.toast(this, "failed to open " + dirToOpen + ", exiting");
                 finish();
                 return;
             }
@@ -548,18 +562,23 @@ public class MainActivity extends BaseActivity implements
             type = info.fileInfo.type;
         }
 
-        if (type != null && type.isNotDir()) {
-            final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
-            cutItem.setOnMenuItemClickListener(this);
+        if (type != null) {
+            if (type.isNotDir()) {
+                final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
+                cutItem.setOnMenuItemClickListener(this);
 
-            final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
-            copyItem.setOnMenuItemClickListener(this);
+                final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
+                copyItem.setOnMenuItemClickListener(this);
 
-            final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, 2, "Edit");
-            editItem.setOnMenuItemClickListener(this);
+                final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, 2, "Edit");
+                editItem.setOnMenuItemClickListener(this);
 
-            final MenuItem shareItem = menu.add(Menu.NONE, R.id.menu_item_share, 4, "Share");
-            shareItem.setOnMenuItemClickListener(this);
+                final MenuItem shareItem = menu.add(Menu.NONE, R.id.menu_item_share, 4, "Share");
+                shareItem.setOnMenuItemClickListener(this);
+            } else {
+                final MenuItem shortcutItem = menu.add(Menu.NONE, R.id.menu_make_shortcut, Menu.CATEGORY_ALTERNATIVE | 7, "Make shortcut");
+                shortcutItem.setOnMenuItemClickListener(this);
+            }
         }
     }
 
@@ -642,6 +661,9 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_item_share:
                 sharefile(info.parentDir, info.fileInfo.name);
                 break;
+            case R.id.menu_make_shortcut:
+                showCreateShortcutDialog(info.fileInfo.name);
+                break;
             case R.id.menu_item_rename:
                 showRenameDialog(info.fileInfo.name);
                 break;
@@ -666,6 +688,10 @@ public class MainActivity extends BaseActivity implements
         }
 
         return true;
+    }
+
+    private void showCreateShortcutDialog(String name) {
+        new ShortcutNameInputFragment(name).show(getFragmentManager(), null);
     }
 
     private void pasteFile(FileObject sourceFile, boolean canRemoveOriginal) throws IOException {
@@ -765,6 +791,17 @@ public class MainActivity extends BaseActivity implements
         }
 
         action.act();
+    }
+
+    @Override
+    public void onShortcutNameChosen(String shortcutTarget, String shortcutName) {
+        try {
+            final String path = state.os.readlinkat(state.adapter.getFd(), shortcutTarget);
+
+            Utils.createShortcut(this, path, shortcutName);
+        } catch (IOException e) {
+            toast("Unable to resolve full path. "  + e.getMessage());
+        }
     }
 
     @Override

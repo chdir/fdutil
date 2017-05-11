@@ -5,7 +5,7 @@
     android:id="@+id/contentPanel"
     android:layout_height="match_parent"
     android:layout_width="match_parent"
-    android:animateLayoutChanges="true"
+    android:animateLayoutChanges="false"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <net.sf.fakenames.fddemo.view.DirRecyclerView

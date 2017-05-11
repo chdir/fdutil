@@ -24,4 +24,5 @@
     <string name="rmdir_title">Remove directory?</string>
     <string name="rmdir_msg">The directory \'%s\' is not empty. Remove it with all contents?</string>
     <string name="remove">Remove</string>
+    <string name="shortcut">Shortcut</string>
 </resources>
