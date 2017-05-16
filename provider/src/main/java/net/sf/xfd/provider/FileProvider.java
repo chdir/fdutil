@@ -930,7 +930,7 @@ public final class FileProvider extends DocumentsProvider {
                                     break;
 
                                 case DocumentsContract.Document.COLUMN_DISPLAY_NAME:
-                                    success = window.putString(reusable.name, position, col);
+                                    success = window.putString(reusable.name.toString(), position, col);
                                     break;
 
                                 case DocumentsContract.Document.COLUMN_FLAGS:

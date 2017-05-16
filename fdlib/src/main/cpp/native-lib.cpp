@@ -10,7 +10,9 @@
 #include <stdlib.h>
 
 inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint flags, jint mode) {
-    const char *utf8Path = getUtf8(env, name);
+    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
+
+    const char *utf8Path = getUtf8(env, isArray, name);
 
     if (utf8Path == NULL) {
         env->ThrowNew(oomError, "file name buffer");
@@ -23,7 +25,7 @@ inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint
         handleError(env);
     }
 
-    freeUtf8(env, name, utf8Path);
+    freeUtf8(env, isArray, name, utf8Path);
 
     return newFd;
 }
@@ -54,13 +56,23 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
+    byteArrayClass = saveClassRef("[B", env);
+    if (byteArrayClass == NULL) {
+        return -1;
+    }
+
     ioException = saveClassRef("java/io/IOException", env);
     if (ioException == NULL) {
         return -1;
     }
 
-    iIoException = saveClassRef("java/io/InterruptedIOException", env);
+    iIoException = saveClassRef("net/sf/xfd/InterruptedIOException", env);
     if (iIoException == NULL) {
+        return -1;
+    }
+
+    iieConstructor = env->GetMethodID(iIoException, "<init>", "(JLjava/lang/String;)V");
+    if (iieConstructor == NULL) {
         return -1;
     }
 
@@ -144,7 +156,9 @@ JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, 
 JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt2)(JNIEnv *env, jclass type, jlong token, jint fd, jworkaroundstr path, jint flags, jint mode) {
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(token);
 
-    const char *utf8Path = getUtf8(env, path);
+    jboolean isArray = env -> IsInstanceOf(path, byteArrayClass);
+
+    const char *utf8Path = getUtf8(env, isArray, path);
 
     if (utf8Path == NULL) {
         env->ThrowNew(oomError, "file name buffer");
@@ -152,7 +166,7 @@ JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt2)(JNIEnv *env, jclass type, jlong to
     }
 
     if (handler -> interrupted.load(memory_order_relaxed)) {
-        env -> ThrowNew(iIoException, "interrupted before opening");
+        env -> ThrowNew(iIoException, "open");
 
         handler -> clear_flag();
 
@@ -180,7 +194,7 @@ attempt_open:
             close(newFd);
         }
 
-        env -> ThrowNew(iIoException, "interrupted before opening");
+        env -> ThrowNew(iIoException, "open");
 
         handler -> clear_flag();
     } else if (eintr) {
@@ -188,7 +202,7 @@ attempt_open:
     }
 
 cleanup:
-    freeUtf8(env, path, utf8Path);
+    freeUtf8(env, isArray, path, utf8Path);
 
     return newFd;
 }
@@ -200,7 +214,7 @@ JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
 }
 
 JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source, jint dest) {
-    if (dup2(source, dest) == dest) {
+    if (TEMP_FAILURE_RETRY(dup2(source, dest)) == dest) {
         return;
     }
 
@@ -210,7 +224,7 @@ JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source,
 JNIEXPORT void JNICALL PKG_SYM(getrlimit)(JNIEnv *env, jobject instance, int type, jobject limitStruct) {
     rlimit l;
 
-    if (TEMP_FAILURE_RETRY(getrlimit(type, &l))) {
+    if (getrlimit(type, &l)) {
         handleError(env);
 
         return;
@@ -270,8 +284,9 @@ JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_nativeInit(JNIEnv *env, jclass 
     return reinterpret_cast<jlong>(bufferAddress);
 }
 
+static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t* sizeRef, jint fd1, jint fd2) {
+    int64_t size = *sizeRef;
 
-static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t size, jint fd1, jint fd2) {
     int64_t totalWritten = 0;
 
     ssize_t remaining;
@@ -300,7 +315,7 @@ static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t size, jint f
         }
 
         if (handler -> interrupted.load(memory_order_relaxed)) {
-            return -1;
+            goto bail;
         }
 
         ssize_t written = remaining;
@@ -321,7 +336,9 @@ static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t size, jint f
             remaining -= lastWritten;
 
             if (handler -> interrupted.load(memory_order_relaxed)) {
-                return -1;
+                totalWritten += (written - remaining);
+
+                goto bail;
             }
         }
 
@@ -330,6 +347,19 @@ static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t size, jint f
     while (totalWritten < size);
 
     return totalWritten;
+
+bail:
+    if (remaining > 0) {
+        // attempt to put already read bytes back
+        if (sys_lseek(fd1, -remaining, SEEK_CUR) == -1) {
+            errno = EINTR;
+            return -2;
+        }
+    }
+
+    *sizeRef -= totalWritten;
+
+    return -1;
 }
 
 JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doSendfile(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
@@ -384,7 +414,7 @@ enough:
     // make sure to write out any remaining data
     char *b = reinterpret_cast<char *>(buffer);
 
-    jlong res = dumbCopy(handler, b, remaining, fd1, fd2);
+    jlong res = dumbCopy(handler, b, &remaining, fd1, fd2);
 
     switch (res) {
         default:
@@ -400,7 +430,7 @@ enough:
 }
 
 interrupted:
-    env -> ThrowNew(iIoException, "The copy was interrupted");
+    throwInterrupted(env, totalBytes - remaining, "sendfile");
 
     handler -> clear_flag();
 
@@ -457,7 +487,7 @@ enough:
     // make sure to write out any remaining data
     char *b = reinterpret_cast<char *>(buffer);
 
-    int64_t res = dumbCopy(handler, b, remaining, fd1, fd2);
+    int64_t res = dumbCopy(handler, b, &remaining, fd1, fd2);
 
     switch (res) {
         default:
@@ -473,7 +503,7 @@ enough:
 }
 
 interrupted:
-    env -> ThrowNew(iIoException, "The copy was interrupted");
+    throwInterrupted(env, totalBytes - remaining, "splice");
 
     handler -> clear_flag();
 
@@ -483,10 +513,12 @@ interrupted:
 JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doDumbCopy(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong size, jint fd1, jint fd2) {
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
 
+    jlong initial = size;
+
     if (!handler -> interrupted.load(memory_order_relaxed)) {
         char* b = reinterpret_cast<char*>(buffer);
 
-        int64_t res = dumbCopy(handler, b, size, fd1, fd2);
+        int64_t res = dumbCopy(handler, b, &size, fd1, fd2);
 
         switch (res) {
             default:
@@ -499,7 +531,7 @@ JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doDumbCopy(JNIEnv *env, jclass 
         }
     }
 
-    env -> ThrowNew(iIoException, "The copy was interrupted");
+    throwInterrupted(env, initial - size, "copy");
 
     handler -> clear_flag();
 
@@ -655,14 +687,16 @@ static const char *resolve_link(int base, const char* linkpath, size_t *stringSi
 }
 
 JNIEXPORT jworkaroundstr JNICALL PKG_SYM(nativeReadlink)(JNIEnv *env, jclass type, jint fd, jworkaroundstr pathname) {
-    const char* utfName = getUtf8(env, pathname);
+    jboolean isArray = env -> IsInstanceOf(pathname, byteArrayClass);
+
+    const char* utfName = getUtf8(env, isArray, pathname);
 
     size_t stringSize;
 
     const char* resolved = resolve_link(fd, utfName, &stringSize);
 
     if (resolved == utfName) {
-        freeUtf8(env, pathname, utfName);
+        freeUtf8(env, isArray, pathname, utfName);
         return pathname;
     }
 
@@ -679,20 +713,25 @@ JNIEXPORT jworkaroundstr JNICALL PKG_SYM(nativeReadlink)(JNIEnv *env, jclass typ
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeSymlinkAt)(JNIEnv *env, jobject instance, jworkaroundstr name_, jint target, jworkaroundstr newpath_) {
-    const char *name = getUtf8(env, name_);
+    jboolean isArray1 = env -> IsInstanceOf(name_, byteArrayClass);
+
+    const char *name = getUtf8(env, isArray1, name_);
     if (name == NULL) {
         return;
     }
-    const char *newpath = getUtf8(env, newpath_);
+
+    jboolean isArray2 = env -> IsInstanceOf(name_, byteArrayClass);
+
+    const char *newpath = getUtf8(env, isArray2, newpath_);
     if (newpath == NULL) {
         return;
     }
 
-    int rc = sys_symlinkat(name, target, newpath);
+    int rc = TEMP_FAILURE_RETRY(sys_symlinkat(name, target, newpath));
     int err = errno;
 
-    freeUtf8(env, name_, name);
-    freeUtf8(env, newpath_, newpath);
+    freeUtf8(env, isArray1, name_, name);
+    freeUtf8(env, isArray2, newpath_, newpath);
 
     if (rc) {
         handleError(env, err);
@@ -700,15 +739,17 @@ JNIEXPORT void JNICALL PKG_SYM(nativeSymlinkAt)(JNIEnv *env, jobject instance, j
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeUnlinkAt)(JNIEnv *env, jobject instance, jint target, jworkaroundstr name, jint flags) {
-    const char* name_ = getUtf8(env, name);
+    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
+
+    const char* name_ = getUtf8(env, isArray, name);
     if (name_ == NULL) {
         return;
     }
 
-    int rc = sys_unlinkat(target, name_, flags);
+    int rc = TEMP_FAILURE_RETRY(sys_unlinkat(target, name_, flags));
     int err = errno;
 
-    freeUtf8(env, name, name_);
+    freeUtf8(env, isArray, name, name_);
 
     if (rc) {
         handleError(env, err);
@@ -716,16 +757,18 @@ JNIEXPORT void JNICALL PKG_SYM(nativeUnlinkAt)(JNIEnv *env, jobject instance, ji
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeMknodAt)(JNIEnv *env, jclass type, jint target, jworkaroundstr name, jint mode, jint device) {
-    const char* name_ = getUtf8(env, name);
+    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
+
+    const char* name_ = getUtf8(env, isArray, name);
 
     if (name_ == NULL) {
         return;
     }
 
-    int rc = sys_mknodat(target, name_, static_cast<mode_t>(mode), static_cast<dev_t>(device));
+    int rc = TEMP_FAILURE_RETRY(sys_mknodat(target, name_, static_cast<mode_t>(mode), static_cast<dev_t>(device)));
     int err = errno;
 
-    freeUtf8(env, name, name_);
+    freeUtf8(env, isArray, name, name_);
 
     if (rc) {
         handleError(env, err);
@@ -733,12 +776,14 @@ JNIEXPORT void JNICALL PKG_SYM(nativeMknodAt)(JNIEnv *env, jclass type, jint tar
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeMkdirAt)(JNIEnv *env, jclass type, jint target, jworkaroundstr name, jint mode) {
-    const char* name_ = getUtf8(env, name);
+    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
 
-    int rc = sys_mkdirat(target, name_, static_cast<mode_t>(mode));
+    const char* name_ = getUtf8(env, isArray, name);
+
+    int rc = TEMP_FAILURE_RETRY(sys_mkdirat(target, name_, static_cast<mode_t>(mode)));
     int err = errno;
 
-    freeUtf8(env, name, name_);
+    freeUtf8(env, isArray, name, name_);
 
     if (rc) {
         handleError(env, err);
@@ -749,7 +794,7 @@ JNIEXPORT void JNICALL PKG_SYM(nativeMkdirAt)(JNIEnv *env, jclass type, jint tar
 JNIEXPORT void JNICALL PKG_SYM(fstat)(JNIEnv *env, jobject self, jint fd, jobject statStruct) {
     kernel_stat64 dirStat;
 
-    if (sys_fstat64(fd, &dirStat) != 0) {
+    if (TEMP_FAILURE_RETRY(sys_fstat64(fd, &dirStat)) != 0) {
         handleError(env);
         return;
     }
@@ -779,26 +824,30 @@ JNIEXPORT void JNICALL PKG_SYM(fstat)(JNIEnv *env, jobject self, jint fd, jobjec
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeRenameAt)(JNIEnv *env, jclass type, jint fd, jworkaroundstr o, jint fd2, jworkaroundstr o1) {
-    const char* name_ = getUtf8(env, o);
+    jboolean isArray1 = env -> IsInstanceOf(o, byteArrayClass);
+
+    const char* name_ = getUtf8(env, isArray1, o);
     if (name_ == NULL) {
         return;
     }
 
-    const char* name1_ = getUtf8(env, o1);
+    jboolean isArray2 = env -> IsInstanceOf(o1, byteArrayClass);
+
+    const char* name1_ = getUtf8(env, isArray2, o1);
 
     if (name1_ != NULL) {
         if (sys_renameat(fd, name_, fd2, name1_) == -1) {
             handleError(env);
         }
 
-        freeUtf8(env, o1, name1_);
+        freeUtf8(env, isArray2, o1, name1_);
     }
 
-    freeUtf8(env, o, name_);
+    freeUtf8(env, isArray1, o, name_);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(readahead)(JNIEnv *env, jclass type, jint fd, jlong off, jint len) {
-    if (sys_readahead(fd, off, len)) {
+    if (TEMP_FAILURE_RETRY(sys_readahead(fd, off, len))) {
         if (errno == EOPNOTSUPP || errno == ENOTSUP) {
             LOG("readahead not supported by target filesystem");
             return;
@@ -809,7 +858,7 @@ JNIEXPORT void JNICALL PKG_SYM(readahead)(JNIEnv *env, jclass type, jint fd, jlo
 }
 
 JNIEXPORT void JNICALL PKG_SYM(fallocate)(JNIEnv *env, jclass type, jint fd, jint mode, jlong off, jlong len) {
-    if (sys_fallocate(fd, mode, off, len)) {
+    if (TEMP_FAILURE_RETRY(sys_fallocate(fd, mode, off, len))) {
         if (errno == EOPNOTSUPP || errno == ENOTSUP) {
             LOG("fallocate not supported by target filesystem");
             return;
@@ -820,7 +869,7 @@ JNIEXPORT void JNICALL PKG_SYM(fallocate)(JNIEnv *env, jclass type, jint fd, jin
 }
 
 JNIEXPORT void JNICALL PKG_SYM(fadvise)(JNIEnv *env, jclass type, jint fd, jlong off, jlong len, jint advice) {
-    if (sys_fadvise(fd, off, len, advice)) {
+    if (TEMP_FAILURE_RETRY(sys_fadvise(fd, off, len, advice))) {
         if (errno == EOPNOTSUPP || errno == ENOTSUP) {
             LOG("fadvise not supported by target filesystem");
             return;
@@ -841,9 +890,11 @@ JNIEXPORT jint JNICALL PKG_SYM(dup)(JNIEnv *env, jobject instance, jint source) 
 }
 
 JNIEXPORT jboolean JNICALL PKG_SYM(nativeFaccessAt)(JNIEnv *env, jclass type, jint fd, jworkaroundstr pathname_, jint mode) {
-    const char *utf8Path = getUtf8(env, pathname_);
+    jboolean isArray = env -> IsInstanceOf(pathname_, byteArrayClass);
 
-    int ret = sys_faccessat(fd, utf8Path, mode);
+    const char *utf8Path = getUtf8(env, isArray, pathname_);
+
+    int ret = TEMP_FAILURE_RETRY(sys_faccessat(fd, utf8Path, mode));
     if (ret) {
         switch (errno) {
             case EACCES:
@@ -856,7 +907,7 @@ JNIEXPORT jboolean JNICALL PKG_SYM(nativeFaccessAt)(JNIEnv *env, jclass type, ji
         }
     }
 
-    freeUtf8(env, pathname_, utf8Path);
+    freeUtf8(env, isArray, pathname_, utf8Path);
 
     return static_cast<jboolean>(ret ? JNI_FALSE : JNI_TRUE);
 }
@@ -869,7 +920,7 @@ JNIEXPORT void JNICALL PKG_SYM(nativeFsync)(JNIEnv *env, jclass type, jlong nati
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(nativePtr);
 
     if (handler -> interrupted.load(memory_order_relaxed)) {
-        env -> ThrowNew(iIoException, "interrupted before syncing");
+        env -> ThrowNew(iIoException, "fsync");
 
         handler -> clear_flag();
 
@@ -889,7 +940,7 @@ JNIEXPORT void JNICALL PKG_SYM(nativeFsync)(JNIEnv *env, jclass type, jlong nati
         }
 
         if (handler -> interrupted.load(memory_order_relaxed)) {
-            env -> ThrowNew(iIoException, "interrupted before syncing");
+            env -> ThrowNew(iIoException, "fsync");
 
             handler -> clear_flag();
 
@@ -899,26 +950,32 @@ JNIEXPORT void JNICALL PKG_SYM(nativeFsync)(JNIEnv *env, jclass type, jlong nati
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeLinkAt)(JNIEnv *env, jclass type, jint oldDirFd, jworkaroundstr o, jint newDirFd, jworkaroundstr o1, jint flags) {
-    const char* name_ = getUtf8(env, o);
+    jboolean isArray1 = env -> IsInstanceOf(o, byteArrayClass);
+
+    const char* name_ = getUtf8(env, isArray1, o);
     if (name_ == NULL) {
         return;
     }
 
-    const char* name1_ = getUtf8(env, o1);
+    jboolean isArray2 = env -> IsInstanceOf(o1, byteArrayClass);
+
+    const char* name1_ = getUtf8(env, isArray2, o1);
 
     if (name1_ != NULL) {
         if (sys_linkat(oldDirFd, name_, newDirFd, name1_, flags)) {
             handleError(env);
         }
 
-        freeUtf8(env, o1, name1_);
+        freeUtf8(env, isArray2, o1, name1_);
     }
 
-    freeUtf8(env, o, name_);
+    freeUtf8(env, isArray1, o, name_);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeFstatAt)(JNIEnv *env, jclass type, jint dir, jworkaroundstr pathname, jobject statStruct, jint flags) {
-    const char *utf8Path = getUtf8(env, pathname);
+    jboolean isArray = env -> IsInstanceOf(pathname, byteArrayClass);
+
+    const char *utf8Path = getUtf8(env, isArray, pathname);
     if (utf8Path == NULL) {
         return;
     }
@@ -954,7 +1011,7 @@ JNIEXPORT void JNICALL PKG_SYM(nativeFstatAt)(JNIEnv *env, jclass type, jint dir
                                     fdStat.st_dev, fdStat.st_ino, fdStat.st_size, fdStat.st_blksize, fileTypeOrdinal);
 
     cleanup:
-    freeUtf8(env, pathname, utf8Path);
+    freeUtf8(env, isArray, pathname, utf8Path);
 }
 
 }

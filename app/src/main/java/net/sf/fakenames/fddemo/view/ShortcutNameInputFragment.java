@@ -39,13 +39,13 @@ public final class ShortcutNameInputFragment extends DialogFragment implements D
     public ShortcutNameInputFragment() {}
 
     @SuppressLint("ValidFragment")
-    public ShortcutNameInputFragment(String name) {
+    public ShortcutNameInputFragment(CharSequence name) {
         final Bundle bundle = new Bundle();
-        bundle.putString(ARG_NAME, name);
+        bundle.putCharSequence(ARG_NAME, name);
         setArguments(bundle);
     }
 
-    private String fileTypeTitle;
+    private CharSequence currentFileName;
 
     @BindView(R.id.dlg_input)
     TextInputEditText editText;
@@ -59,7 +59,7 @@ public final class ShortcutNameInputFragment extends DialogFragment implements D
         super.onAttach(activity);
 
         final Bundle bundle = getArguments();
-        fileTypeTitle = bundle.getString(ARG_NAME);
+        currentFileName = bundle.getCharSequence(ARG_NAME);
     }
 
     @Override
@@ -69,7 +69,7 @@ public final class ShortcutNameInputFragment extends DialogFragment implements D
 
         ButterKnife.bind(this, view);
 
-        editText.setText(fileTypeTitle);
+        editText.setText(currentFileName);
         editText.setSelection(editText.length());
 
         editLayout.setHint("Enter shortcut name");
@@ -85,10 +85,10 @@ public final class ShortcutNameInputFragment extends DialogFragment implements D
     public void onClick(DialogInterface dialog, int which) {
         final String name = editText.getText().toString();
 
-        ((ShortcutNameReceiver) getActivity()).onShortcutNameChosen(fileTypeTitle, name);
+        ((ShortcutNameReceiver) getActivity()).onShortcutNameChosen(currentFileName, name);
     }
 
     public interface ShortcutNameReceiver {
-        void onShortcutNameChosen(String shortcutTarget, String shortcutName);
+        void onShortcutNameChosen(CharSequence shortcutTarget, String shortcutName);
     }
 }

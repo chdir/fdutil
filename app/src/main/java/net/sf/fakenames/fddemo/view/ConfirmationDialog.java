@@ -19,9 +19,9 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
     public ConfirmationDialog() {}
 
     @SuppressLint("ValidFragment")
-    public ConfirmationDialog(String fileName, @StringRes int title, @StringRes int message, @StringRes int affirm) {
+    public ConfirmationDialog(CharSequence fileName, @StringRes int title, @StringRes int message, @StringRes int affirm) {
         final Bundle bundle = new Bundle();
-        bundle.putString(ARG_FILENAME, fileName);
+        bundle.putCharSequence(ARG_FILENAME, fileName);
         bundle.putInt(ARG_TITLE, title);
         bundle.putInt(ARG_MESSAGE, message);
         bundle.putInt(ARG_AFFIRMATION, affirm);
@@ -37,10 +37,10 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
         title = bundle.getInt(ARG_TITLE);
         message = bundle.getInt(ARG_MESSAGE);
         affirm = bundle.getInt(ARG_AFFIRMATION);
-        fileName = bundle.getString(ARG_FILENAME);
+        fileName = bundle.getCharSequence(ARG_FILENAME);
     }
 
-    private String fileName;
+    private CharSequence fileName;
     private @StringRes int title;
     private @StringRes int message;
     private @StringRes int affirm;
@@ -65,6 +65,6 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
     }
 
     public interface ConfirmationReceiver {
-        void onAffirmed(String filename);
+        void onAffirmed(CharSequence filename);
     }
 }

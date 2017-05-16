@@ -20,7 +20,6 @@ import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.Size;
 import android.support.annotation.WorkerThread;
 
 import java.io.IOException;
@@ -99,7 +98,7 @@ public abstract class OS {
 
     @CheckResult
     @WorkerThread
-    public abstract @Fd int creat(@NonNull String path, int mode) throws IOException;
+    public abstract @Fd int creat(@NonNull CharSequence path, int mode) throws IOException;
 
     /**
      * Open the specified file. This method delegates to Linux {@code open} system call and has similar
@@ -122,19 +121,19 @@ public abstract class OS {
      */
     @CheckResult
     @WorkerThread
-    public abstract @Fd int open(@NonNull String path, @OpenFlag int flags, int mode) throws IOException;
+    public abstract @Fd int open(@NonNull CharSequence path, @OpenFlag int flags, int mode) throws IOException;
 
     @CheckResult
     @WorkerThread
-    public abstract @Fd int openat(@DirFd int fd, @NonNull String name, int flags, int mode) throws IOException;
+    public abstract @Fd int openat(@DirFd int fd, @NonNull CharSequence name, int flags, int mode) throws IOException;
 
     @CheckResult
     @WorkerThread
-    public abstract @DirFd int opendir(@NonNull String path) throws IOException;
+    public abstract @DirFd int opendir(@NonNull CharSequence path) throws IOException;
 
     @CheckResult
     @WorkerThread
-    public abstract @DirFd int opendirat(@DirFd int fd, @NonNull String name) throws IOException;
+    public abstract @DirFd int opendirat(@DirFd int fd, @NonNull CharSequence name) throws IOException;
 
     @CheckResult
     public abstract @InotifyFd int inotify_init() throws IOException;
@@ -161,28 +160,28 @@ public abstract class OS {
 
     @CheckResult
     @WorkerThread
-    public abstract @NonNull String readlinkat(@DirFd int fd, @NonNull String pathname) throws IOException;
+    public abstract @NonNull CharSequence readlinkat(@DirFd int fd, @NonNull CharSequence pathname) throws IOException;
 
     @WorkerThread
-    public abstract void fstatat(@DirFd int dir, @NonNull String pathname, @NonNull Stat stat, @StatAtFlags int flags) throws IOException;
+    public abstract void fstatat(@DirFd int dir, @NonNull CharSequence pathname, @NonNull Stat stat, @StatAtFlags int flags) throws IOException;
 
     @WorkerThread
-    public abstract void renameat(@DirFd int fd, @Nullable String name, @DirFd int fd2, @Nullable String name2) throws IOException;
+    public abstract void renameat(@DirFd int fd, @Nullable CharSequence name, @DirFd int fd2, @Nullable CharSequence name2) throws IOException;
 
     @WorkerThread
-    public abstract void symlinkat(@NonNull String name, @DirFd int target, @NonNull String newpath) throws IOException;
+    public abstract void symlinkat(@NonNull CharSequence name, @DirFd int target, @NonNull CharSequence newpath) throws IOException;
 
     @WorkerThread
-    public abstract void linkat(@DirFd int oldDirFd, @NonNull String oldName, @DirFd int newDirFd, @NonNull String newName, @LinkAtFlags int flags) throws IOException;
+    public abstract void linkat(@DirFd int oldDirFd, @NonNull CharSequence oldName, @DirFd int newDirFd, @NonNull CharSequence newName, @LinkAtFlags int flags) throws IOException;
 
     @WorkerThread
-    public abstract void unlinkat(@DirFd int target, @NonNull String name, @UnlinkAtFlags int flags) throws IOException;
+    public abstract void unlinkat(@DirFd int target, @NonNull CharSequence name, @UnlinkAtFlags int flags) throws IOException;
 
     @WorkerThread
-    public abstract void mknodat(@DirFd int target, @NonNull String name, @FileTypeFlag int mode, int device) throws IOException;
+    public abstract void mknodat(@DirFd int target, @NonNull CharSequence name, @FileTypeFlag int mode, int device) throws IOException;
 
     @WorkerThread
-    public abstract void mkdirat(@DirFd int target, @NonNull String name, int mode) throws IOException;
+    public abstract void mkdirat(@DirFd int target, @NonNull CharSequence name, int mode) throws IOException;
 
     @CheckResult
     public abstract int dup(int source) throws IOException;
@@ -201,7 +200,7 @@ public abstract class OS {
 
     public abstract void fadvise(int fd, long off, long length, @fadvice int advice) throws IOException;
 
-    public abstract boolean faccessat(@DirFd int fd, @NonNull String pathname, @AccessFlags int mode) throws IOException;
+    public abstract boolean faccessat(@DirFd int fd, @NonNull CharSequence pathname, @AccessFlags int mode) throws IOException;
 
     public abstract void dup2(@Fd int source, int dest) throws IOException;
 

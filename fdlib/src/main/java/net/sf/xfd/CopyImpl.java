@@ -26,8 +26,6 @@ public class CopyImpl implements Copy {
     private final Guard guard;
     private final long bufferPtr;
 
-    private InterruptibleStageImpl stage;
-
     CopyImpl(OS os) {
         this.bufferPtr = nativeInit();
 
@@ -38,9 +36,7 @@ public class CopyImpl implements Copy {
 
     @Override
     public long transfer(@Fd int source, Stat sourceStat, @Fd int target, Stat targetStat, long bytes) throws IOException {
-        if (stage == null) {
-            stage = InterruptibleStageImpl.get();
-        }
+        final InterruptibleStageImpl stage = InterruptibleStageImpl.get();
 
         stage.begin();
         try {

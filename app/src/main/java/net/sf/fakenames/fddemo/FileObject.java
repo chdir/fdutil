@@ -288,8 +288,8 @@ public abstract class FileObject implements Closeable {
                         return true;
                     }
 
-                    String sourcePath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + sourceFd.getFd());
-                    String targetPath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
+                    CharSequence sourcePath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + sourceFd.getFd());
+                    CharSequence targetPath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
 
                     os.renameat(DirFd.NIL, sourcePath, DirFd.NIL, targetPath);
 
@@ -725,7 +725,7 @@ public abstract class FileObject implements Closeable {
                                 return true;
                             }
 
-                            final String targetPath = os.readlinkat(DirFd.NIL,
+                            final CharSequence targetPath = os.readlinkat(DirFd.NIL,
                                     "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
 
                             os.renameat(DirFd.NIL, path, DirFd.NIL, targetPath);

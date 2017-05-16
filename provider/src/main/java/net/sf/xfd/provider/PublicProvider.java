@@ -706,11 +706,14 @@ public final class PublicProvider extends ContentProvider {
         return 0;
     }
 
-    public static @Nullable Uri publicUri(Context context, String path) {
+    public static @Nullable Uri publicUri(Context context, CharSequence path) {
         return publicUri(context, path, "r");
     }
 
-    public static @Nullable Uri publicUri(Context context, String path, String mode) {
+    public static @Nullable Uri publicUri(Context context, CharSequence path, String mode) {
+        // XXX suspect coversion
+        final String pathString = path.toString();
+
         final int modeInt = ParcelFileDescriptor.parseMode(mode);
 
         final Key key = getSalt(context);
@@ -739,7 +742,7 @@ public final class PublicProvider extends ContentProvider {
             };
             hash.update(expiryDate);
 
-            encoded = hash.doFinal(path.getBytes());
+            encoded = hash.doFinal(pathString.getBytes());
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
             throw new AssertionError("Error while creating a hash: " + e.getMessage(), e);
         }
@@ -754,7 +757,7 @@ public final class PublicProvider extends ContentProvider {
             b.appendQueryParameter(URI_ARG_MODE, mode);
         }
 
-        return b.path(path)
+        return b.path(pathString)
                 .appendQueryParameter(URI_ARG_EXPIRY, String.valueOf(l))
                 .appendQueryParameter(URI_ARG_COOKIE, encodeToString(encoded, URL_SAFE | NO_WRAP | NO_PADDING))
                 .build();

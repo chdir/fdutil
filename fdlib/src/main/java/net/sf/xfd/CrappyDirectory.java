@@ -130,8 +130,13 @@ public class CrappyDirectory implements Directory {
 
             wrapped.get(entry);
 
-            final String name = entry.name;
-            entry.ino = hash.hash(name, access, 0, name.length());
+            if (entry.name.getClass() == NativeString.class) {
+                entry.ino = hash.hashBytes(((NativeString) entry.name).bytes) ^ 42;
+            } else {
+                final String name = entry.name.toString();
+
+                entry.ino = hash.hash(name, access, 0, name.length());
+            }
 
             entries.add(entry);
         }

@@ -40,13 +40,13 @@ public final class RenameNameInputFragment extends DialogFragment implements Dia
     public RenameNameInputFragment() {}
 
     @SuppressLint("ValidFragment")
-    public RenameNameInputFragment(String fileName) {
+    public RenameNameInputFragment(CharSequence fileName) {
         final Bundle bundle = new Bundle();
-        bundle.putString(ARG_TITLE, fileName);
+        bundle.putCharSequence(ARG_TITLE, fileName);
         setArguments(bundle);
     }
 
-    private String fileName;
+    private CharSequence fileName;
 
     @BindView(R.id.dlg_input)
     TextInputEditText editText;
@@ -60,7 +60,7 @@ public final class RenameNameInputFragment extends DialogFragment implements Dia
         super.onAttach(activity);
 
         final Bundle bundle = getArguments();
-        fileName = bundle.getString(ARG_TITLE);
+        fileName = bundle.getCharSequence(ARG_TITLE);
     }
 
     @Override
@@ -94,6 +94,6 @@ public final class RenameNameInputFragment extends DialogFragment implements Dia
     }
 
     public interface FileNameReceiver {
-        void onNewNameChosen(String name, String newName);
+        void onNewNameChosen(CharSequence name, String newName);
     }
 }

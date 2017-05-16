@@ -13,7 +13,9 @@ jclass illegalStateException;
 jclass errnoException;
 jclass statContainer;
 jclass limitContainer;
+jclass byteArrayClass;
 
+jmethodID iieConstructor;
 jmethodID errnoExceptionConstructor;
 jmethodID statContainerInit;
 jmethodID limitContainerInit;
@@ -57,8 +59,8 @@ void handleError(JNIEnv *env) {
 
 // convert Java String (or byte array with UTF-8, depending on Android version) to Linux UTF-8 string
 // return value of NULL guarantees, that exception was already thrown by JVM
-const char* getUtf8(JNIEnv* env, jworkaroundstr string) {
-    if (API_VERSION >= MARSHMALLOW) {
+const char* getUtf8(JNIEnv* env, jboolean isArrray, jworkaroundstr string) {
+    if (isArrray != JNI_TRUE) {
         return env->GetStringUTFChars((jstring) string, NULL);
     } else {
         jbyteArray bytes = (jbyteArray) string;
@@ -89,18 +91,98 @@ const char* getUtf8(JNIEnv* env, jworkaroundstr string) {
     }
 }
 
-void freeUtf8(JNIEnv *env, jworkaroundstr string, const char* str) {
-    if (API_VERSION >= MARSHMALLOW) {
+void freeUtf8(JNIEnv *env, jboolean isArray, jworkaroundstr string, const char* str) {
+    if (isArray != JNI_TRUE) {
         env -> ReleaseStringUTFChars((jstring) string, str);
     } else {
         free((void*) str);
     }
 }
 
+static int is_utf8(const char* string)
+{
+    if(!string)
+        return 0;
+
+    const unsigned char * bytes = (const unsigned char*) string;
+    while(*bytes)
+    {
+        if( (// ASCII
+                // use bytes[0] <= 0x7F to allow ASCII control characters
+                bytes[0] == 0x09 ||
+                bytes[0] == 0x0A ||
+                bytes[0] == 0x0D ||
+                (0x20 <= bytes[0] && bytes[0] <= 0x7E)
+        )
+                ) {
+            bytes += 1;
+            continue;
+        }
+
+        if( (// non-overlong 2-byte
+                (0xC2 <= bytes[0] && bytes[0] <= 0xDF) &&
+                (0x80 <= bytes[1] && bytes[1] <= 0xBF)
+        )
+                ) {
+            bytes += 2;
+            continue;
+        }
+
+        if( (// excluding overlongs
+                    bytes[0] == 0xE0 &&
+                    (0xA0 <= bytes[1] && bytes[1] <= 0xBF) &&
+                    (0x80 <= bytes[2] && bytes[2] <= 0xBF)
+            ) ||
+            (// straight 3-byte
+                    ((0xE1 <= bytes[0] && bytes[0] <= 0xEC) ||
+                     bytes[0] == 0xEE ||
+                     bytes[0] == 0xEF) &&
+                    (0x80 <= bytes[1] && bytes[1] <= 0xBF) &&
+                    (0x80 <= bytes[2] && bytes[2] <= 0xBF)
+            ) ||
+            (// excluding surrogates
+                    bytes[0] == 0xED &&
+                    (0x80 <= bytes[1] && bytes[1] <= 0x9F) &&
+                    (0x80 <= bytes[2] && bytes[2] <= 0xBF)
+            )
+                ) {
+            bytes += 3;
+            continue;
+        }
+
+        if( (// planes 1-3
+                    bytes[0] == 0xF0 &&
+                    (0x90 <= bytes[1] && bytes[1] <= 0xBF) &&
+                    (0x80 <= bytes[2] && bytes[2] <= 0xBF) &&
+                    (0x80 <= bytes[3] && bytes[3] <= 0xBF)
+            ) ||
+            (// planes 4-15
+                    (0xF1 <= bytes[0] && bytes[0] <= 0xF3) &&
+                    (0x80 <= bytes[1] && bytes[1] <= 0xBF) &&
+                    (0x80 <= bytes[2] && bytes[2] <= 0xBF) &&
+                    (0x80 <= bytes[3] && bytes[3] <= 0xBF)
+            ) ||
+            (// plane 16
+                    bytes[0] == 0xF4 &&
+                    (0x80 <= bytes[1] && bytes[1] <= 0x8F) &&
+                    (0x80 <= bytes[2] && bytes[2] <= 0xBF) &&
+                    (0x80 <= bytes[3] && bytes[3] <= 0xBF)
+            )
+                ) {
+            bytes += 4;
+            continue;
+        }
+
+        return 0;
+    }
+
+    return 1;
+}
+
 // convert linux UTF-8 string (not necessarily null-terminated) to Java String (or UTF-8 byte[], depending on Android version)
 // return value of NULL guarantees, that exception was already thrown by JVM
 jworkaroundstr toString(JNIEnv *env, char* linuxString, int bufferSize, jsize stringByteCount) {
-    if (API_VERSION >= MARSHMALLOW) {
+    if (API_VERSION >= MARSHMALLOW && is_utf8(linuxString)) {
         bool needToFree = false;
         const char* inputString;
 

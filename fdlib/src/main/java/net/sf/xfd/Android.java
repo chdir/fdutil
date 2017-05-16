@@ -63,13 +63,13 @@ final class Android extends OS {
 
     @Override
     @CheckResult
-    public int creat(@NonNull String path, int mode) throws IOException {
+    public int creat(@NonNull CharSequence path, int mode) throws IOException {
         return nativeCreat(toNative(path), mode);
     }
 
     @Override
     @SuppressWarnings("WrongConstant")
-    public @Fd int open(@NonNull String path, int flags, int mode) throws IOException {
+    public @Fd int open(@NonNull CharSequence path, int flags, int mode) throws IOException {
         return openat(DirFd.AT_FDCWD, path, flags, mode);
     }
 
@@ -77,7 +77,7 @@ final class Android extends OS {
 
     @Override
     @SuppressWarnings("WrongConstant")
-    public @Fd int openat(@DirFd int fd, @NonNull String pathname, int flags, int mode) throws IOException {
+    public @Fd int openat(@DirFd int fd, @NonNull CharSequence pathname, int flags, int mode) throws IOException {
         if ((flags & BLOCKING_FLAGS) != 0) {
             return nativeOpenAt(fd, toNative(pathname), flags, mode);
         } else {
@@ -87,59 +87,59 @@ final class Android extends OS {
 
     @Override
     @SuppressWarnings("WrongConstant")
-    public @DirFd int opendir(@NonNull String path) throws IOException {
+    public @DirFd int opendir(@NonNull CharSequence path) throws IOException {
         return opendirat(DirFd.AT_FDCWD, path);
     }
 
     @Override
     @SuppressWarnings("WrongConstant")
-    public @DirFd int opendirat(@DirFd int fd, @NonNull String name) throws IOException {
+    public @DirFd int opendirat(@DirFd int fd, @NonNull CharSequence name) throws IOException {
         return nativeOpenAt(fd, toNative(name), O_NOCTTY | O_DIRECTORY, 0);
     }
 
     @NonNull
     @Override
-    public String readlinkat(@DirFd int fd, @NonNull String pathname) throws IOException {
+    public CharSequence readlinkat(@DirFd int fd, @NonNull CharSequence pathname) throws IOException {
         return fromNative(nativeReadlink(fd, toNative(pathname)));
     }
 
     @Override
-    public void symlinkat(@NonNull String name, @DirFd int target, @NonNull String newpath) throws IOException {
+    public void symlinkat(@NonNull CharSequence name, @DirFd int target, @NonNull CharSequence newpath) throws IOException {
         nativeSymlinkAt(toNative(name), target, toNative(newpath));
     }
 
     @Override
-    public void linkat(@DirFd int oldDirFd, @NonNull String oldName, @DirFd int newDirFd, @NonNull String newName, @LinkAtFlags int flags) throws IOException {
+    public void linkat(@DirFd int oldDirFd, @NonNull CharSequence oldName, @DirFd int newDirFd, @NonNull CharSequence newName, @LinkAtFlags int flags) throws IOException {
         nativeLinkAt(oldDirFd, toNative(oldName), newDirFd, toNative(newName), flags);
     }
 
     @Override
-    public void unlinkat(@DirFd int target, @NonNull String name, @UnlinkAtFlags int flags) throws IOException {
+    public void unlinkat(@DirFd int target, @NonNull CharSequence name, @UnlinkAtFlags int flags) throws IOException {
         nativeUnlinkAt(target, toNative(name), flags);
     }
 
     @Override
-    public void mknodat(@DirFd int target, @NonNull String name, @FileTypeFlag int mode, int device) throws IOException {
+    public void mknodat(@DirFd int target, @NonNull CharSequence name, @FileTypeFlag int mode, int device) throws IOException {
         nativeMknodAt(target, toNative(name), mode, device);
     }
 
     @Override
-    public void mkdirat(@DirFd int target, @NonNull String name, int mode) throws IOException {
+    public void mkdirat(@DirFd int target, @NonNull CharSequence name, int mode) throws IOException {
         nativeMkdirAt(target, toNative(name), mode);
     }
 
     @Override
-    public boolean faccessat(int fd, @NonNull String pathname, int mode) throws IOException {
+    public boolean faccessat(int fd, @NonNull CharSequence pathname, int mode) throws IOException {
         return nativeFaccessAt(fd, toNative(pathname), mode);
     }
 
     @Override
-    public void fstatat(int dir, @NonNull String pathname, @NonNull Stat stat, int flags) throws IOException {
+    public void fstatat(int dir, @NonNull CharSequence pathname, @NonNull Stat stat, int flags) throws IOException {
         nativeFstatAt(dir, toNative(pathname), stat, flags);
     }
 
     @Override
-    public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
+    public void renameat(@DirFd int fd, CharSequence name, @DirFd int fd2, CharSequence name2) throws IOException {
         nativeRenameAt(fd, toNative(name), fd2, toNative(name2));
     }
 
@@ -275,7 +275,7 @@ final class Android extends OS {
     @Override
     public native void close(int fd) throws ErrnoException;
 
-    private static int blockingOpen(@DirFd int fd, String pathname, int flags, int mode) throws IOException {
+    private static int blockingOpen(@DirFd int fd, CharSequence pathname, int flags, int mode) throws IOException {
         final InterruptibleStageImpl stage = InterruptibleStageImpl.get();
 
         stage.begin();
@@ -286,12 +286,18 @@ final class Android extends OS {
         }
     }
 
-    private static Object toNative(String string) {
-        return Build.VERSION.SDK_INT >= 23 ? string : string.getBytes(StandardCharsets.UTF_8);
+    private static Object toNative(CharSequence string) {
+        if (string.getClass() == NativeString.class) {
+            return ((NativeString) string).bytes;
+        }
+
+        final String chars = string.toString();
+
+        return Build.VERSION.SDK_INT >= 23 ? chars : chars.getBytes(StandardCharsets.UTF_8);
     }
 
-    private static String fromNative(Object string) {
-        return Build.VERSION.SDK_INT >= 23 ? (String) string : new String((byte[]) string, StandardCharsets.UTF_8);
+    private static CharSequence fromNative(Object string) {
+        return string.getClass() == String.class ? (String) string : new NativeString((byte[]) string);
     }
 
     private static native void nativeFstatAt(@DirFd int dir, Object o, Stat stat, int flags);

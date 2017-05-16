@@ -38,7 +38,7 @@ public class Utils {
         return false;
     }
 
-    public static void createShortcut(Context ctx, String path, String shortcutName) {
+    public static void createShortcut(Context ctx, CharSequence path, String shortcutName) {
         try {
             // Create the intent that will handle the shortcut
             final Intent shortcutIntent = new Intent(ctx, ShortcutActivity.class);

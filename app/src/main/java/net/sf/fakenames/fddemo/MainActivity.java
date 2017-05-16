@@ -39,6 +39,7 @@ import android.support.annotation.StringRes;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
+import android.text.ParcelableSpan;
 import android.text.TextUtils;
 import android.view.ContextMenu;
 import android.view.Menu;
@@ -166,9 +167,9 @@ public class MainActivity extends BaseActivity implements
 
             final Intent intent = getIntent();
 
-            final String dest = intent.getStringExtra(ShortcutActivity.EXTRA_FSO);
+            final CharSequence dest = intent.getCharSequenceExtra(ShortcutActivity.EXTRA_FSO);
 
-            final String dirToOpen;
+            final CharSequence dirToOpen;
 
             if (dest != null) {
                 dirToOpen = dest;
@@ -387,7 +388,7 @@ public class MainActivity extends BaseActivity implements
         opendir(DirFd.NIL, state.layout.getHome().getAbsolutePath());
     }
 
-    private void opendir(@DirFd int base, String pathname) {
+    private void opendir(@DirFd int base, CharSequence pathname) {
         try {
             doWithAccessChecks(OS.R_OK | OS.X_OK, base, pathname, () -> doOpendir(pathname));
         } catch (IOException e) {
@@ -395,7 +396,7 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
-    private void doOpendir(String pathname) {
+    private void doOpendir(CharSequence pathname) {
         final @DirFd int base = state.adapter.getFd();
 
         int newFd = DirFd.NIL, prev = DirFd.NIL;
@@ -439,9 +440,9 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
-    private void openfile(@DirFd int base, String path) {
+    private void openfile(@DirFd int base, CharSequence path) {
         try {
-            final String resolved;
+            final CharSequence resolved;
             final int resolvedFd = state.os.openat(base, path, NativeBits.O_NONBLOCK, 0);
             try {
                 resolved = state.os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + resolvedFd);
@@ -465,9 +466,9 @@ public class MainActivity extends BaseActivity implements
 
 
 
-    private void editfile(int parentDir, String name) {
+    private void editfile(int parentDir, CharSequence name) {
         try {
-            final String resolved = state.os.readlinkat(parentDir, name);
+            final CharSequence resolved = state.os.readlinkat(parentDir, name);
 
             final Uri uri = PublicProvider.publicUri(this, resolved, "rw");
 
@@ -483,9 +484,9 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
-    private void sharefile(int parentDir, String name) {
+    private void sharefile(int parentDir, CharSequence name) {
         try {
-            final String resolved = state.os.readlinkat(parentDir, name);
+            final CharSequence resolved = state.os.readlinkat(parentDir, name);
 
             final Uri uri = PublicProvider.publicUri(this, resolved);
 
@@ -591,7 +592,7 @@ public class MainActivity extends BaseActivity implements
         switch (item.getItemId()) {
             case R.id.menu_item_delete:
                 try {
-                    final String targetName = info.fileInfo.name;
+                    final CharSequence targetName = info.fileInfo.name;
                     try {
                         FsType fsType = info.fileInfo.type;
                         if (fsType == null) {
@@ -614,7 +615,7 @@ public class MainActivity extends BaseActivity implements
                 break;
             case R.id.menu_copy_path:
                 try {
-                    final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
+                    final CharSequence path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
 
                     ClipData data = ClipData.newPlainText("Absolute File Path", path);
 
@@ -628,7 +629,7 @@ public class MainActivity extends BaseActivity implements
                 try {
                     boolean cut = item.getItemId() == R.id.menu_item_cut;
 
-                    final String path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
+                    final CharSequence path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
 
                     final Uri uri = PublicProvider.publicUri(this, path, cut ? "rw" : "r");
 
@@ -690,7 +691,7 @@ public class MainActivity extends BaseActivity implements
         return true;
     }
 
-    private void showCreateShortcutDialog(String name) {
+    private void showCreateShortcutDialog(CharSequence name) {
         new ShortcutNameInputFragment(name).show(getFragmentManager(), null);
     }
 
@@ -704,7 +705,7 @@ public class MainActivity extends BaseActivity implements
         ft.copy(os, state.layout, sourceFile, dir, canRemoveOriginal);
     }
 
-    private void showRenameDialog(String name) {
+    private void showRenameDialog(CharSequence name) {
         new RenameNameInputFragment(name).show(getFragmentManager(), null);
     }
 
@@ -717,7 +718,7 @@ public class MainActivity extends BaseActivity implements
     }
 
     @Override
-    public void onNewNameChosen(String oldName, String newName) {
+    public void onNewNameChosen(CharSequence oldName, String newName) {
         if (oldName.equals(newName) || TextUtils.isEmpty(newName)) return;
 
         final @DirFd int dirFd = state.adapter.getFd();
@@ -761,7 +762,7 @@ public class MainActivity extends BaseActivity implements
         void act();
     }
 
-    private void doWithAccessChecks(@OS.AccessFlags int checks, @DirFd int dirFd, String path, Action action) throws IOException {
+    private void doWithAccessChecks(@OS.AccessFlags int checks, @DirFd int dirFd, CharSequence path, Action action) throws IOException {
         final boolean canAccess = state.os.isPrivileged() || state.os.faccessat(dirFd, path, checks);
 
         if (canAccess) {
@@ -794,9 +795,9 @@ public class MainActivity extends BaseActivity implements
     }
 
     @Override
-    public void onShortcutNameChosen(String shortcutTarget, String shortcutName) {
+    public void onShortcutNameChosen(CharSequence shortcutTarget, String shortcutName) {
         try {
-            final String path = state.os.readlinkat(state.adapter.getFd(), shortcutTarget);
+            final CharSequence path = state.os.readlinkat(state.adapter.getFd(), shortcutTarget);
 
             Utils.createShortcut(this, path, shortcutName);
         } catch (IOException e) {
@@ -818,7 +819,7 @@ public class MainActivity extends BaseActivity implements
     }
 
     @Override
-    public void onAffirmed(String fileName) {
+    public void onAffirmed(CharSequence fileName) {
         FileTasks ft = FileTasks.getInstance(this);
 
         try {

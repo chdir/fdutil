@@ -83,11 +83,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     @Override
     @CheckResult
     @WorkerThread
-    public int creat(@NonNull String path, int mode) throws IOException {
+    public int creat(@NonNull CharSequence path, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            final ParcelFileDescriptor pfd = factory.creat(path, mode);
+            final ParcelFileDescriptor pfd = factory.creat(path.toString(), mode);
 
             final @Fd int fdInt = pfd.detachFd();
 
@@ -103,30 +103,30 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public int opendir(@NonNull String path) throws IOException {
+    public int opendir(@NonNull CharSequence path) throws IOException {
         return opendirat(DirFd.NIL, path);
     }
 
     @Override
     @WorkerThread
     @SuppressWarnings("WrongConstant")
-    public int opendirat(@DirFd int fd, @NonNull String pathname) throws IOException {
+    public int opendirat(@DirFd int fd, @NonNull CharSequence pathname) throws IOException {
         return openat(fd, pathname, O_NOCTTY | O_DIRECTORY, 0);
     }
 
     @Override
     @WorkerThread
-    public int open(@NonNull String path, @OpenFlag int flags, int mode) throws IOException {
+    public int open(@NonNull CharSequence path, @OpenFlag int flags, int mode) throws IOException {
         return openat(DirFd.NIL, path, flags, mode);
     }
 
     @Override
     @WorkerThread
-    public int openat(@DirFd int fd, @NonNull String pathname, int flags, int mode) throws IOException {
+    public int openat(@DirFd int fd, @NonNull CharSequence pathname, int flags, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            final ParcelFileDescriptor pfd = factory.openat(fd, pathname, flags);
+            final ParcelFileDescriptor pfd = factory.openat(fd, pathname.toString(), flags);
 
             final @Fd int fdInt = pfd.detachFd();
 
@@ -143,11 +143,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     @NonNull
     @Override
     @WorkerThread
-    public String readlinkat(int fd, @NonNull String pathname) throws IOException {
+    public CharSequence readlinkat(int fd, @NonNull CharSequence pathname) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            return factory.readlinkat(fd, pathname);
+            return factory.readlinkat(fd, pathname.toString());
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -157,11 +157,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void renameat(@DirFd int fd, String name, @DirFd int fd2, String name2) throws IOException {
+    public void renameat(@DirFd int fd, CharSequence name, @DirFd int fd2, CharSequence name2) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.renameat(fd, name, fd2, name2);
+            factory.renameat(fd, name.toString(), fd2, name2.toString());
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -199,11 +199,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     }
 
     @Override
-    public void fstatat(@DirFd int dir, @NonNull String pathname, @NonNull Stat stat, int flags) throws IOException {
+    public void fstatat(@DirFd int dir, @NonNull CharSequence pathname, @NonNull Stat stat, int flags) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.fstatat(dir, pathname, stat, flags);
+            factory.fstatat(dir, pathname.toString(), stat, flags);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -238,16 +238,16 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     }
 
     @Override
-    public void symlinkat(@NonNull String name, @DirFd int target, @NonNull String newpath) throws IOException {
+    public void symlinkat(@NonNull CharSequence name, @DirFd int target, @NonNull CharSequence newpath) throws IOException {
         delegate.symlinkat(name, target, newpath);
     }
 
     @Override
-    public void linkat(@DirFd int oldDirFd, @NonNull String oldName, @DirFd int newDirFd, @NonNull String newName, @LinkAtFlags int flags) throws IOException {
+    public void linkat(@DirFd int oldDirFd, @NonNull CharSequence oldName, @DirFd int newDirFd, @NonNull CharSequence newName, @LinkAtFlags int flags) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.linkat(oldDirFd, oldName, newDirFd, newName, flags);
+            factory.linkat(oldDirFd, oldName.toString(), newDirFd, newName.toString(), flags);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -257,11 +257,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void unlinkat(@DirFd int target, @NonNull String pathname, @UnlinkAtFlags int flags) throws IOException {
+    public void unlinkat(@DirFd int target, @NonNull CharSequence pathname, @UnlinkAtFlags int flags) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.unlinkat(target, pathname, flags);
+            factory.unlinkat(target, pathname.toString(), flags);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -271,11 +271,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void mknodat(@DirFd int target, @NonNull String pathname, @FileTypeFlag int mode, int device) throws IOException {
+    public void mknodat(@DirFd int target, @NonNull CharSequence pathname, @FileTypeFlag int mode, int device) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.mknodat(target, pathname, mode, device);
+            factory.mknodat(target, pathname.toString(), mode, device);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -285,11 +285,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void mkdirat(@DirFd int target, @NonNull String pathname, int mode) throws IOException {
+    public void mkdirat(@DirFd int target, @NonNull CharSequence pathname, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.mkdirat(target, pathname, mode);
+            factory.mkdirat(target, pathname.toString(), mode);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -318,7 +318,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     }
 
     @Override
-    public boolean faccessat(int fd, @NonNull String pathname, int mode) throws IOException {
+    public boolean faccessat(int fd, @NonNull CharSequence pathname, int mode) throws IOException {
         if (delegate.faccessat(fd, pathname, mode)) {
             return true;
         }
@@ -326,7 +326,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            return factory.faccessat(fd, pathname, mode);
+            return factory.faccessat(fd, pathname.toString(), mode);
         } catch (FactoryBrokenException e) {
             factory = null;
 

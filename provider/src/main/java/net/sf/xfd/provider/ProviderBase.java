@@ -111,7 +111,7 @@ public final class ProviderBase extends ContextWrapper {
     }
 
     @NonNull
-    public String getTypeFastest(int dirFd, String name, Stat stat) {
+    public String getTypeFastest(int dirFd, CharSequence name, Stat stat) {
         if (stat.type != null) {
             switch (stat.type) {
                 case DIRECTORY:
@@ -187,7 +187,7 @@ public final class ProviderBase extends ContextWrapper {
 
             if (isLink) {
                 // check if link target has a usable extension
-                String resolved = null;
+                CharSequence resolved = null;
 
                 // Some filesystem (procfs, you!!) do export files as symlinks, but don't allow them
                 // to be open via these symlinks. Gotta be careful here.
@@ -317,7 +317,7 @@ public final class ProviderBase extends ContextWrapper {
                     os.fstatat(parentFd, name, stat, OS.AT_SYMLINK_NOFOLLOW);
 
                     if (stat.type == FsType.LINK) {
-                        String resolved = null;
+                        CharSequence resolved = null;
 
                         if (canSniffContent) {
                             try {
@@ -388,23 +388,29 @@ public final class ProviderBase extends ContextWrapper {
         }
     }
 
-    private static String getExtensionFast(String name) {
-        final int dot = name.lastIndexOf('.');
+    private static String getExtensionFast(CharSequence name) {
+        // XXX suspect conversion
+        final String nameStr = name.toString();
+
+        final int dot = nameStr.lastIndexOf('.');
 
         if (dot == -1 || dot == name.length() - 1) {
             return null;
         } else {
-            return name.substring(dot + 1, name.length());
+            return nameStr.substring(dot + 1, name.length());
         }
     }
 
-    public static String getExtensionFromPath(@CanonPath String path) {
-        final int dot = path.lastIndexOf('.');
+    public static String getExtensionFromPath(@CanonPath CharSequence path) {
+        // XXX suspect conversion
+        final String pathStr = path.toString();
 
-        if (dot == -1 || dot == path.length() - 1 || dot < path.lastIndexOf('/')) {
+        final int dot = pathStr.lastIndexOf('.');
+
+        if (dot == -1 || dot == path.length() - 1 || dot < pathStr.lastIndexOf('/')) {
             return null;
         } else {
-            return path.substring(dot + 1, path.length());
+            return pathStr.substring(dot + 1, path.length());
         }
     }
 
@@ -450,12 +456,15 @@ public final class ProviderBase extends ContextWrapper {
         }
     }
 
-    public static boolean isCanon(String s) {
+    public static boolean isCanon(CharSequence s) {
+        // XXX suspect conversion
+        final String str = s.toString();
+
         int l = s.length();
 
         // check for dots at the end
         if (s.charAt(l - 1) == '.') {
-            final int i = s.lastIndexOf('/');
+            final int i = str.lastIndexOf('/');
 
             if (i == l - 2 || (i == l - 3 && s.charAt(l - 2) == '.')) {
                 return false;
@@ -465,7 +474,7 @@ public final class ProviderBase extends ContextWrapper {
         // detect slash-dot-slash segments
         int start = 0; int idx;
         do {
-            idx = s.indexOf('/', start);
+            idx = str.indexOf('/', start);
 
             if (idx == -1) {
                 break;
@@ -679,8 +688,11 @@ public final class ProviderBase extends ContextWrapper {
         return builder.toString();
     }
 
-    static String canonString(String path) {
-        if (isCanon(path)) return path;
+    static String canonString(CharSequence path) {
+        // XXX suspect conversion
+        final String pathStr = path.toString();
+
+        if (isCanon(pathStr)) return pathStr;
 
         final StringBuilder builder = acquire(path.length());
 
@@ -801,9 +813,9 @@ public final class ProviderBase extends ContextWrapper {
 
                 if (s.type == FsType.LINK) {
                     try {
-                        final String resolved = os.readlinkat(parentFd, filename);
+                        CharSequence resolved = os.readlinkat(parentFd, filename);
 
-                        if (!filepath.equals(resolved)) {
+                        if (!filepath.contentEquals(resolved)) {
                             addNameCandidates(resolved, mimeCandidates);
                         }
 
@@ -868,8 +880,11 @@ public final class ProviderBase extends ContextWrapper {
         return false;
     }
 
-    private void addNameCandidates(String filepath, ObjectSet<String> mimeCandidates) {
-        final String name = extractName(filepath);
+    private void addNameCandidates(CharSequence filepath, ObjectSet<String> mimeCandidates) {
+        // XXX suspect conversion
+        final String filepathStr = filepath.toString();
+
+        final String name = extractName(filepathStr);
 
         if (TextUtils.isEmpty(name)) {
             return;

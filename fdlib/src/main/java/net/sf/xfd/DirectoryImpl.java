@@ -76,6 +76,7 @@ public final class DirectoryImpl implements Directory {
     private int fd;
     private ByteBuffer byteBuffer;
     private byte[] nameBytes;
+    private ByteBuffer nameBuffer;
     private Guard guard;
 
     @Keep
@@ -86,6 +87,8 @@ public final class DirectoryImpl implements Directory {
         this.fd = fd;
 
         nameBytes = new byte[FILENAME_MAX * 2 + 1];
+
+        nameBuffer = ByteBuffer.wrap(nameBytes);
 
         byteBuffer = nativeCreate(fd)
                 .order(ByteOrder.nativeOrder());
@@ -119,10 +122,14 @@ public final class DirectoryImpl implements Directory {
         return FsType.forDirentType((short) (rawType & 0xFF));
     }
 
-    String getName() {
+    CharSequence getName() {
         final int strLengthBytes = nativeGetStringBytes(nativePtr + byteBuffer.position(), nameBytes, nameBytes.length);
 
-        return nameDecoder.fromUtf8Bytes(nameBytes, 0, strLengthBytes);
+        nameBuffer.position(0);
+
+        nameBuffer.limit(strLengthBytes);
+
+        return nameDecoder.fromUtf8Bytes(nameBuffer);
     }
 
     /**

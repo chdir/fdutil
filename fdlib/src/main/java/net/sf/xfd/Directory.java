@@ -20,6 +20,7 @@ import android.support.annotation.Nullable;
 
 import java.io.Closeable;
 import java.io.File;
+import java.nio.ByteBuffer;
 
 /**
  * A semi-living window into filesystem directory. This class offers a way to perform bidirectional
@@ -169,7 +170,7 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable {
          * Name of file. May be empty.
          */
         @NonNull
-        public String name;
+        public CharSequence name;
 
         @Override
         public boolean equals(Object o) {

@@ -426,7 +426,10 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         }
     }
 
-    public void rmdir(OS os, String dirName, @DirFd int dir) throws IOException {
+    public void rmdir(OS os, CharSequence dirName, @DirFd int dir) throws IOException {
+        // XXX suspect conversion
+        final String dirNameString = dirName.toString();
+
         final @DirFd int dirCopy = os.dup(dir);
 
         final @DirFd int dirFd = os.opendirat(dir, dirName);
@@ -482,9 +485,9 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 while (iterator.moveToNext()) {
                     iterator.get(tempEntry);
 
-                    final String entryName = tempEntry.name;
+                    final CharSequence entryName = tempEntry.name;
 
-                    if (".".equals(entryName) || "..".equals(entryName)) continue;
+                    if (".".contentEquals(entryName) || "..".contentEquals(entryName)) continue;
 
                     try {
                         if (tempEntry.type == null) {
@@ -529,7 +532,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 if (s == null) {
                     final String msg = "Deletion complete";
 
-                    callback.onStatusUpdate(msg, dirName);
+                    callback.onStatusUpdate(msg, dirNameString);
 
                     toast(msg);
                 } else {
@@ -542,7 +545,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                             result = "Deletion failed";
                         }
 
-                        callback.onStatusUpdate(result, dirName);
+                        callback.onStatusUpdate(result, dirNameString);
 
                         toast(result);
                     }

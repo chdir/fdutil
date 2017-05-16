@@ -79,7 +79,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         return dirFd;
     }
 
-    private String pathname;
+    private CharSequence pathname;
 
     public void packState() {
         if (dirFd < 0) return;
