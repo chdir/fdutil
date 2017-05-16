@@ -82,7 +82,7 @@ public class ApplicationTest {
 
         try (Directory dir = setup.forFd(descriptor)) {
             for (Directory.Entry file : dir) {
-                cursorIterationResult.add(file.name);
+                cursorIterationResult.add(file.name.toString());
             }
 
             assertThat(cursorIterationResult)
@@ -114,7 +114,7 @@ public class ApplicationTest {
             while (iterator.moveToNext()) {
                 iterator.get(file);
 
-                cursorIterationResult.add(file.name);
+                cursorIterationResult.add(file.name.toString());
             }
 
             assertThat(cursorIterationResult)
@@ -154,7 +154,7 @@ public class ApplicationTest {
 
                 iterator.get(file);
 
-                cursorIterationResult.add(file.name);
+                cursorIterationResult.add(file.name.toString());
             }
             while (iterator.moveToPrevious());
 
@@ -216,9 +216,10 @@ public class ApplicationTest {
 
                 iterator.get(file);
 
-                final String got = file.name;
+                final CharSequence got = file.name;
 
-                if (!expected.equals(got)) {
+                // XXX suspect comparison
+                if (!expected.contentEquals(got)) {
                     assertWithMessage("moving from %s to %s yielded unexpected results, jumps: %s", pos, newPos + 2, jumps)
                             .that(expected).isEqualTo(got);
                 }

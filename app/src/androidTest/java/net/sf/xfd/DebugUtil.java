@@ -31,4 +31,31 @@ public class DebugUtil {
             }
         }
     }
+
+    public static CharSequence wrapRawForm(String utf8Suffix) {
+        return new NativeString(utf8Suffix.getBytes(), "whoops");
+    }
+
+    public static CharSequence buildCharSequence(byte[] randPrefix, byte[] name, String utf8Suffix) {
+        for (int i = 0; i < randPrefix.length; ++i) {
+            // erase null bytes and slashes
+            if (randPrefix[i] == 0 || randPrefix[i] == 47) {
+                randPrefix[i] = 1;
+            }
+        }
+
+        final byte[] last = utf8Suffix.getBytes();
+
+        final byte[] resulting = new byte[randPrefix.length + name.length + last.length];
+
+        System.arraycopy(randPrefix, 0, resulting, 0, randPrefix.length);
+        System.arraycopy(name, 0, resulting, randPrefix.length, name.length);
+        System.arraycopy(last, 0, resulting, randPrefix.length + name.length, last.length);
+
+        return new NativeString(resulting, "whoops");
+    }
+
+    public static byte[] getBytes(CharSequence sequence) {
+        return sequence.getClass() == NativeString.class ? ((NativeString) sequence).bytes : sequence.toString().getBytes();
+    }
 }

@@ -93,11 +93,11 @@ public class InteractiveChanges {
             do {
                 iterator.get(file);
 
-                if ("..".equals(file.name) || ".".equals(file.name)) {
+                if ("..".contentEquals(file.name) || ".".contentEquals(file.name)) {
                     continue;
                 }
 
-                cursorIterationResult.add(file.name);
+                cursorIterationResult.add(file.name.toString());
 
                 Log.d("test", file.toString() + ' ' + d.getOpaqueIndex(iterator.getPosition()));
             } while (iterator.moveToNext());
@@ -141,11 +141,11 @@ public class InteractiveChanges {
             do {
                 iterator.get(file);
 
-                if ("..".equals(file.name) || ".".equals(file.name)) {
+                if ("..".contentEquals(file.name) || ".".contentEquals(file.name)) {
                     continue;
                 }
 
-                cursorIterationResult.add(file.name);
+                cursorIterationResult.add(file.name.toString());
             } while (iterator.moveToNext());
         } finally {
             //noinspection ResultOfMethodCallIgnored
@@ -186,7 +186,7 @@ public class InteractiveChanges {
                 if (iterator.getPosition() == positionToRemove) {
                     iterator.get(file);
 
-                    removed = new File(setup.dir, file.name);
+                    removed = new File(setup.dir.toString(), file.name.toString());
 
                     if (!removed.delete()) {
                         throw new AssertionError("Unable to remove " + file);
@@ -200,7 +200,7 @@ public class InteractiveChanges {
             do { // 8ef93436-0363-4785-8b7c-c5b04c5cf52c
                 iterator.get(file);
 
-                if (!"..".equals(file.name) && !".".equals(file.name)) {
+                if (!"..".contentEquals(file.name) && !".".contentEquals(file.name)) {
                     final int currentPosition = iterator.getPosition();
 
                     final long accountablePosition = d.getOpaqueIndex(currentPosition);
@@ -210,7 +210,7 @@ public class InteractiveChanges {
                                 " found at position " + currentPosition);
                     }
 
-                    cursorContentsIterationResult.add(file.name);
+                    cursorContentsIterationResult.add(file.name.toString());
                 }
 
                 int prev = iterator.getPosition() - 1;

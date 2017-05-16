@@ -121,7 +121,7 @@ public abstract class TestSetup {
 
         @Override
         public Directory forFd(@DirFd int fd) {
-            return new CrappyDirectory(os.list(fd));
+            return os.list(fd);
         }
     }
 
