@@ -50,9 +50,9 @@ final class BlockingGuards extends GuardFactory {
 
         @Override
         public void close() {
-            super.close();
-
-            os.dispose(fd);
+            if (remove(this)) {
+                os.dispose(fd);
+            }
         }
     }
 
@@ -72,11 +72,9 @@ final class BlockingGuards extends GuardFactory {
 
         @Override
         public void close() {
-            super.close();
-
-            free(pointer);
+            if (remove(this)) {
+                Android.free(pointer);
+            }
         }
     }
-
-    private static native void free(long pointer);
 }

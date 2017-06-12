@@ -36,15 +36,32 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     JNIEnv *env;
 
     if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        __android_log_print(ANDROID_LOG_FATAL, "fdutil", "WTF: GetEnv failed; halting");
+
+        abort();
+    }
+
+    illegalStateException = saveClassRef("java/lang/IllegalStateException", env);
+    if (illegalStateException == NULL) {
+        env -> FatalError("WTF: IllegalStateException can not be loaded; halting");
+    }
+
+    oomError = saveClassRef("java/lang/OutOfMemoryError", env);
+    if (oomError == NULL) {
         return -1;
     }
 
-    jclass versionClass = env->FindClass("android/os/Build$VERSION");
+    ioException = saveClassRef("java/io/IOException", env);
+    if (ioException == NULL) {
+        return -1;
+    }
+
+    jclass versionClass = safeFindClass("android/os/Build$VERSION", env);
 
     if (versionClass == NULL)
         return -1;
 
-    jfieldID sdkIntFieldID = env->GetStaticFieldID(versionClass, "SDK_INT", "I");
+    jfieldID sdkIntFieldID = safeGetStaticField(versionClass, "SDK_INT", "I", env);
 
     if (sdkIntFieldID == NULL) {
         return -1;
@@ -56,13 +73,18 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    byteArrayClass = saveClassRef("[B", env);
-    if (byteArrayClass == NULL) {
+    jclass arenaClass = saveClassRef("net/sf/xfd/Arena", env);
+    if (arenaClass == NULL) {
         return -1;
     }
 
-    ioException = saveClassRef("java/io/IOException", env);
-    if (ioException == NULL) {
+    arenaConstructor = env->GetMethodID(arenaClass, "<init>", "(JLjava/nio/ByteBuffer;Lnet/sf/xfd/GuardFactory;)V");
+    if (arenaConstructor == NULL) {
+        return -1;
+    }
+
+    byteArrayClass = saveClassRef("[B", env);
+    if (byteArrayClass == NULL) {
         return -1;
     }
 
@@ -73,16 +95,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     iieConstructor = env->GetMethodID(iIoException, "<init>", "(JLjava/lang/String;)V");
     if (iieConstructor == NULL) {
-        return -1;
-    }
-
-    oomError = saveClassRef("java/lang/OutOfMemoryError", env);
-    if (oomError == NULL) {
-        return -1;
-    }
-
-    illegalStateException = saveClassRef("java/lang/IllegalStateException", env);
-    if (illegalStateException == NULL) {
         return -1;
     }
 
@@ -103,16 +115,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     limitContainerInit = env->GetMethodID(limitContainer, "init", "(JJ)V");
     if (limitContainerInit == NULL) {
-        return -1;
-    }
-
-    limitContainerCur = env -> GetFieldID(limitContainer, "current", "J");
-    if (limitContainerCur == NULL) {
-        return -1;
-    }
-
-    limitContainerMax = env -> GetFieldID(limitContainer, "max", "J");
-    if (limitContainerMax == NULL) {
         return -1;
     }
 
@@ -137,16 +139,32 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 
 JNIEXPORT void JNICALL Java_net_sf_xfd_NativeBits_fixConstants(JNIEnv *env, jclass type) {
     jfieldID nonblock = env -> GetStaticFieldID(type, "O_NONBLOCK", "I");
-    env -> SetStaticIntField(type, nonblock, O_NONBLOCK);
+    if (nonblock == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        env -> ExceptionClear();
+    } else {
+        env -> SetStaticIntField(type, nonblock, O_NONBLOCK);
+    }
 
     jfieldID noctty = env -> GetStaticFieldID(type, "O_NOCTTY", "I");
-    env -> SetStaticIntField(type, noctty, O_NOCTTY);
+    if (noctty == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        env -> ExceptionClear();
+    } else {
+        env -> SetStaticIntField(type, noctty, O_NOCTTY);
+    }
 
     jfieldID nofollow = env -> GetStaticFieldID(type, "O_NOFOLLOW", "I");
-    env -> SetStaticIntField(type, nofollow, O_NOFOLLOW);
+    if (nofollow == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        env -> ExceptionClear();
+    } else {
+        env -> SetStaticIntField(type, nofollow, O_NOFOLLOW);
+    }
 
     jfieldID rlimit_nofile = env -> GetStaticFieldID(type, "RLIMIT_NOFILE", "I");
-    env -> SetStaticIntField(type, rlimit_nofile, RLIMIT_NOFILE);
+    if (rlimit_nofile == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        env -> ExceptionClear();
+    } else {
+        env -> SetStaticIntField(type, rlimit_nofile, RLIMIT_NOFILE);
+    }
 }
 
 JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, jobject path, jint flags, jint mode) {
@@ -207,6 +225,43 @@ cleanup:
     return newFd;
 }
 
+JNIEXPORT jobject JNICALL Java_net_sf_xfd_Arena_allocate(JNIEnv *env, jclass type, jint size, jint alignment, jobject guards) {
+    void* bufferAddress;
+
+    size_t s = (size_t) size;
+    size_t a = (size_t) alignment;
+
+    switch (alignment) {
+        case -1:
+            a = pageSize;
+        default:
+            if (alignment < 0 && alignment != -1 && abs(alignment) > pageSize) {
+                a = (size_t) abs(alignment);
+            }
+
+            bufferAddress = memalign(a, s);
+
+            if (bufferAddress != NULL) {
+                break;
+            }
+        case 0:
+            bufferAddress = malloc(s);
+    }
+
+    if (bufferAddress == NULL) {
+        env -> ThrowNew(oomError, "buffer");
+        return NULL;
+    }
+
+    jobject buffer = env -> NewDirectByteBuffer(bufferAddress, size);
+
+    if (env -> IsSameObject(buffer, NULL)) {
+        return NULL;
+    }
+
+    return env -> NewObject(type, arenaConstructor, reinterpret_cast<jlong>(bufferAddress), buffer, guards);
+}
+
 JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
     if (close(fd) == -1) {
         handleError(env);
@@ -261,7 +316,7 @@ JNIEXPORT jint JNICALL PKG_SYM(inotify_1init)(JNIEnv *env, jobject instance) {
     return fd;
 }
 
-JNIEXPORT void JNICALL Java_net_sf_xfd_BlockingGuards_free(JNIEnv *env, jclass cl, jlong pointer) {
+JNIEXPORT void JNICALL PKG_SYM(free)(JNIEnv *env, jclass unused, jlong pointer) {
     free(reinterpret_cast<void*>(pointer));
 }
 
@@ -269,20 +324,6 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_BlockingGuards_free(JNIEnv *env, jclass c
 
 static_assert (CHUNK_SIZE < SIZE_MAX, "size_t has unexpected size");
 static_assert (CHUNK_SIZE < SSIZE_MAX, "ssize_t has unexpected size");
-
-JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_nativeInit(JNIEnv *env, jclass type) {
-    if (pageSize > 1024 * 1024 * 2) {
-        pageSize = 1024 * 4;
-    }
-
-    void *bufferAddress = memalign(pageSize, CHUNK_SIZE);
-
-    if (bufferAddress == NULL) {
-        env -> ThrowNew(oomError, "copy buffer");
-    }
-
-    return reinterpret_cast<jlong>(bufferAddress);
-}
 
 static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t* sizeRef, jint fd1, jint fd2) {
     int64_t size = *sizeRef;
@@ -362,7 +403,7 @@ bail:
     return -1;
 }
 
-JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doSendfile(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
+JNIEXPORT jlong JNICALL PKG_SYM(doSendfile)(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
 
     int64_t totalBytes,remaining;
@@ -437,7 +478,7 @@ interrupted:
     return -1;
 }
 
-JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doSplice(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
+JNIEXPORT jlong JNICALL PKG_SYM(doSplice)(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
 
     int64_t totalBytes,remaining;
@@ -510,7 +551,7 @@ interrupted:
     return -1;
 }
 
-JNIEXPORT jlong JNICALL Java_net_sf_xfd_CopyImpl_doDumbCopy(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong size, jint fd1, jint fd2) {
+JNIEXPORT jlong JNICALL PKG_SYM(doDumbCopy)(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong size, jint fd1, jint fd2) {
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
 
     jlong initial = size;

@@ -44,7 +44,7 @@ add_library( # Sets the name of the library.
 include_directories(prebuilt)
 
 target_compile_definitions(magic-${MAGIC_NATIVE_VER} PRIVATE VERSION=5.29 HAVE_CONFIG_H ZLIBSUPPORT)
-target_compile_options(magic-${MAGIC_NATIVE_VER} PRIVATE -Wall -fvisibility=hidden)
+target_compile_options(magic-${MAGIC_NATIVE_VER} PRIVATE -Wall -Os -flto -fvisibility=hidden)
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because system libraries are included in the search path by

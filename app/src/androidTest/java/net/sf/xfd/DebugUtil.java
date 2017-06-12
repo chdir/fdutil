@@ -56,6 +56,6 @@ public class DebugUtil {
     }
 
     public static byte[] getBytes(CharSequence sequence) {
-        return sequence.getClass() == NativeString.class ? ((NativeString) sequence).bytes : sequence.toString().getBytes();
+        return sequence.getClass() == NativeString.class ? ((NativeString) sequence).toBytes() : sequence.toString().getBytes();
     }
 }

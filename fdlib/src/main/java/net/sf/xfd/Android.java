@@ -24,6 +24,7 @@ import android.support.annotation.Nullable;
 import net.sf.fakenames.fdlib.BuildConfig;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 import static net.sf.xfd.NativeBits.*;
@@ -170,7 +171,33 @@ final class Android extends OS {
     @NonNull
     @Override
     public Directory list(@DirFd int fd) {
-        return new DirectoryImpl(fd, GuardFactory.getInstance(this));
+        // If https://serverfault.com/a/9548 is to be trusted, the biggest filename length
+        // in Linux as of 2026 is 510 bytes (VFAT UCS-2 filenames)
+        int MIN_BUF_SIZE = 1024 * 4;
+
+        // Let's go with Binder's favorite size and use 1Mb as upper bound of buffer size
+        int MAX_BUF_SIZE = 1024 * 1024;
+
+        int size = MIN_BUF_SIZE;
+
+        final Stat dirStat = new Stat();
+
+        try {
+            fstat(fd, dirStat);
+
+            if (dirStat.type != null && dirStat.type != FsType.DIRECTORY) {
+                throw new IllegalArgumentException("Expected directory, but got " + dirStat.type);
+            }
+
+            size = dirStat.st_blksize <= 0
+                    ? MIN_BUF_SIZE
+                    : (dirStat.st_blksize > MAX_BUF_SIZE ? MAX_BUF_SIZE : dirStat.st_blksize);
+        } catch (ErrnoException ignored) {
+        }
+
+        final Arena buf = Arena.allocate(size, Arena.PAGE_ALIGN, GuardFactory.getInstance(this));
+
+        return new DirectoryImpl(fd, buf);
     }
 
     /**
@@ -184,7 +211,11 @@ final class Android extends OS {
     @NonNull
     @Override
     public Copy copy() {
-        return new CopyImpl(this);
+        int CHUNK_SIZE = 64 * 1024;
+
+        final Arena buf = Arena.allocate(CHUNK_SIZE, Arena.PAGE_ALIGN, GuardFactory.getInstance(this));
+
+        return new CopyImpl(buf);
     }
 
     /**
@@ -219,7 +250,16 @@ final class Android extends OS {
     @NonNull
     @Override
     public Inotify observe(@InotifyFd int fd, @Nullable Looper looper) {
-        return new InotifyImpl(fd, looper, this, GuardFactory.getInstance(this));
+        return new InotifyImpl(fd, looper, createBuffer(), this);
+    }
+
+    private Arena createBuffer() {
+        // If https://serverfault.com/a/9548 is to be trusted, the biggest filename length
+        // in Linux as of 2026 is 510 bytes (VFAT UCS-2 filenames)
+        // Let's go with Binder's favorite size and use 1Mb as upper bound of buffer size
+        int MAX_BUF_SIZE = 1024 * 1024;
+
+        return Arena.allocate(MAX_BUF_SIZE, Arena.PAGE_ALIGN, GuardFactory.getInstance(this));
     }
 
     /**
@@ -288,7 +328,7 @@ final class Android extends OS {
 
     private static Object toNative(CharSequence string) {
         if (string.getClass() == NativeString.class) {
-            return ((NativeString) string).bytes;
+            return ((NativeString) string).toBytes();
         }
 
         final String chars = string.toString();
@@ -327,4 +367,49 @@ final class Android extends OS {
     private static native void nativeSetrlimit(long cur, long max, int type) throws ErrnoException;
 
     private static native void nativeFsync(long nativePtr, int fd) throws ErrnoException;
+
+    // used by DirectoryImpl
+
+    // seek to specified position (or opaque "position" in case of directories)
+    // returns new position on success
+    static native long seekTo(int dirFd, long cookie) throws ErrnoException;
+
+    // seek to the start of directory (zeroth item)
+    // should never fail because Linux directories have two items at minimal
+    static native void rewind(int dirFd) throws ErrnoException;
+
+    // read next dirent value into the buffer
+    // returns count of bytes read (e.g. total size of all dirent structures read) or 0 on reaching end
+    static native int nativeReadNext(int dirFd, long nativeBufferPtr, int capacity) throws ErrnoException;
+
+    // retrieve string bytes from byte buffer
+    // returns number of bytes written (terminator byte is not written/counted)
+    static native int nativeGetStringBytes(long entryPtr, byte[] reuse, int arrSize);
+
+    // used by CopyImpl
+
+    static native long doSendfile(long buffer, long interruptPtr, long size, int fd1, int fd2) throws IOException;
+
+    static native long doSplice(long buffer, long interruptPtr, long size, int fd1, int fd2) throws IOException;
+
+    static native long doDumbCopy(long buffer, long interruptPtr, long size, int fd1, int fd2) throws IOException;
+
+    // Used by FdStream
+
+    static native int nativeRead(ByteBuffer buffer, @Fd int fd, int to, int bytes) throws IOException;
+
+    static native int nativeWrite(ByteBuffer buffer, @Fd int fd, int from, int bytes) throws IOException;
+
+    // Used by Interruption
+
+    static native void i10nInit();
+
+    static native void unblockSignal();
+
+    static native boolean nativeInterrupt(long nativePtr, int tid);
+
+    static native boolean nativeInterrupted(long nativePtr);
+
+    // Used by BlockingGuards
+    static native void free(long pointer);
 }

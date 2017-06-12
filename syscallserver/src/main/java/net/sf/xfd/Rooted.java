@@ -366,7 +366,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     private final class RootInotify extends InotifyImpl {
         RootInotify(@InotifyFd int fd, @Nullable Looper looper) {
-            super(fd, looper, Rooted.this, GuardFactory.getInstance(delegate));
+            super(fd, looper, createBuffer(), Rooted.this);
         }
 
         @Override
@@ -382,6 +382,15 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
                 throw new IOException("inotify_add_watch() failed, unable to access privileged process", e);
             }
         }
+    }
+
+    private Arena createBuffer() {
+        // If https://serverfault.com/a/9548 is to be trusted, the biggest filename length
+        // in Linux as of 2026 is 510 bytes (VFAT UCS-2 filenames)
+        // Let's go with Binder's favorite size and use 1Mb as upper bound of buffer size
+        int MAX_BUF_SIZE = 1024 * 1024;
+
+        return Arena.allocate(MAX_BUF_SIZE, Arena.PAGE_ALIGN, GuardFactory.getInstance(this));
     }
 
     private static final class FactoryGuard extends CloseableGuard {

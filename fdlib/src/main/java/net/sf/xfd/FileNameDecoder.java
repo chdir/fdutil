@@ -23,9 +23,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Shamelessly borrowed from Android Lollipop StringFactory class
- */
 final class FileNameDecoder {
     // 255 16-bit units is VFAT name length (biggest known so far), but let's make an extra
     private static final int NAME_CHAR_MAX = 255 * 2;

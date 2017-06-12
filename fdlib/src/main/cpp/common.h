@@ -37,13 +37,9 @@ extern jmethodID iieConstructor;
 extern jmethodID errnoExceptionConstructor;
 extern jmethodID statContainerInit;
 extern jmethodID limitContainerInit;
+extern jmethodID arenaConstructor;
 
 extern size_t pageSize;
-
-extern jfieldID directoryImplPointerField;
-extern jfieldID inotifyImplPointerField;
-extern jfieldID limitContainerCur;
-extern jfieldID limitContainerMax;
 
 extern void handleError(JNIEnv *env);
 extern void handleError(JNIEnv *env, int lastError);
@@ -54,14 +50,44 @@ extern jworkaroundstr toString(JNIEnv *env, char* linuxString, int bufferSize, j
 
 #define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "fdlib", __VA_ARGS__))
 
-inline static jclass saveClassRef(const char* name, JNIEnv *env) {
+inline static jclass safeFindClass(const char* name, JNIEnv *env) {
     jclass found = env -> FindClass(name);
+
+    if (found == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        return NULL;
+    }
+
+    return found;
+}
+
+inline static jclass saveClassRef(const char* name, JNIEnv *env) {
+    jclass found = safeFindClass(name, env);
 
     if (found == NULL) {
         return NULL;
     }
 
     return reinterpret_cast<jclass>(env->NewGlobalRef(found));
+}
+
+inline static jmethodID safeGetMethod(jclass type, const char* name, const char* sig, JNIEnv *env) {
+    jmethodID found = env -> GetMethodID(type, name, sig);
+
+    if (found == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        return NULL;
+    }
+
+    return found;
+}
+
+inline static jfieldID safeGetStaticField(jclass type, const char* name, const char* sig, JNIEnv *env) {
+    jfieldID found = env -> GetStaticFieldID(type, name, sig);
+
+    if (found == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+        return NULL;
+    }
+
+    return found;
 }
 
 inline static void throwInterrupted(JNIEnv* env, jlong copied, const char* message) {

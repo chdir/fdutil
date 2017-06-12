@@ -15,8 +15,11 @@
  */
 package net.sf.xfd;
 
+import android.support.annotation.Keep;
+
 import java.io.IOException;
 
+@Keep
 public final class ErrnoException extends IOException {
     public static final int EOPNOTSUPP = 95;
     public static final int ENOTDIR = 20;

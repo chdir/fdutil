@@ -59,10 +59,6 @@ public class InotifyImpl implements Inotify {
     // cache references etc.
     private static native void nativeInit();
 
-    // allocate/release the direct buffer
-    private native ByteBuffer nativeCreate();
-    private static native void nativeRelease(long bufferPointer);
-
     private final OS os;
 
     private volatile boolean done;
@@ -70,12 +66,10 @@ public class InotifyImpl implements Inotify {
     private final IntObjectMap<Watch> subscriptions =  new IntObjectHashMap<>();
 
     private final @InotifyFd int fd;
+    private final Arena arena;
     private final ByteBuffer readBuffer;
+    private final long nativePtr;
     private final Looper looper;
-    private final Guard guard;
-
-    @Keep
-    private long nativePtr;
 
     // a "channel" created specifically for purpose of using Selector API with inotify descriptors
     private DatagramChannel fake;
@@ -84,17 +78,16 @@ public class InotifyImpl implements Inotify {
 
     private SelectionKey selectionKey;
 
-    public InotifyImpl(@InotifyFd int fd, @Nullable Looper looper, OS os, GuardFactory factory) {
+    public InotifyImpl(@InotifyFd int fd, @Nullable Looper looper, Arena arena, OS os) {
         this.fd = fd;
 
         this.looper = looper != null ? looper : Looper.getMainLooper();
 
         this.os = os;
 
-        readBuffer = nativeCreate()
-                .order(ByteOrder.nativeOrder());
-
-        guard = factory.forMemory(this, nativePtr);
+        this.arena = arena;
+        this.nativePtr = arena.getPtr();
+        this.readBuffer = arena.getBuf();
     }
 
     // bindings for inotify_add_watch/inotify_rm_watch
@@ -273,7 +266,7 @@ public class InotifyImpl implements Inotify {
             if (!done) {
                 done = true;
 
-                guard.close();
+                arena.close();
 
                 for (ObjectCursor<Watch> observers : subscriptions.values()) {
                     observers.value.onReset();

@@ -15,7 +15,6 @@
  */
 package net.sf.xfd;
 
-import android.support.annotation.CallSuper;
 import android.util.Log;
 
 import java.lang.ref.PhantomReference;
@@ -44,7 +43,7 @@ public abstract class CloseableGuard<T> extends PhantomReference<T> implements G
         first = cl;
     }
 
-    private static synchronized boolean remove(CloseableGuard cl) {
+    protected static synchronized boolean remove(CloseableGuard cl) {
         // If already removed, do nothing
         if (cl.next == cl) return false;
 
@@ -81,7 +80,6 @@ public abstract class CloseableGuard<T> extends PhantomReference<T> implements G
     protected abstract void trigger();
 
     @Override
-    @CallSuper
     public void close() {
         remove(this);
     }

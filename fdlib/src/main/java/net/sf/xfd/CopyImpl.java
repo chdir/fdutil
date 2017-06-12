@@ -21,17 +21,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class CopyImpl implements Copy {
     private static final int CHUNK_SIZE = 64 * 1024;
 
-    private final AtomicBoolean dead = new AtomicBoolean();
+    private final Arena buffer;
+    private final long nativePtr;
 
-    private final Guard guard;
-    private final long bufferPtr;
-
-    CopyImpl(OS os) {
-        this.bufferPtr = nativeInit();
-
-        final GuardFactory factory = GuardFactory.getInstance(os);
-
-        this.guard = factory.forMemory(this, bufferPtr);
+    CopyImpl(Arena buffer) {
+        this.buffer = buffer;
+        this.nativePtr = buffer.getPtr();
     }
 
     @Override
@@ -51,13 +46,13 @@ public class CopyImpl implements Copy {
                 final FsType tType = targetStat.type;
 
                 if (sType == FsType.FILE && (tType == FsType.FILE || tType == FsType.DOMAIN_SOCKET)) {
-                    return doSendfile(bufferPtr, i.nativePtr, bytes, source, target);
+                    return Android.doSendfile(nativePtr, i.nativePtr, bytes, source, target);
                 } else if (sType == FsType.NAMED_PIPE || tType == FsType.NAMED_PIPE) {
-                    return doSplice(bufferPtr, i.nativePtr, bytes, source, target);
+                    return Android.doSplice(nativePtr, i.nativePtr, bytes, source, target);
                 }
             }
 
-            return doDumbCopy(bufferPtr, i.nativePtr, bytes, source, target);
+            return Android.doDumbCopy(nativePtr, i.nativePtr, bytes, source, target);
         } finally {
             stage.end();
         }
@@ -65,16 +60,6 @@ public class CopyImpl implements Copy {
 
     @Override
     public void close() {
-        if (dead.compareAndSet(false, true)) {
-            guard.close();
-        }
+        buffer.close();
     }
-
-    private static native long nativeInit();
-
-    private static native long doSendfile(long buffer, long interruptPtr, long size, int fd1, int fd2) throws IOException;
-
-    private static native long doSplice(long buffer, long interruptPtr, long size, int fd1, int fd2) throws IOException;
-
-    private static native long doDumbCopy(long buffer, long interruptPtr, long size, int fd1, int fd2) throws IOException;
 }

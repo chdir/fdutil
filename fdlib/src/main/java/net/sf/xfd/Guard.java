@@ -62,6 +62,10 @@ import java.io.Closeable;
  * For a concrete solution see {@link CloseableGuard}
  */
 public interface Guard extends Closeable {
+    /**
+     * Dispose of resources. This method is idempotent, calling it second and following times
+     * has no effect.
+     */
     @Override
     void close();
 }

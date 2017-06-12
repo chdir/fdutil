@@ -17,7 +17,6 @@ package net.sf.xfd;
 
 import android.app.Application;
 import android.os.Process;
-import android.support.annotation.Keep;
 import android.support.annotation.NonNull;
 
 import java.io.Closeable;
@@ -61,7 +60,7 @@ public final class Interruption implements Closeable {
         try {
             OS result = Android.getInstance();
 
-            nativeInit();
+            Android.i10nInit();
 
             return result;
         } catch (IOException ignored) {
@@ -70,20 +69,22 @@ public final class Interruption implements Closeable {
     }
 
     public static @NonNull Interruption newInstance() {
-        return nativeCreate();
+        return new Interruption(Arena.allocate(1, 0, GuardFactory.getInstance(os)));
     }
 
-    final Guard guard;
+    final Arena arena;
 
     final long nativePtr;
 
     final ByteBuffer buf;
 
-    @Keep
-    private Interruption(ByteBuffer buf, long nativePtr) {
-        this.buf = buf;
-        this.nativePtr = nativePtr;
-        this.guard = factory.forMemory(this, nativePtr);
+    private Interruption(Arena arena) {
+        this.arena = arena;
+        this.buf = arena.getBuf();
+        this.nativePtr = arena.getPtr();
+
+        // initialize the buffer, since Arena is uninitialized by default
+        buf.put(0, (byte) 0);
     }
 
     /**
@@ -100,7 +101,9 @@ public final class Interruption implements Closeable {
      * {@link Application} startup or at least once in the {@link Thread#run} method of each thread
      * you expect to signal.
      */
-    public static native void unblockSignal();
+    public static void unblockSignal() {
+        Android.unblockSignal();
+    }
 
     /**
      * Obtains cached Linux thread ID, that can be used with {@link #interrupt}
@@ -125,7 +128,7 @@ public final class Interruption implements Closeable {
      * @param tid native thread ID (as returned by {@link Process#myTid()}
      */
     public void interrupt(int tid) {
-        nativeInterrupt(nativePtr, tid);
+        Android.nativeInterrupt(nativePtr, tid);
     }
 
     /**
@@ -137,7 +140,7 @@ public final class Interruption implements Closeable {
      * @return whether the thread was previously
      */
     public boolean interrupted() {
-        return nativeInterrupted(nativePtr);
+        return Android.nativeInterrupted(nativePtr);
     }
 
     /**
@@ -152,17 +155,9 @@ public final class Interruption implements Closeable {
         return buf.get(0) != 0;
     }
 
-    private static native void nativeInit();
-
-    private static native boolean nativeInterrupt(long nativePtr, int tid);
-
-    private static native boolean nativeInterrupted(long nativePtr);
-
-    private static native Interruption nativeCreate();
-
     @Override
     public void close() {
-        guard.close();
+        arena.close();
     }
 
     private static final class TidCache extends ThreadLocal<Integer> {

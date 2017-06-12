@@ -17,11 +17,12 @@ android {
         versionName '0.1'
 
         buildConfigField 'int', 'NATIVE_VER', "$nativeVersionCode"
+        buildConfigField 'String', 'LOG_TAG', '"fdutil"'
 
         externalNativeBuild {
             cmake {
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
-                arguments "-DCOREIO_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_TOOLCHAIN=gcc"
+                arguments "-DCOREIO_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_TOOLCHAIN=gcc", "-DANDROID_ARM_MODE=thumb"
                 cppFlags '-std=c++11'
             }
         }

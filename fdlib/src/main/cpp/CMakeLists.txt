@@ -27,7 +27,7 @@ add_library( # Sets the name of the library.
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VERBOSE_MAKEFILE on)
 
-target_compile_options(coreio-${COREIO_NATIVE_VER} PRIVATE -Wall -Wunused-parameter -fno-omit-frame-pointer -fvisibility=hidden)
+target_compile_options(coreio-${COREIO_NATIVE_VER} PRIVATE -Os -Wall -Wunused-parameter -fno-omit-frame-pointer -fvisibility=hidden)
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because system libraries are included in the search path by

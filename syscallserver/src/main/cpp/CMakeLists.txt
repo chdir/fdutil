@@ -59,7 +59,7 @@ add_library(libsepol STATIC util/libsepol/src/assertion.c
 include_directories(util/libsepol/include)
 include_directories(util/libsepol/src)
 
-target_compile_options(libsepol PRIVATE "-D_GNU_SOURCE -Wall -W -Wundef -Wshadow -Wmissing-noreturn -Wmissing-format-attribute -x c -std=gnu89")
+target_compile_options(libsepol PRIVATE "-D_GNU_SOURCE -Wall -Os -W -Wundef -Wshadow -Wmissing-noreturn -Wmissing-format-attribute -x c -std=gnu89")
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because system libraries are included in the search path by

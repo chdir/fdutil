@@ -15,8 +15,11 @@
  */
 package net.sf.xfd;
 
+import android.support.annotation.Keep;
+
 import java.io.IOException;
 
+@Keep
 public final class NativeBits {
     private NativeBits() {}
 

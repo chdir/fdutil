@@ -21,31 +21,34 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.GetChars;
 
+import net.openhft.hashing.Access;
 import net.openhft.hashing.LongHashFunction;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 
-public final class NativeString implements GetChars, Parcelable {
+final class NativeString implements GetChars, Parcelable {
     private static final LongHashFunction hasher = LongHashFunction.xx();
 
-    byte[] bytes;
+    private final ByteBuffer bytes;
+
     String string;
 
     NativeString(byte[] bytes) {
-        this.bytes = bytes;
+        this.bytes = ByteBuffer.wrap(bytes);
     }
 
     NativeString(ByteBuffer container) {
-        this.bytes = new byte[container.limit()];
+        this.bytes = ByteBuffer.allocate(container.limit());
 
-        container.clear();
+        container.rewind();
 
-        container.get(bytes);
+        this.bytes.put(container);
     }
 
     NativeString(byte[] bytes, @Nullable String decoded) {
-        this.bytes = bytes;
+        this.bytes = ByteBuffer.wrap(bytes);
         this.string = decoded;
     }
 
@@ -92,7 +95,7 @@ public final class NativeString implements GetChars, Parcelable {
     }
 
     private void createString() {
-        string = new String(bytes);
+        string = new String(bytes.array());
     }
 
     @Override
@@ -102,7 +105,7 @@ public final class NativeString implements GetChars, Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeByteArray(bytes);
+        dest.writeByteArray(bytes.array());
     }
 
     public static final Creator<NativeString> CREATOR = new Creator<NativeString>() {
@@ -119,7 +122,11 @@ public final class NativeString implements GetChars, Parcelable {
 
     @Override
     public int hashCode() {
-        return (int) hasher.hashBytes(bytes);
+        return (int) longHash();
+    }
+
+    public long longHash() {
+        return hasher.hash(bytes, BufferAccess.INSTANCE, 0, bytes.capacity());
     }
 
     @Override
@@ -129,9 +136,59 @@ public final class NativeString implements GetChars, Parcelable {
         }
 
         if (obj.getClass()  == NativeString.class) {
-            return Arrays.equals(bytes, ((NativeString) obj).bytes);
+            return Arrays.equals(bytes.array(), ((NativeString) obj).bytes.array());
         }
 
         return false;
+    }
+
+    public byte[] toBytes() {
+        return bytes.array();
+    }
+
+    private static final class BufferAccess extends Access<ByteBuffer> {
+        public static final BufferAccess INSTANCE = new BufferAccess();
+
+        private BufferAccess() {}
+
+        @Override
+        public long getLong(ByteBuffer input, long offset) {
+            return input.getLong((int) offset);
+        }
+
+        @Override
+        public long getUnsignedInt(ByteBuffer input, long offset) {
+            return getInt(input, offset) & 0xFFFFFFFFL;
+        }
+
+        @Override
+        public int getInt(ByteBuffer input, long offset) {
+            return input.getInt((int) offset);
+        }
+
+        @Override
+        public int getUnsignedShort(ByteBuffer input, long offset) {
+            return getShort(input, offset) & 0xFFFF;
+        }
+
+        @Override
+        public int getShort(ByteBuffer input, long offset) {
+            return input.getShort((int) offset);
+        }
+
+        @Override
+        public int getUnsignedByte(ByteBuffer input, long offset) {
+            return getByte(input, offset) & 0xFF;
+        }
+
+        @Override
+        public int getByte(ByteBuffer input, long offset) {
+            return input.get((int) offset);
+        }
+
+        @Override
+        public ByteOrder byteOrder(ByteBuffer input) {
+            return input.order();
+        }
     }
 }

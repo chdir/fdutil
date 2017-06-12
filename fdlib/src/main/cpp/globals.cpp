@@ -19,13 +19,9 @@ jmethodID iieConstructor;
 jmethodID errnoExceptionConstructor;
 jmethodID statContainerInit;
 jmethodID limitContainerInit;
+jmethodID arenaConstructor;
 
 size_t pageSize;
-
-jfieldID directoryImplPointerField;
-jfieldID inotifyImplPointerField;
-jfieldID limitContainerCur;
-jfieldID limitContainerMax;
 
 inline static void throwErrnoError(JNIEnv* env, jint errCode, const char* message) {
     jstring errorString = env -> NewStringUTF(message);

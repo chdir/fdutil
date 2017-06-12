@@ -73,7 +73,7 @@ public final class FdStream implements ByteChannel {
     public int read(ByteBuffer dst) throws IOException {
         final int position = dst.position();
 
-        final int read = nativeRead(dst, descriptor, position, dst.remaining());
+        final int read = Android.nativeRead(dst, descriptor, position, dst.remaining());
 
         if (read > 0) {
             dst.position(position + read);
@@ -94,7 +94,7 @@ public final class FdStream implements ByteChannel {
     public int write(ByteBuffer src) throws IOException {
         final int position = src.position();
 
-        final int written = nativeWrite(src, descriptor, position, src.remaining());
+        final int written = Android.nativeWrite(src, descriptor, position, src.remaining());
 
         if (written > 0) {
             src.position(position + written);
@@ -102,8 +102,4 @@ public final class FdStream implements ByteChannel {
 
         return written;
     }
-
-    private static native int nativeRead(ByteBuffer buffer, @Fd int fd, int to, int bytes) throws IOException;
-
-    private static native int nativeWrite(ByteBuffer buffer, @Fd int fd, int from, int bytes) throws IOException;
 }

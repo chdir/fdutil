@@ -15,7 +15,6 @@
  */
 package net.sf.xfd;
 
-import android.support.annotation.Keep;
 import android.support.annotation.NonNull;
 
 import com.carrotsearch.hppc.LongArrayList;
@@ -23,7 +22,6 @@ import com.carrotsearch.hppc.LongIndexedContainer;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.NoSuchElementException;
 
 import static net.sf.xfd.DebugAsserts.failIf;
@@ -61,60 +59,31 @@ public final class DirectoryImpl implements Directory {
     // Cache for opaque directory "offset" cookies; allows listing the dir contents backwards
     final LongIndexedContainer cookieCache = new LongArrayList(DEFAULT_EXPECTED_ELEMENTS);
 
-    // cache references etc.
-    private static native void nativeInit();
-
-    // allocate the direct buffer
-    private native ByteBuffer nativeCreate(int fd);
-
-    static {
-        nativeInit();
-    }
-
     private DirectoryIterator iterator;
 
-    private int fd;
-    private ByteBuffer byteBuffer;
+    private final int fd;
+    private final ByteBuffer byteBuffer;
+    private final long nativePtr;
+    private final Arena arena;
+
     private byte[] nameBytes;
     private ByteBuffer nameBuffer;
-    private Guard guard;
 
-    @Keep
-    @SuppressWarnings({"UnusedDeclaration"})
-    private long nativePtr;
-
-    DirectoryImpl(int fd, GuardFactory factory) {
+    DirectoryImpl(int fd, Arena arena) {
         this.fd = fd;
 
         nameBytes = new byte[FILENAME_MAX * 2 + 1];
 
         nameBuffer = ByteBuffer.wrap(nameBytes);
 
-        byteBuffer = nativeCreate(fd)
-                .order(ByteOrder.nativeOrder());
-
-        guard = factory.forMemory(this, nativePtr);
+        this.arena = arena;
+        this.nativePtr = arena.getPtr();
+        this.byteBuffer = arena.getBuf();
 
         cookieCache.add(0L);
 
         byteBuffer.limit(0);
     }
-
-    // seek to specified opaque "position"
-    // returns new position on success
-    private static native long seekTo(int dirFd, long cookie) throws ErrnoException;
-
-    // seek to the start of directory (zeroth item)
-    // should never fail because Linux directories have two items at minimal
-    private static native void rewind(int dirFd) throws ErrnoException;
-
-    // read next dirent value into the buffer
-    // returns count of bytes read (e.g. total size of all dirent structures read) or 0 on reaching end
-    private static native int nativeReadNext(int dirFd, long nativeBufferPtr, int capacity) throws ErrnoException;
-
-    // retrieve string bytes from byte buffer
-    // returns number of bytes written (terminator byte is not written/counted)
-    private native int nativeGetStringBytes(long entryPtr, byte[] reuse, int arrSize);
 
     FsType getFileType() {
         final byte rawType = byteBuffer.get(byteBuffer.position() + GETDENTS_OFF_TYPE);
@@ -123,7 +92,7 @@ public final class DirectoryImpl implements Directory {
     }
 
     CharSequence getName() {
-        final int strLengthBytes = nativeGetStringBytes(nativePtr + byteBuffer.position(), nameBytes, nameBytes.length);
+        final int strLengthBytes = Android.nativeGetStringBytes(nativePtr + byteBuffer.position(), nameBytes, nameBytes.length);
 
         nameBuffer.position(0);
 
@@ -159,13 +128,7 @@ public final class DirectoryImpl implements Directory {
 
     @Override
     public void close() {
-        if (nativePtr == 0L) {
-            return;
-        }
-
-        guard.close();
-
-        nativePtr = 0L;
+        arena.close();
     }
 
     final class DirectoryIterator implements UnreliableIterator<Entry> {
@@ -235,7 +198,7 @@ public final class DirectoryImpl implements Directory {
 
         // moves to -1
         private boolean resetIterator() throws IOException {
-            rewind(fd);
+            Android.rewind(fd);
 
             reset();
 
@@ -264,7 +227,7 @@ public final class DirectoryImpl implements Directory {
         // If the current entry is the  last one, returns false, otherwise sets buffer limit to
         // the number of bytes read (e.g. size of the new entry) and returns true.
         private boolean readNext() throws IOException {
-            int bytesRead = nativeReadNext(fd, nativePtr, byteBuffer.capacity());
+            int bytesRead = Android.nativeReadNext(fd, nativePtr, byteBuffer.capacity());
 
             if (bytesRead == 0) {
                 return false;
@@ -292,7 +255,7 @@ public final class DirectoryImpl implements Directory {
                 return false;
             }
 
-            final long newPosition = seekTo(fd, cookie);
+            final long newPosition = Android.seekTo(fd, cookie);
 
             if (newPosition == cookie) {
                 reset();

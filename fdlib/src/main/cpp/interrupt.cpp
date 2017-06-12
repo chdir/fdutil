@@ -28,9 +28,6 @@ static void interruption_handler(int signo, siginfo_t* info, void* unused) {
     }
 }
 
-static jclass interruptionCls;
-static jmethodID interruptionClsConstructor;
-
 /*
 static jmethodID iIoExceptionConstructor;
 static jfieldID iIoExceptionBytesDone;
@@ -75,17 +72,7 @@ extern "C" {
 
 #define INVAL_SA_PTR ((kernel_sigaction*) -1)
 
-JNIEXPORT void JNICALL Java_net_sf_xfd_Interruption_nativeInit(JNIEnv *env, jclass type) {
-    interruptionCls = saveClassRef("net/sf/xfd/Interruption", env);
-    if (IS_JNI_NULL(interruptionCls)) {
-        return;
-    }
-
-    interruptionClsConstructor = env -> GetMethodID(interruptionCls, "<init>", "(Ljava/nio/ByteBuffer;J)V");
-    if (interruptionClsConstructor == NULL) {
-        return;
-    }
-
+JNIEXPORT void JNICALL PKG_SYM(i10nInit)(JNIEnv *env, jclass type) {
     kernel_sigaction prev_sigaction;
 
     for (int i = 0; i < ARRAY_SIZE(candidate_signals); ++i) {
@@ -114,7 +101,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_Interruption_nativeInit(JNIEnv *env, jcla
     }
 }
 
-JNIEXPORT void JNICALL Java_net_sf_xfd_Interruption_unblockSignal(JNIEnv *env, jclass type) {
+JNIEXPORT void JNICALL PKG_SYM(unblockSignal)(JNIEnv *env, jclass type) {
     kernel_sigset_t new_set;
 
     sys_sigemptyset(&new_set);
@@ -125,23 +112,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_Interruption_unblockSignal(JNIEnv *env, j
     }
 }
 
-JNIEXPORT jobject JNICALL Java_net_sf_xfd_Interruption_nativeCreate(JNIEnv *env, jclass type) {
-    InterruptHandler *hs = (InterruptHandler*) calloc(1, sizeof(*hs));
-
-    if (hs == NULL) {
-        env -> ThrowNew(oomError, "interruption tokens");
-        return NULL;
-    }
-
-    jobject buffer = env -> NewDirectByteBuffer(hs, sizeof(*hs));
-    if (IS_JNI_NULL(buffer)) {
-        return NULL;
-    }
-
-    return env -> NewObject(interruptionCls, interruptionClsConstructor, buffer, reinterpret_cast<jlong>(hs));
-}
-
-JNIEXPORT void JNICALL Java_net_sf_xfd_Interruption_nativeInterrupt(JNIEnv *env, jclass type, jlong value, jint tid) {
+JNIEXPORT void JNICALL PKG_SYM(nativeInterrupt)(JNIEnv *env, jclass unused, jlong value, jint tid) {
     sigval val;
     val.sival_ptr = (void *) value;
 
@@ -160,7 +131,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_Interruption_nativeInterrupt(JNIEnv *env,
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_net_sf_xfd_Interruption_nativeInterrupted(JNIEnv *env, jclass type, jlong ptr) {
+JNIEXPORT jboolean JNICALL PKG_SYM(nativeInterrupted)(JNIEnv *env, jclass unused, jlong ptr) {
     InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
 
     bool expected = true;
@@ -168,7 +139,7 @@ JNIEXPORT jboolean JNICALL Java_net_sf_xfd_Interruption_nativeInterrupted(JNIEnv
     return static_cast<jboolean>(handler -> interrupted.compare_exchange_strong(expected, false));
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_xfd_FdStream_nativeRead(JNIEnv *env, jclass type, jobject buffer, jint fd, jint to, jint bytes) {
+JNIEXPORT jint JNICALL PKG_SYM(nativeRead)(JNIEnv *env, jclass type, jobject buffer, jint fd, jint to, jint bytes) {
     char* bufAddress = static_cast<char*>(env -> GetDirectBufferAddress(buffer));
     if (bufAddress == NULL) {
         env -> ThrowNew(illegalStateException, "Failed to get direct buffer address. Heap buffers aren't supported!");
@@ -196,7 +167,7 @@ JNIEXPORT jint JNICALL Java_net_sf_xfd_FdStream_nativeRead(JNIEnv *env, jclass t
     return ret;
 }
 
-JNIEXPORT jint JNICALL Java_net_sf_xfd_FdStream_nativeWrite(JNIEnv *env, jclass type, jobject buffer, jint fd, jint from, jint bytes) {
+JNIEXPORT jint JNICALL PKG_SYM(nativeWrite)(JNIEnv *env, jclass type, jobject buffer, jint fd, jint from, jint bytes) {
     char* bufAddress = static_cast<char*>(env -> GetDirectBufferAddress(buffer));
     if (bufAddress == NULL) {
         env -> ThrowNew(illegalStateException, "Failed to get direct buffer address. Heap buffers aren't supported!");
