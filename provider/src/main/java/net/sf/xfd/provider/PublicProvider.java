@@ -66,10 +66,11 @@ import java.io.ObjectOutputStream;
 import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
@@ -113,6 +114,8 @@ public final class PublicProvider extends ContentProvider {
     public static final String URI_ARG_MODE = "m";
 
     private static volatile Intent authActivity;
+
+    private final Lock uxLock = new ReentrantLock();
 
     private static ComponentName createRelative(String pkg, String cls) {
         final String fullName;
@@ -403,6 +406,7 @@ public final class PublicProvider extends ContentProvider {
 
             final ArrayBlockingQueue<Bundle> queue = new ArrayBlockingQueue<>(1);
 
+            //noinspection RestrictedApi
             final ResultReceiver receiver = new ResultReceiver(new Handler(Looper.getMainLooper())) {
                 @Override
                 protected void onReceiveResult(int resultCode, Bundle resultData) {
@@ -418,14 +422,24 @@ public final class PublicProvider extends ContentProvider {
 
                 if (intent == null) return false;
 
-                context.startActivity(intent
-                        .putExtra(EXTRA_MODE, necessaryMode)
-                        .putExtra(EXTRA_CALLER, caller)
-                        .putExtra(EXTRA_UID, Binder.getCallingUid())
-                        .putExtra(EXTRA_CALLBACK, receiver)
-                        .putExtra(EXTRA_PATH, uri.getPath()));
+                final Bundle result;
 
-                final Bundle result = queue.poll(10, TimeUnit.SECONDS);
+                final CharSequence resolved = base.resolve(uri.getPath());
+
+                // try to ensure, that no more than one dialog can appear at once
+                uxLock.lockInterruptibly();
+                try {
+                    context.startActivity(intent
+                            .putExtra(EXTRA_MODE, necessaryMode)
+                            .putExtra(EXTRA_CALLER, caller)
+                            .putExtra(EXTRA_UID, Binder.getCallingUid())
+                            .putExtra(EXTRA_CALLBACK, receiver)
+                            .putExtra(EXTRA_PATH, resolved));
+
+                    result = queue.poll(10, TimeUnit.SECONDS);
+                } finally {
+                    uxLock.unlock();
+                }
 
                 int decision = RESPONSE_DENY;
 
@@ -598,11 +612,15 @@ public final class PublicProvider extends ContentProvider {
             // If they can take anything, the untyped open call is good enough.
             return openAssetFile(uri, "r", signal);
         }
-        String baseType = getType(uri);
-        if (baseType != null && ClipDescription.compareMimeTypes(baseType, mimeTypeFilter)) {
-            // Use old untyped open call if this provider has a type for this
-            // URI and it matches the request.
-            return openAssetFile(uri, "r", signal);
+        String[] possibleTypes = getStreamTypes(uri, mimeTypeFilter);
+        if (possibleTypes != null) {
+            for (String possibleType : possibleTypes) {
+                if (ClipDescription.compareMimeTypes(possibleType, mimeTypeFilter)) {
+                    // Use old untyped open call if this provider has a type for this
+                    // URI and it matches the request.
+                    return openAssetFile(uri, "r", signal);
+                }
+            }
         }
         throw new FileNotFoundException("Can't open " + uri + " as type " + mimeTypeFilter);
     }
