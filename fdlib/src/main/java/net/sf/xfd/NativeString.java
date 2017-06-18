@@ -142,7 +142,7 @@ final class NativeString implements GetChars, Parcelable {
         return false;
     }
 
-    public byte[] toBytes() {
+    public byte[] getBytes() {
         return bytes.array();
     }
 

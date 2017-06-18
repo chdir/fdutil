@@ -51,6 +51,16 @@
         </activity>
 
         <activity
+            android:theme="@style/RootStarCompatDialog"
+            android:name=".ErrorReportActivity"
+            android:process=":error_report"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:resumeWhilePausing="true"
+            android:configChanges="density|fontScale|layoutDirection|keyboard|keyboardHidden|locale|mcc|mnc|navigation|orientation|screenSize|screenLayout|smallestScreenSize|touchscreen|uiMode"
+            android:finishOnTaskLaunch="true"/>
+
+        <activity
             android:name=".SettingsActivity"
             android:label="File Picker"/>
 

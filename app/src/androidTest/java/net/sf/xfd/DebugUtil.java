@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.Arrays;
+
+import static com.google.common.truth.Truth.assertThat;
 
 public class DebugUtil {
     public static String getCookieList(Directory directory) {
@@ -16,7 +19,7 @@ public class DebugUtil {
 
     public static void assertContentsEqual(File source, File target) throws IOException {
         try (RandomAccessFile r1 = new RandomAccessFile(source, "r");
-             RandomAccessFile r2 = new RandomAccessFile(source, "r")) {
+             RandomAccessFile r2 = new RandomAccessFile(target, "r")) {
             final long r1L = r1.length();
             final long r2L = r1.length();
             if (r1L != r2L) {
@@ -30,6 +33,19 @@ public class DebugUtil {
                 throw new AssertionError("Contents of sample buffers differ");
             }
         }
+    }
+
+    public static void assertContentsEqual(byte[] source, byte[] target) throws IOException {
+        if (source.length != target.length) {
+            throw new IllegalStateException("Lengths of arrays differ");
+        }
+
+
+        assertThat(source).isEqualTo(target);
+    }
+
+    public static CharSequence wrapRawForm(byte[] bytes) {
+        return new NativeString(bytes, "whoops");
     }
 
     public static CharSequence wrapRawForm(String utf8Suffix) {
@@ -56,6 +72,6 @@ public class DebugUtil {
     }
 
     public static byte[] getBytes(CharSequence sequence) {
-        return sequence.getClass() == NativeString.class ? ((NativeString) sequence).toBytes() : sequence.toString().getBytes();
+        return sequence.getClass() == NativeString.class ? ((NativeString) sequence).getBytes() : sequence.toString().getBytes();
     }
 }

@@ -328,7 +328,7 @@ final class Android extends OS {
 
     private static Object toNative(CharSequence string) {
         if (string.getClass() == NativeString.class) {
-            return ((NativeString) string).toBytes();
+            return ((NativeString) string).getBytes();
         }
 
         final String chars = string.toString();

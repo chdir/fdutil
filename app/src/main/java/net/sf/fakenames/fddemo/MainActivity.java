@@ -39,7 +39,6 @@ import android.support.annotation.StringRes;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
-import android.text.ParcelableSpan;
 import android.text.TextUtils;
 import android.view.ContextMenu;
 import android.view.Menu;
@@ -445,7 +444,7 @@ public class MainActivity extends BaseActivity implements
             final CharSequence resolved;
             final int resolvedFd = state.os.openat(base, path, NativeBits.O_NONBLOCK, 0);
             try {
-                resolved = state.os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + resolvedFd);
+                resolved = state.os.readlinkat(DirFd.NIL, ProviderBase.fdPath(resolvedFd));
             } finally {
                 state.os.dispose(resolvedFd);
             }
@@ -603,7 +602,7 @@ public class MainActivity extends BaseActivity implements
                         state.os.unlinkat(info.parentDir, targetName, fsType == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
                     } catch (ErrnoException errno) {
                         if (errno.code() == ErrnoException.ENOTEMPTY) {
-                            new ConfirmationDialog(targetName, R.string.rmdir_title, R.string.rmdir_msg, R.string.remove)
+                            new ConfirmationDialog(targetName, R.string.rmdir_title, R.string.q_rmdir_msg, R.string.remove)
                                     .show(getFragmentManager(), null);
                         } else {
                             throw errno;

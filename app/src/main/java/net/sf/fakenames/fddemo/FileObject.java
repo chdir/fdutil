@@ -44,6 +44,7 @@ import net.sf.xfd.FsType;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
+import net.sf.xfd.provider.ProviderBase;
 
 import java.io.Closeable;
 import java.io.FileInputStream;
@@ -288,8 +289,8 @@ public abstract class FileObject implements Closeable {
                         return true;
                     }
 
-                    CharSequence sourcePath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + sourceFd.getFd());
-                    CharSequence targetPath = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
+                    CharSequence sourcePath = os.readlinkat(DirFd.NIL, ProviderBase.fdPath(sourceFd.getFd()));
+                    CharSequence targetPath = os.readlinkat(DirFd.NIL, ProviderBase.fdPath(targetFd.getFd()));
 
                     os.renameat(DirFd.NIL, sourcePath, DirFd.NIL, targetPath);
 
@@ -318,7 +319,7 @@ public abstract class FileObject implements Closeable {
 
         final String newName = file.name + suffix;
 
-        final @Fd int tmpfile = os.creat("/proc/" + Process.myPid() + "/fd/" + file.dirFd + '/' + newName, OS.DEF_FILE_MODE);
+        final @Fd int tmpfile = os.creat("/proc/" + ProviderBase.myPid() + "/fd/" + file.dirFd + '/' + newName, OS.DEF_FILE_MODE);
 
         return new DescriptorFileObject(os, context, file, newName, tmpfile);
     }

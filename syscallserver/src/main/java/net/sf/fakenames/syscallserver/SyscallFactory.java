@@ -31,6 +31,7 @@ import android.util.Log;
 
 import com.carrotsearch.hppc.ObjectArrayList;
 
+import net.sf.xfd.CachingWriter;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.ErrnoException;
 import net.sf.xfd.Fd;
@@ -39,6 +40,7 @@ import net.sf.xfd.InotifyImpl;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
+import net.sf.xfd.Utf8;
 
 import java.io.Closeable;
 import java.io.File;
@@ -48,14 +50,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStreamWriter;
-import java.io.Writer;
 import java.lang.Process;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -214,14 +214,14 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public @NonNull ParcelFileDescriptor open(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+    public @NonNull ParcelFileDescriptor open(CharSequence filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         return FdCompat.adopt(openInternal(null, filepath, mode));
     }
 
     @WorkerThread
-    public @NonNull ParcelFileDescriptor openat(@DirFd int fd, String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+    public @NonNull ParcelFileDescriptor openat(@DirFd int fd, CharSequence filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
@@ -230,7 +230,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void mkdirat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
+    public void mkdirat(@DirFd int fd, CharSequence filepath, int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
@@ -239,7 +239,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public boolean faccessat(int fd, String pathname, int mode) throws IOException, FactoryBrokenException {
+    public boolean faccessat(int fd, CharSequence pathname, int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
@@ -248,7 +248,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void unlinkat(@DirFd int fd, String filepath, int mode) throws IOException, FactoryBrokenException {
+    public void unlinkat(@DirFd int fd, CharSequence filepath, int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
@@ -268,7 +268,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void renameat(@DirFd int from, String pathname1, @DirFd int to, String pathname2) throws IOException, FactoryBrokenException {
+    public void renameat(@DirFd int from, CharSequence pathname1, @DirFd int to, CharSequence pathname2) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
@@ -291,7 +291,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void linkat(@DirFd int from, String pathname1, @DirFd int to, String pathname2, int flags) throws IOException, FactoryBrokenException {
+    public void linkat(@DirFd int from, CharSequence pathname1, @DirFd int to, CharSequence pathname2, int flags) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd2 = to < 0 ? null : ParcelFileDescriptor.fromFd(to);
@@ -314,7 +314,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void mknodat(int fd, String pathname, int mode, int device) throws IOException, FactoryBrokenException {
+    public void mknodat(int fd, CharSequence pathname, int mode, int device) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
@@ -325,7 +325,7 @@ public final class SyscallFactory implements Closeable {
     @NonNull
     @CheckResult
     @WorkerThread
-    public String readlinkat(int target, String name) throws IOException, FactoryBrokenException {
+    public String readlinkat(int target, CharSequence name) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = target < 0 ? null : ParcelFileDescriptor.fromFd(target);
@@ -334,7 +334,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void fstatat(@DirFd int dir, String pathname, Stat stat, int flags) throws IOException, FactoryBrokenException {
+    public void fstatat(@DirFd int dir, CharSequence pathname, Stat stat, int flags) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = dir < 0 ? null : ParcelFileDescriptor.fromFd(dir);
@@ -343,7 +343,7 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public @NonNull ParcelFileDescriptor creat(String filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
+    public @NonNull ParcelFileDescriptor creat(CharSequence filepath, @OS.OpenFlag int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         return FdCompat.adopt(creatInternal(filepath, mode));
@@ -533,7 +533,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private boolean faccessInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
+    private boolean faccessInternal(ParcelFileDescriptor fd, CharSequence path, int mode) throws IOException, FactoryBrokenException {
         final FdReq request = serverThread.new FaccessReq(fd, path, mode);
 
         FdResp response;
@@ -568,7 +568,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void unlinkInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
+    private void unlinkInternal(ParcelFileDescriptor fd, CharSequence path, int mode) throws IOException, FactoryBrokenException {
         final FdReq request = serverThread.new UnlinkReq(fd, path, mode);
 
         FdResp response;
@@ -598,7 +598,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void renameInternal(ParcelFileDescriptor pfd1, String pathname1, ParcelFileDescriptor pfd2, String pathname2) throws FactoryBrokenException, IOException {
+    private void renameInternal(ParcelFileDescriptor pfd1, CharSequence pathname1, ParcelFileDescriptor pfd2, CharSequence pathname2) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new RenameReq(pfd1, pathname1, pfd2, pathname2);
 
         FdResp response;
@@ -628,7 +628,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void linkInternal(ParcelFileDescriptor pfd1, String pathname1, ParcelFileDescriptor pfd2, String pathname2, int flags) throws FactoryBrokenException, IOException {
+    private void linkInternal(ParcelFileDescriptor pfd1, CharSequence pathname1, ParcelFileDescriptor pfd2, CharSequence pathname2, int flags) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new LinkReq(pfd1, pathname1, pfd2, pathname2, flags);
 
         FdResp response;
@@ -658,7 +658,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void fstatInternal(ParcelFileDescriptor pfd, String pathname, Stat stat, int flags) throws FactoryBrokenException, IOException {
+    private void fstatInternal(ParcelFileDescriptor pfd, CharSequence pathname, Stat stat, int flags) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new FstatReq(pfd, pathname, flags);
 
         FdResp response;
@@ -692,7 +692,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void mknodInternal(ParcelFileDescriptor pfd, String pathname, int mode, int device) throws FactoryBrokenException, IOException {
+    private void mknodInternal(ParcelFileDescriptor pfd, CharSequence pathname, int mode, int device) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new MknodReq(pfd, pathname, mode, device);
 
         FdResp response;
@@ -722,7 +722,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void mkdirInternal(ParcelFileDescriptor fd, String path, int mode) throws IOException, FactoryBrokenException {
+    private void mkdirInternal(ParcelFileDescriptor fd, CharSequence path, int mode) throws IOException, FactoryBrokenException {
         final FdReq request = serverThread.new MkdirReq(fd, path, mode);
 
         FdResp response;
@@ -752,7 +752,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private FileDescriptor openInternal(ParcelFileDescriptor fd, String path, int mode) throws FactoryBrokenException, IOException {
+    private FileDescriptor openInternal(ParcelFileDescriptor fd, CharSequence path, int mode) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new OpenReq(fd, path, mode);
 
         FdResp response;
@@ -789,7 +789,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private FileDescriptor creatInternal(String path, int mode) throws FactoryBrokenException, IOException {
+    private FileDescriptor creatInternal(CharSequence path, int mode) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new CreatReq(path, mode);
 
         FdResp response;
@@ -823,7 +823,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private String readlinkInternal(ParcelFileDescriptor pfd, String name) throws FactoryBrokenException, IOException {
+    private String readlinkInternal(ParcelFileDescriptor pfd, CharSequence name) throws FactoryBrokenException, IOException {
         final FdReq request = serverThread.new ReadLinkReq(pfd, name);
 
         FdResp response;
@@ -994,7 +994,7 @@ public final class SyscallFactory implements Closeable {
             return Integer.valueOf(m.group(1));
         }
 
-        // ensure, that a filename/header packets fit completely in buffer
+        // ensure, that most filename/header packets fit completely in buffer
         private static final int minBufferSize = 255 * 2 + 4;
 
         private void initializeAndHandleRequests(int helperPid) throws Exception {
@@ -1023,7 +1023,7 @@ public final class SyscallFactory implements Closeable {
 
                         logTrace(Log.DEBUG, "Response to tty request: '" + socketMsg + "', descriptor " + ptmxFd);
 
-                        try (CachingWriter clientTty = new CachingWriter(Channels.newWriter(new FileOutputStream(ptmxFd).getChannel(), StandardCharsets.UTF_8.newEncoder(), minBufferSize))) {
+                        try (CachingWriter clientTty = new CachingWriter(new FileOutputStream(ptmxFd).getChannel(), minBufferSize)) {
                             // Indicate to the helper that it can close it's copy of it's controlling tty.
                             // When our end is closed the kernel tty driver will send SIGHUP to the helper,
                             // cleanly killing it's root process for us
@@ -1189,7 +1189,7 @@ public final class SyscallFactory implements Closeable {
         final class OpenReq extends FdReq {
             static final int TYPE_OPEN = 1;
 
-            public OpenReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+            public OpenReq(ParcelFileDescriptor outboundFd, CharSequence fileName, int mode) {
                 super(TYPE_OPEN, fileName, mode, outboundFd);
             }
 
@@ -1201,10 +1201,10 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1227,7 +1227,7 @@ public final class SyscallFactory implements Closeable {
         final class MkdirReq extends FdReq {
             static final int TYPE_MKDIR = 2;
 
-            public MkdirReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+            public MkdirReq(ParcelFileDescriptor outboundFd, CharSequence fileName, int mode) {
                 super(TYPE_MKDIR, fileName, mode, outboundFd);
             }
 
@@ -1239,10 +1239,10 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1258,7 +1258,7 @@ public final class SyscallFactory implements Closeable {
         final class UnlinkReq extends FdReq {
             static final int TYPE_UNLINK = 3;
 
-            public UnlinkReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+            public UnlinkReq(ParcelFileDescriptor outboundFd, CharSequence fileName, int mode) {
                 super(TYPE_UNLINK, fileName, mode, outboundFd);
             }
 
@@ -1270,10 +1270,10 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1317,7 +1317,7 @@ public final class SyscallFactory implements Closeable {
 
             final int device;
 
-            public MknodReq(ParcelFileDescriptor outboundFd, String fileName, int mode, int device) {
+            public MknodReq(ParcelFileDescriptor outboundFd, CharSequence fileName, int mode, int device) {
                 super(TYPE_MKNOD, fileName, mode, outboundFd);
 
                 this.device = device;
@@ -1333,10 +1333,10 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(device)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1352,7 +1352,7 @@ public final class SyscallFactory implements Closeable {
         final class ReadLinkReq extends FdReq {
             static final int TYPE_READLINK = 6;
 
-            public ReadLinkReq(ParcelFileDescriptor outboundFd, String pathname) {
+            public ReadLinkReq(ParcelFileDescriptor outboundFd, CharSequence pathname) {
                 super(TYPE_READLINK, pathname, 0, outboundFd);
             }
 
@@ -1362,10 +1362,10 @@ public final class SyscallFactory implements Closeable {
 
                 reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1381,9 +1381,9 @@ public final class SyscallFactory implements Closeable {
         final class RenameReq extends FdReq {
             static final int TYPE_RENAME = 7;
 
-            final String fileName2;
+            final CharSequence fileName2;
 
-            public RenameReq(ParcelFileDescriptor fd1, String fileName1, ParcelFileDescriptor fd2, String fileName2) {
+            public RenameReq(ParcelFileDescriptor fd1, CharSequence fileName1, ParcelFileDescriptor fd2, CharSequence fileName2) {
                 super(TYPE_RENAME, fileName1, 0, fd1, fd2);
 
                 this.fileName2 = fileName2;
@@ -1395,12 +1395,12 @@ public final class SyscallFactory implements Closeable {
 
                 reqWriter.append(outboundFd == null ? 0 : outboundFd.length)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ')
-                        .append(fileName2.getBytes().length)
+                        .append(Utf8.size(fileName2))
                         .append(' ');
 
-                reqWriter.append(fileName).append(fileName2).append("\n").flush();
+                reqWriter.append(fileName).append(fileName2).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1416,7 +1416,7 @@ public final class SyscallFactory implements Closeable {
         final class CreatReq extends FdReq {
             static final int TYPE_CREAT = 8;
 
-            public CreatReq(String fileName1, int mode) {
+            public CreatReq(CharSequence fileName1, int mode) {
                 super(TYPE_CREAT, fileName1, mode);
             }
 
@@ -1426,10 +1426,10 @@ public final class SyscallFactory implements Closeable {
 
                 reqWriter.append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
             }
 
             @Override
@@ -1448,9 +1448,9 @@ public final class SyscallFactory implements Closeable {
         final class LinkReq extends FdReq {
             static final int TYPE_LINK = 9;
 
-            final String fileName2;
+            final CharSequence fileName2;
 
-            public LinkReq(ParcelFileDescriptor fd1, String fileName1, ParcelFileDescriptor fd2, String fileName2, int flags) {
+            public LinkReq(ParcelFileDescriptor fd1, CharSequence fileName1, ParcelFileDescriptor fd2, CharSequence fileName2, int flags) {
                 super(TYPE_LINK, fileName1, flags, fd1, fd2);
 
                 this.fileName2 = fileName2;
@@ -1464,12 +1464,12 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ')
-                        .append(fileName2.getBytes().length)
+                        .append(Utf8.size(fileName2))
                         .append(' ');
 
-                reqWriter.append(fileName).append(fileName2).append("\n").flush();
+                reqWriter.append(fileName).append(fileName2).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1485,7 +1485,7 @@ public final class SyscallFactory implements Closeable {
         final class FaccessReq extends FdReq {
             static final int TYPE_FACCESS = 10;
 
-            public FaccessReq(ParcelFileDescriptor outboundFd, String fileName, int mode) {
+            public FaccessReq(ParcelFileDescriptor outboundFd, CharSequence fileName, int mode) {
                 super(TYPE_FACCESS, fileName, mode, outboundFd);
             }
 
@@ -1497,10 +1497,10 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1516,7 +1516,7 @@ public final class SyscallFactory implements Closeable {
         final class FstatReq extends FdReq {
             static final int TYPE_STAT = 11;
 
-            public FstatReq(ParcelFileDescriptor pfd, String fileName, int mode) {
+            public FstatReq(ParcelFileDescriptor pfd, CharSequence fileName, int mode) {
                 super(TYPE_STAT, fileName, mode, pfd);
             }
 
@@ -1528,10 +1528,10 @@ public final class SyscallFactory implements Closeable {
                         .append(' ')
                         .append(mode)
                         .append(' ')
-                        .append(fileName.getBytes().length)
+                        .append(Utf8.size(fileName))
                         .append(' ');
 
-                reqWriter.append(fileName).append("\n").flush();
+                reqWriter.append(fileName).append('\n').flush();
 
                 if (outboundFd != null && outboundFd.length != 0) {
                     setFd(wbc, ls, outboundFd);
@@ -1682,17 +1682,17 @@ public final class SyscallFactory implements Closeable {
 
         final int reqType;
         final ParcelFileDescriptor[] outboundFd;
-        final String fileName;
+        final CharSequence fileName;
         final int mode;
 
-        public FdReq(int reqType, String fileName, int mode) {
+        public FdReq(int reqType, CharSequence fileName, int mode) {
             this.reqType = reqType;
             this.fileName = fileName;
             this.mode = mode;
             this.outboundFd = null;
         }
 
-        public FdReq(int reqType, String fileName, int mode, ParcelFileDescriptor outboundFd) {
+        public FdReq(int reqType, CharSequence fileName, int mode, ParcelFileDescriptor outboundFd) {
             this.reqType = reqType;
             this.fileName = fileName;
             this.mode = mode;
@@ -1701,7 +1701,7 @@ public final class SyscallFactory implements Closeable {
                     new ParcelFileDescriptor[] { outboundFd } : null;
         }
 
-        public FdReq(int reqType, String fileName, int mode, ParcelFileDescriptor... outboundFd) {
+        public FdReq(int reqType, CharSequence fileName, int mode, ParcelFileDescriptor... outboundFd) {
             this.reqType = reqType;
             this.fileName = fileName;
             this.mode = mode;
@@ -1727,7 +1727,7 @@ public final class SyscallFactory implements Closeable {
 
         @Override
         public String toString() {
-            return fileName + ',' + mode;
+            return "" + fileName + ',' + mode;
         }
 
         public void writeRequest(CachingWriter reqWriter, WritableByteChannel wbc, LocalSocket ls) throws IOException {
@@ -1864,100 +1864,5 @@ final class StdoutConsumer extends Thread {
         enough = true;
 
         interrupt();
-    }
-}
-
-final class CachingWriter extends Writer {
-    private final Writer writer;
-
-    private char[] writeBuffer;
-
-    private final StringBuilder builder = new StringBuilder();
-
-    CachingWriter(Writer writer) {
-        this.writer = writer;
-    }
-
-    @Override
-    public void write(@NonNull String str, int off, int len) throws IOException {
-        append(str, off, len);
-    }
-
-    @Override
-    public void write(int c) throws IOException {
-        builder.append((char) c);
-    }
-
-    @Override
-    public void write(@NonNull String str) throws IOException {
-        append(str);
-    }
-
-    @Override
-    public CachingWriter append(CharSequence csq, int start, int end) throws IOException {
-        builder.append(csq, start, end);
-        return this;
-    }
-
-    @Override
-    public CachingWriter append(CharSequence csq) throws IOException {
-        builder.append(csq);
-        return this;
-    }
-
-    @Override
-    public CachingWriter append(char character) {
-        builder.append(character);
-        return this;
-    }
-
-    public CachingWriter append(int integer) {
-        builder.append(integer);
-        return this;
-    }
-
-    public CachingWriter append(String string) {
-        builder.append(string);
-        return this;
-    }
-
-    @Override
-    public void write(@NonNull char[] cbuf, int off, int len) throws IOException {
-        flushBuffer();
-        writer.write(cbuf, off, len);
-    }
-
-    private void flushBuffer() throws IOException {
-        final int bufLength = builder.length();
-
-        char[] buffer;
-
-        if (bufLength > 9000) {
-            // don't permanently hold onto very large buffers
-            buffer = new char[bufLength];
-        } else {
-            if (writeBuffer == null || writeBuffer.length < bufLength) {
-                writeBuffer = new char[bufLength];
-            }
-
-            buffer = writeBuffer;
-        }
-
-        builder.getChars(0, bufLength, writeBuffer, 0);
-
-        builder.setLength(0);
-
-        writer.write(buffer, 0, bufLength);
-    }
-
-    @Override
-    public void flush() throws IOException {
-        flushBuffer();
-        writer.flush();
-    }
-
-    @Override
-    public void close() throws IOException {
-        writer.close();
     }
 }

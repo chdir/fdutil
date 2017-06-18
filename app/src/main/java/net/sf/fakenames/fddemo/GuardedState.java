@@ -95,7 +95,7 @@ public final class GuardedState extends CloseableGuard {
 
     @Override
     public void close() {
-        if (closed) return;
+        if (!remove(this)) return;
 
         super.close();
 

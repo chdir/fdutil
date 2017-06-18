@@ -34,8 +34,10 @@ import com.carrotsearch.hppc.ObjectSet;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Fd;
 import net.sf.xfd.FsType;
+import net.sf.xfd.Interruption;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
+import net.sf.xfd.NativeBits;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 
@@ -56,6 +58,12 @@ public final class ProviderBase extends ContextWrapper {
     private static final String LINK_MIME = "inode/symlink";
     private static final String BLOCK_MIME = "inode/blockdevice";
     private static final String EMPTY_MIME = "application/x-empty";
+
+    private static final int MY_PID = Process.myPid();
+
+    public static int myPid() {
+        return MY_PID;
+    }
 
     private static final LruCache<String, TimestampedMime> fileTypeCache = new LruCache<>(7);
 
@@ -323,7 +331,7 @@ public final class ProviderBase extends ContextWrapper {
                             try {
                                 fd = os.openat(parentFd, name, OS.O_RDONLY, 0);
 
-                                resolved = os.readlinkat(DirFd.NIL, "/proc/" + Process.myPid() + "/fd/" + fd);
+                                resolved = os.readlinkat(DirFd.NIL, fdPath(fd));
                             } catch (IOException ioe) {
                                 LogUtil.logCautiously("Unable to open target of " + name, ioe);
                             }
@@ -730,6 +738,26 @@ public final class ProviderBase extends ContextWrapper {
         return acceptedTypes.isEmpty() ? null : acceptedTypes.toArray(new String[acceptedTypes.size()]);
     }
 
+    public CharSequence resolve(String externalPath) {
+        final OS os = getOS();
+        if (os == null) {
+            return null;
+        }
+
+        try {
+            //noinspection WrongConstant
+            @Fd int fd = os.open(externalPath, NativeBits.O_PATH, OS.DEF_FILE_MODE);
+            try {
+                return os.readlinkat(DirFd.NIL, fdPath(fd));
+            } finally {
+                os.dispose(fd);
+            }
+        } catch (IOException e) {
+        }
+
+        return null;
+    }
+
     @Nullable
     private TimestampedMime guessMimeInternal(String filepath) {
         final TimestampedMime cachedResult = fileTypeCache.get(filepath);
@@ -852,10 +880,9 @@ public final class ProviderBase extends ContextWrapper {
 
     public static String fdPath(int fd) {
         final String result;
-        final int myPid = Process.myPid();
         final StringBuilder builder = acquire(30);
         try {
-            result = builder.append("/proc/").append(myPid).append("/fd/").append(fd).toString();
+            result = builder.append("/proc/").append(MY_PID).append("/fd/").append(fd).toString();
         } finally {
             release(builder);
         }

@@ -56,6 +56,10 @@ dependencies {
 
     compile project(':provider')
 
+    compile 'com.squareup.okhttp3:okhttp:3.8.0'
+    compile 'com.squareup.okhttp3:okhttp-urlconnection:3.8.0'
+    compile 'com.squareup.okhttp3:logging-interceptor:+'
+
     androidTestCompile project(':provider')
     androidTestCompile 'com.google.truth:truth:0.30'
 

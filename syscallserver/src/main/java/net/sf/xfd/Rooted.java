@@ -87,7 +87,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            final ParcelFileDescriptor pfd = factory.creat(path.toString(), mode);
+            final ParcelFileDescriptor pfd = factory.creat(path, mode);
 
             final @Fd int fdInt = pfd.detachFd();
 
@@ -126,7 +126,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            final ParcelFileDescriptor pfd = factory.openat(fd, pathname.toString(), flags);
+            final ParcelFileDescriptor pfd = factory.openat(fd, pathname, flags);
 
             final @Fd int fdInt = pfd.detachFd();
 
@@ -147,7 +147,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            return factory.readlinkat(fd, pathname.toString());
+            return factory.readlinkat(fd, pathname);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -161,7 +161,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.renameat(fd, name.toString(), fd2, name2.toString());
+            factory.renameat(fd, name, fd2, name2);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -203,7 +203,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.fstatat(dir, pathname.toString(), stat, flags);
+            factory.fstatat(dir, pathname, stat, flags);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -247,7 +247,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.linkat(oldDirFd, oldName.toString(), newDirFd, newName.toString(), flags);
+            factory.linkat(oldDirFd, oldName, newDirFd, newName, flags);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -261,7 +261,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.unlinkat(target, pathname.toString(), flags);
+            factory.unlinkat(target, pathname, flags);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -275,7 +275,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.mknodat(target, pathname.toString(), mode, device);
+            factory.mknodat(target, pathname, mode, device);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -289,7 +289,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.mkdirat(target, pathname.toString(), mode);
+            factory.mkdirat(target, pathname, mode);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -326,7 +326,7 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         try {
             final SyscallFactory factory = getFactory();
 
-            return factory.faccessat(fd, pathname.toString(), mode);
+            return factory.faccessat(fd, pathname, mode);
         } catch (FactoryBrokenException e) {
             factory = null;
 

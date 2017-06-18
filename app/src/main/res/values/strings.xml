@@ -22,7 +22,11 @@
     <string name="no_handler">No suitable application found</string>
     <string name="hardlink_name">Link %s here</string>
     <string name="rmdir_title">Remove directory?</string>
-    <string name="rmdir_msg">The directory \'%s\' is not empty. Remove it with all contents?</string>
+    <string name="q_rmdir_msg">The directory \'%s\' is not empty. Remove it with all contents?</string>
     <string name="remove">Remove</string>
     <string name="shortcut">Shortcut</string>
+    <string name="app_has_crashed">RootStar has crashed</string>
+    <string name="send">Send</string>
+    <string name="cancel">Cancel</string>
+    <string name="q_report_to_the_developer">Would you like to send a report to the developer?</string>
 </resources>
