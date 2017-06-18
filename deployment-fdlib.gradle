@@ -2,7 +2,7 @@ def packageDesc = 'A bunch of utility code for manipulating native Linux file de
 def packageSite = 'https://github.com/chdir/fdutil'
 def mainLic = 'Apache-2.0'
 def libVcs = 'https://github.com/chdir/fdutil'
-def xfdVer = '1.1'
+def xfdVer = '2.0'
 
 def props = new Properties()
 
@@ -36,7 +36,7 @@ if (props) {
             <dependency>
                 <groupId>net.openhft</groupId>
                 <artifactId>zero-allocation-hashing</artifactId>
-                <version>0.6</version>
+                <version>0.8</version>
                 <type>jar</type>
                 <scope>compile</scope>
                 <optional>false</optional>

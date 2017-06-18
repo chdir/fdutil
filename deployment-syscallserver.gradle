@@ -2,7 +2,7 @@ def packageDesc = 'Simple syscall proxy for Android'
 def packageSite = 'https://github.com/chdir/fdutil'
 def mainLic = 'Apache-2.0'
 def libVcs = 'https://github.com/chdir/fdutil'
-def helperVer = '0.2'
+def helperVer = '1.6'
 
 def props = new Properties()
 
@@ -28,7 +28,7 @@ if (props) {
             <dependency>
                 <groupId>net.sf.xfd</groupId>
                 <artifactId>sysutils</artifactId>
-                <version>1.1</version>
+                <version>2.0</version>
                 <type>jar</type>
                 <scope>compile</scope>
                 <optional>false</optional>
