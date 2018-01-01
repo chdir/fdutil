@@ -5,45 +5,22 @@
 
 #include <sys/inotify.h>
 #include <sys/stat.h>
-#include <limits>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-inline static jint coreio_openat(JNIEnv *env, jint fd, jworkaroundstr name, jint flags, jint mode) {
-    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
-
-    const char *utf8Path = getUtf8(env, isArray, name);
-
-    if (utf8Path == NULL) {
-        env->ThrowNew(oomError, "file name buffer");
-        return -1;
-    }
-
-    int newFd = TEMP_FAILURE_RETRY(sys_openat(fd, utf8Path, flags, mode));
-
-    if (newFd < 0) {
-        handleError(env);
-    }
-
-    freeUtf8(env, isArray, name, utf8Path);
-
-    return newFd;
-}
-
-extern "C" {
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     JNIEnv *env;
 
-    if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        __android_log_print(ANDROID_LOG_FATAL, "fdutil", "WTF: GetEnv failed; halting");
+    if ((*vm)->GetEnv(vm, (void **) &env, JNI_VERSION_1_6) != JNI_OK) {
+        __android_log_print(ANDROID_LOG_FATAL, "fdutil", "GetEnv failed; halting");
 
         abort();
     }
 
     illegalStateException = saveClassRef("java/lang/IllegalStateException", env);
     if (illegalStateException == NULL) {
-        env -> FatalError("WTF: IllegalStateException can not be loaded; halting");
+        (*env)->FatalError(env, "IllegalStateException can not be loaded; halting");
     }
 
     oomError = saveClassRef("java/lang/OutOfMemoryError", env);
@@ -56,7 +33,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    jclass versionClass = safeFindClass("android/os/Build$VERSION", env);
+    jclass versionClass = (*env)->FindClass(env, "android/os/Build$VERSION");
 
     if (versionClass == NULL)
         return -1;
@@ -67,9 +44,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    API_VERSION = env->GetStaticIntField(versionClass, sdkIntFieldID);
+    API_VERSION = (*env)->GetStaticIntField(env, versionClass, sdkIntFieldID);
 
-    if (env->ExceptionCheck() == JNI_TRUE) {
+    if ((*env)->ExceptionCheck(env) == JNI_TRUE) {
         return -1;
     }
 
@@ -78,7 +55,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    arenaConstructor = env->GetMethodID(arenaClass, "<init>", "(JLjava/nio/ByteBuffer;Lnet/sf/xfd/GuardFactory;)V");
+    arenaConstructor = (*env)->GetMethodID(env, arenaClass, "<init>", "(JLjava/nio/ByteBuffer;Lnet/sf/xfd/GuardFactory;)V");
     if (arenaConstructor == NULL) {
         return -1;
     }
@@ -88,22 +65,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    iIoException = saveClassRef("net/sf/xfd/InterruptedIOException", env);
-    if (iIoException == NULL) {
-        return -1;
-    }
-
-    iieConstructor = env->GetMethodID(iIoException, "<init>", "(JLjava/lang/String;)V");
-    if (iieConstructor == NULL) {
-        return -1;
-    }
-
     statContainer = saveClassRef("net/sf/xfd/Stat", env);
     if (statContainer == NULL) {
         return -1;
     }
 
-    statContainerInit = env->GetMethodID(statContainer, "init", "(JJJII)V");
+    statContainerInit = (*env)->GetMethodID(env, statContainer, "init", "(JJJIIII)V");
     if (statContainerInit == NULL) {
         return -1;
     }
@@ -113,7 +80,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    limitContainerInit = env->GetMethodID(limitContainer, "init", "(JJ)V");
+    limitContainerInit = (*env)->GetMethodID(env, limitContainer, "init", "(JJ)V");
     if (limitContainerInit == NULL) {
         return -1;
     }
@@ -123,7 +90,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return -1;
     }
 
-    errnoExceptionConstructor = env->GetMethodID(errnoException, "<init>", "(ILjava/lang/String;)V");
+    errnoExceptionConstructor = (*env)->GetMethodID(env, errnoException, "<init>", "(ILjava/lang/String;)V");
     if (errnoExceptionConstructor == NULL) {
         return -1;
     }
@@ -138,63 +105,55 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 }
 
 JNIEXPORT void JNICALL Java_net_sf_xfd_NativeBits_fixConstants(JNIEnv *env, jclass type) {
-    jfieldID nonblock = env -> GetStaticFieldID(type, "O_NONBLOCK", "I");
-    if (nonblock == NULL || env -> ExceptionCheck() == JNI_TRUE) {
-        env -> ExceptionClear();
+    jfieldID nonblock = (*env)->GetStaticFieldID(env, type, "O_NONBLOCK", "I");
+    if (nonblock == NULL || (*env)->ExceptionCheck(env) == JNI_TRUE) {
+        (*env)->ExceptionClear(env);
     } else {
-        env -> SetStaticIntField(type, nonblock, O_NONBLOCK);
+        (*env)->SetStaticIntField(env, type, nonblock, O_NONBLOCK);
     }
 
-    jfieldID noctty = env -> GetStaticFieldID(type, "O_NOCTTY", "I");
-    if (noctty == NULL || env -> ExceptionCheck() == JNI_TRUE) {
-        env -> ExceptionClear();
+    jfieldID noctty = (*env)->GetStaticFieldID(env, type, "O_NOCTTY", "I");
+    if (noctty == NULL || (*env)->ExceptionCheck(env) == JNI_TRUE) {
+        (*env)->ExceptionClear(env);
     } else {
-        env -> SetStaticIntField(type, noctty, O_NOCTTY);
+        (*env)->SetStaticIntField(env, type, noctty, O_NOCTTY);
     }
 
-    jfieldID nofollow = env -> GetStaticFieldID(type, "O_NOFOLLOW", "I");
-    if (nofollow == NULL || env -> ExceptionCheck() == JNI_TRUE) {
-        env -> ExceptionClear();
+    jfieldID nofollow = (*env)->GetStaticFieldID(env, type, "O_NOFOLLOW", "I");
+    if (nofollow == NULL || (*env)->ExceptionCheck(env) == JNI_TRUE) {
+        (*env)->ExceptionClear(env);
     } else {
-        env -> SetStaticIntField(type, nofollow, O_NOFOLLOW);
+        (*env)->SetStaticIntField(env, type, nofollow, O_NOFOLLOW);
     }
 
-    jfieldID rlimit_nofile = env -> GetStaticFieldID(type, "RLIMIT_NOFILE", "I");
-    if (rlimit_nofile == NULL || env -> ExceptionCheck() == JNI_TRUE) {
-        env -> ExceptionClear();
+    jfieldID rlimit_nofile = (*env)->GetStaticFieldID(env, type, "RLIMIT_NOFILE", "I");
+    if (rlimit_nofile == NULL || (*env)-> ExceptionCheck(env) == JNI_TRUE) {
+        (*env)->ExceptionClear(env);
     } else {
-        env -> SetStaticIntField(type, rlimit_nofile, RLIMIT_NOFILE);
+        (*env)->SetStaticIntField(env, type, rlimit_nofile, RLIMIT_NOFILE);
     }
 }
 
-JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jint fd, jobject path, jint flags, jint mode) {
-    return coreio_openat(env, fd, path, flags | O_LARGEFILE, mode);
-}
+JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt)(JNIEnv *env, jclass type, jlong token, jworkaroundstr path, jint l, jint fd, jint flags, jint mode) {
+    i10n_ptr handler = (i10n_ptr) token;
 
-JNIEXPORT jint JNICALL PKG_SYM(nativeOpenAt2)(JNIEnv *env, jclass type, jlong token, jint fd, jworkaroundstr path, jint flags, jint mode) {
-    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(token);
+    int newFd;
 
-    jboolean isArray = env -> IsInstanceOf(path, byteArrayClass);
-
-    const char *utf8Path = getUtf8(env, isArray, path);
+    const char *utf8Path = getUtf8(env, l, path);
 
     if (utf8Path == NULL) {
-        env->ThrowNew(oomError, "file name buffer");
+        oomThrow(env, "file name buffer");
         return -1;
     }
 
-    if (handler -> interrupted.load(memory_order_relaxed)) {
-        env -> ThrowNew(iIoException, "open");
-
-        handler -> clear_flag();
-
+    if (*handler) {
         return -1;
     }
 
 attempt_open:
-    int newFd = sys_openat(fd, utf8Path, flags, mode);
+    newFd = sys_openat(fd, utf8Path, flags, mode);
 
-    bool eintr;
+    int eintr;
 
     if (newFd < 0) {
         eintr = errno == EINTR;
@@ -204,23 +163,16 @@ attempt_open:
             goto cleanup;
         }
     } else {
-        eintr = false;
+        eintr = 0;
     }
 
-    if (handler -> interrupted.load(memory_order_relaxed)) {
-        if (newFd >= 0) {
-            close(newFd);
-        }
-
-        env -> ThrowNew(iIoException, "open");
-
-        handler -> clear_flag();
-    } else if (eintr) {
+    if (!*handler && eintr) {
+        // we got hit by some unrelated signal, keep trying
         goto attempt_open;
     }
 
 cleanup:
-    freeUtf8(env, isArray, path, utf8Path);
+    freeUtf8(env, l, path, utf8Path);
 
     return newFd;
 }
@@ -249,17 +201,17 @@ JNIEXPORT jobject JNICALL Java_net_sf_xfd_Arena_allocate(JNIEnv *env, jclass typ
     }
 
     if (bufferAddress == NULL) {
-        env -> ThrowNew(oomError, "buffer");
+        oomThrow(env, "area");
         return NULL;
     }
 
-    jobject buffer = env -> NewDirectByteBuffer(bufferAddress, size);
+    jobject buffer = (*env)->NewDirectByteBuffer(env, bufferAddress, size);
 
-    if (env -> IsSameObject(buffer, NULL)) {
+    if ((*env)->IsSameObject(env, buffer, NULL)) {
         return NULL;
     }
 
-    return env -> NewObject(type, arenaConstructor, reinterpret_cast<jlong>(bufferAddress), buffer, guards);
+    return (*env)->NewObject(env, type, arenaConstructor, (jlong) bufferAddress, buffer, guards);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
@@ -276,20 +228,25 @@ JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source,
     handleError(env);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(getrlimit)(JNIEnv *env, jobject instance, int type, jobject limitStruct) {
-    rlimit l;
+JNIEXPORT void JNICALL PKG_SYM(fchmod)(JNIEnv *env, jobject instance, jint fd, jshort mode) {
+    if (TEMP_FAILURE_RETRY(fchmod(fd, (mode_t) mode))) {
+        handleError(env);
+    }
+}
+
+JNIEXPORT void JNICALL PKG_SYM(getrlimit)(JNIEnv *env, jobject instance, jint type, jobject limitStruct) {
+    struct rlimit l;
 
     if (getrlimit(type, &l)) {
         handleError(env);
-
         return;
     }
 
-    env -> CallNonvirtualVoidMethod(limitStruct, limitContainer, limitContainerInit, (jlong) l.rlim_cur, (jlong) l.rlim_max);
+    (*env)->CallNonvirtualVoidMethod(env, limitStruct, limitContainer, limitContainerInit, (jlong) l.rlim_cur, (jlong) l.rlim_max);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeSetrlimit)(JNIEnv *env, jclass clazz, jlong cur, jlong max, jint type) {
-    kernel_rlimit l;
+    struct kernel_rlimit l;
 
     l.rlim_cur = (unsigned long) cur;
     l.rlim_max = (unsigned long) max;
@@ -317,15 +274,15 @@ JNIEXPORT jint JNICALL PKG_SYM(inotify_1init)(JNIEnv *env, jobject instance) {
 }
 
 JNIEXPORT void JNICALL PKG_SYM(free)(JNIEnv *env, jclass unused, jlong pointer) {
-    free(reinterpret_cast<void*>(pointer));
+    free((void*) pointer);
 }
 
 #define CHUNK_SIZE (64 * 1024)
 
-static_assert (CHUNK_SIZE < SIZE_MAX, "size_t has unexpected size");
-static_assert (CHUNK_SIZE < SSIZE_MAX, "ssize_t has unexpected size");
+_Static_assert (CHUNK_SIZE < SIZE_MAX, "size_t has unexpected size");
+_Static_assert (CHUNK_SIZE < SSIZE_MAX, "ssize_t has unexpected size");
 
-static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t* sizeRef, jint fd1, jint fd2) {
+static jlong dumbCopy(i10n_ptr handler, char* buf, int64_t* sizeRef, jint fd1, jint fd2) {
     int64_t size = *sizeRef;
 
     int64_t totalWritten = 0;
@@ -355,7 +312,7 @@ static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t* sizeRef, ji
                 }
         }
 
-        if (handler -> interrupted.load(memory_order_relaxed)) {
+        if (*handler) {
             goto bail;
         }
 
@@ -376,7 +333,7 @@ static jlong dumbCopy(InterruptHandler* handler, char* buf, int64_t* sizeRef, ji
 
             remaining -= lastWritten;
 
-            if (handler -> interrupted.load(memory_order_relaxed)) {
+            if (*handler) {
                 totalWritten += (written - remaining);
 
                 goto bail;
@@ -393,7 +350,10 @@ bail:
     if (remaining > 0) {
         // attempt to put already read bytes back
         if (sys_lseek(fd1, -remaining, SEEK_CUR) == -1) {
-            errno = EINTR;
+            if (errno == ESPIPE) {
+                errno = EINTR;
+            }
+
             return -2;
         }
     }
@@ -404,13 +364,13 @@ bail:
 }
 
 JNIEXPORT jlong JNICALL PKG_SYM(doSendfile)(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
-    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
+    i10n_ptr handler = (i10n_ptr) (intptr_t) ptr;
 
     int64_t totalBytes,remaining;
 
     totalBytes = remaining = total;
 
-    if (handler -> interrupted.load(memory_order_relaxed)) {
+    if (*handler) {
         goto interrupted;
     }
 
@@ -442,7 +402,7 @@ JNIEXPORT jlong JNICALL PKG_SYM(doSendfile)(JNIEnv *env, jclass type, jlong buff
 
         remaining -= sent;
 
-        if (handler -> interrupted.load(memory_order_relaxed)) {
+        if (*handler) {
             goto interrupted;
         }
     }
@@ -453,7 +413,7 @@ JNIEXPORT jlong JNICALL PKG_SYM(doSendfile)(JNIEnv *env, jclass type, jlong buff
 enough:
 {
     // make sure to write out any remaining data
-    char *b = reinterpret_cast<char *>(buffer);
+    char *b = (char*) buffer;
 
     jlong res = dumbCopy(handler, b, &remaining, fd1, fd2);
 
@@ -471,21 +431,17 @@ enough:
 }
 
 interrupted:
-    throwInterrupted(env, totalBytes - remaining, "sendfile");
-
-    handler -> clear_flag();
-
-    return -1;
+    return totalBytes - remaining;
 }
 
 JNIEXPORT jlong JNICALL PKG_SYM(doSplice)(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong total, jint fd1, jint fd2) {
-    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
+    i10n_ptr handler = (i10n_ptr) (intptr_t) ptr;
 
     int64_t totalBytes,remaining;
 
     totalBytes = remaining = total;
 
-    if (handler -> interrupted.load(memory_order_relaxed)) {
+    if (*handler) {
         goto interrupted;
     }
 
@@ -515,7 +471,7 @@ JNIEXPORT jlong JNICALL PKG_SYM(doSplice)(JNIEnv *env, jclass type, jlong buffer
 
         remaining -= spliced;
 
-        if (handler -> interrupted.load(memory_order_relaxed)) {
+        if (*handler) {
             goto interrupted;
         }
     }
@@ -526,7 +482,7 @@ JNIEXPORT jlong JNICALL PKG_SYM(doSplice)(JNIEnv *env, jclass type, jlong buffer
 enough:
 {
     // make sure to write out any remaining data
-    char *b = reinterpret_cast<char *>(buffer);
+    char *b = (char*) buffer;
 
     int64_t res = dumbCopy(handler, b, &remaining, fd1, fd2);
 
@@ -544,20 +500,16 @@ enough:
 }
 
 interrupted:
-    throwInterrupted(env, totalBytes - remaining, "splice");
-
-    handler -> clear_flag();
-
-    return -1;
+    return totalBytes - remaining;
 }
 
 JNIEXPORT jlong JNICALL PKG_SYM(doDumbCopy)(JNIEnv *env, jclass type, jlong buffer, jlong ptr, jlong size, jint fd1, jint fd2) {
-    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(ptr);
+    i10n_ptr handler = (i10n_ptr) (intptr_t) ptr;
 
     jlong initial = size;
 
-    if (!handler -> interrupted.load(memory_order_relaxed)) {
-        char* b = reinterpret_cast<char*>(buffer);
+    if (!*handler) {
+        char* b = (char*) buffer;
 
         int64_t res = dumbCopy(handler, b, &size, fd1, fd2);
 
@@ -572,11 +524,7 @@ JNIEXPORT jlong JNICALL PKG_SYM(doDumbCopy)(JNIEnv *env, jclass type, jlong buff
         }
     }
 
-    throwInterrupted(env, initial - size, "copy");
-
-    handler -> clear_flag();
-
-    return -1;
+    return initial - size;
 }
 
 const size_t RLINK_INITIAL_BUFFER_SIZE = 1000;
@@ -588,13 +536,13 @@ static char *resolve_with_buffer_size(int base, const char *linkpath, size_t buf
 static char* resolve_with_buffer(int base, const char *linkpath, void* buffer, size_t bufferSize, size_t *finalStringSize) {
     LOG("calling readlink() for %s with buffer size %u", linkpath, bufferSize);
 
-    int resolvedNameLength = TEMP_FAILURE_RETRY(sys_readlinkat(base, linkpath, static_cast<char*>(buffer), bufferSize));
+    int resolvedNameLength = TEMP_FAILURE_RETRY(sys_readlinkat(base, linkpath, (char*) buffer, bufferSize));
     int err = errno;
 
     if (resolvedNameLength != -1) {
         if (resolvedNameLength < bufferSize) {
             *finalStringSize = (size_t) resolvedNameLength;
-            return static_cast<char*>(buffer);
+            return (char*) buffer;
         }
 
         if ((bufferSize = bufferSize * 2) < RLINK_MAX_BUFFER_SIZE) {
@@ -629,7 +577,7 @@ static char *resolve_with_buffer_size(int base, const char *linkpath, size_t buf
 }
 
 static const char* resolve_contcat(int base, const char* linkpath, size_t *stringSize, size_t nameSize) {
-    kernel_stat64 dirStat;
+    struct kernel_stat64 dirStat;
 
     char fdBuf[25];
     sprintf(fdBuf, "/proc/self/fd/%d", base);
@@ -664,7 +612,7 @@ static const char* resolve_contcat(int base, const char* linkpath, size_t *strin
             return NULL;
         }
 
-        resolved = static_cast<char*>(newBuf);
+        resolved = (char*) newBuf;
     }
 
     resolved[*stringSize] = '/';
@@ -678,7 +626,7 @@ static const char* resolve_contcat(int base, const char* linkpath, size_t *strin
 }
 
 static const char *resolve_link(int base, const char* linkpath, size_t *stringSize) {
-    kernel_stat64 dirStat;
+    struct kernel_stat64 dirStat;
 
     if (TEMP_FAILURE_RETRY(sys_fstatat64_fixed(base, linkpath, &dirStat, AT_SYMLINK_NOFOLLOW)) < 0) {
         return NULL;
@@ -727,113 +675,109 @@ static const char *resolve_link(int base, const char* linkpath, size_t *stringSi
     }
 }
 
-JNIEXPORT jworkaroundstr JNICALL PKG_SYM(nativeReadlink)(JNIEnv *env, jclass type, jint fd, jworkaroundstr pathname) {
-    jboolean isArray = env -> IsInstanceOf(pathname, byteArrayClass);
+JNIEXPORT jworkaroundstr JNICALL PKG_SYM(nativeReadlink)(JNIEnv *env, jclass type, jworkaroundstr pathname, jint l, jint fd) {
+    jworkaroundstr result = NULL;
 
-    const char* utfName = getUtf8(env, isArray, pathname);
+    const char* utfName = getUtf8(env, l, pathname);
 
     size_t stringSize;
 
     const char* resolved = resolve_link(fd, utfName, &stringSize);
 
     if (resolved == utfName) {
-        freeUtf8(env, isArray, pathname, utfName);
-        return pathname;
+        result = pathname;
+        goto cleanup;
     }
 
     if (resolved == NULL) {
         handleError(env);
-        return NULL;
+        goto cleanup;
     }
 
-    jworkaroundstr result = toString(env, const_cast<char*>(resolved), RLINK_MAX_BUFFER_SIZE, stringSize);
+    result = toString(env, (char*) resolved, RLINK_MAX_BUFFER_SIZE, stringSize);
 
-    free((void *) resolved);
+cleanup:
+    freeUtf8(env, l, pathname, utfName);
 
     return result;
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeSymlinkAt)(JNIEnv *env, jobject instance, jworkaroundstr name_, jint target, jworkaroundstr newpath_) {
-    jboolean isArray1 = env -> IsInstanceOf(name_, byteArrayClass);
-
-    const char *name = getUtf8(env, isArray1, name_);
+JNIEXPORT void JNICALL PKG_SYM(nativeSymlinkAt)(JNIEnv *env, jclass type, jworkaroundstr name_, jworkaroundstr newpath_, jint l1, jint l2, jint target) {
+    const char *name = getUtf8(env, l1, name_);
     if (name == NULL) {
         return;
     }
 
-    jboolean isArray2 = env -> IsInstanceOf(name_, byteArrayClass);
-
-    const char *newpath = getUtf8(env, isArray2, newpath_);
+    const char *newpath = getUtf8(env, l2, newpath_);
     if (newpath == NULL) {
-        return;
+        goto cleanup;
     }
 
-    int rc = TEMP_FAILURE_RETRY(sys_symlinkat(name, target, newpath));
-    int err = errno;
-
-    freeUtf8(env, isArray1, name_, name);
-    freeUtf8(env, isArray2, newpath_, newpath);
-
-    if (rc) {
-        handleError(env, err);
+    if (TEMP_FAILURE_RETRY(sys_symlinkat(name, target, newpath))) {
+        handleError(env);
     }
+
+    freeUtf8(env, l2, newpath_, newpath);
+cleanup:
+    freeUtf8(env, l1, name_, name);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeUnlinkAt)(JNIEnv *env, jobject instance, jint target, jworkaroundstr name, jint flags) {
-    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
-
-    const char* name_ = getUtf8(env, isArray, name);
+JNIEXPORT void JNICALL PKG_SYM(nativeUnlinkAt)(JNIEnv *env, jclass type, jworkaroundstr name, jint l, jint target, jint flags) {
+    const char* name_ = getUtf8(env, l, name);
     if (name_ == NULL) {
         return;
     }
 
-    int rc = TEMP_FAILURE_RETRY(sys_unlinkat(target, name_, flags));
-    int err = errno;
-
-    freeUtf8(env, isArray, name, name_);
-
-    if (rc) {
-        handleError(env, err);
+    if (TEMP_FAILURE_RETRY(sys_unlinkat(target, name_, flags))) {
+        handleError(env);
     }
+
+    freeUtf8(env, l, name, name_);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeMknodAt)(JNIEnv *env, jclass type, jint target, jworkaroundstr name, jint mode, jint device) {
-    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
-
-    const char* name_ = getUtf8(env, isArray, name);
-
+JNIEXPORT void JNICALL PKG_SYM(nativeMknodAt)(JNIEnv *env, jclass type, jworkaroundstr name, jint l, jint target, jint mode, jint device) {
+    const char* name_ = getUtf8(env, l, name);
     if (name_ == NULL) {
         return;
     }
 
-    int rc = TEMP_FAILURE_RETRY(sys_mknodat(target, name_, static_cast<mode_t>(mode), static_cast<dev_t>(device)));
-    int err = errno;
+    if (TEMP_FAILURE_RETRY(sys_mknodat(target, name_, (mode_t) mode, (dev_t) device))) {
+        handleError(env);
+    }
 
-    freeUtf8(env, isArray, name, name_);
+    freeUtf8(env, l, name, name_);
+}
 
-    if (rc) {
-        handleError(env, err);
+JNIEXPORT jboolean JNICALL PKG_SYM(nativeMkdirAt)(JNIEnv *env, jclass type, jworkaroundstr name, jint l, jint target, jint mode) {
+    jboolean retVal = JNI_TRUE;
+
+    const char* name_ = getUtf8(env, l, name);
+    if (name_ == NULL) {
+        goto exit;
+    }
+
+    if (TEMP_FAILURE_RETRY(sys_mkdirat(target, name_, (mode_t) mode))) {
+        if (errno == EEXIST) {
+            retVal = JNI_FALSE;
+        } else {
+            handleError(env);
+        }
+    }
+
+    freeUtf8(env, l, name, name_);
+
+exit:
+    return retVal;
+}
+
+JNIEXPORT void JNICALL PKG_SYM(ftruncate)(JNIEnv *env, jobject obj, jlong newsize, jint fd) {
+    if (TEMP_FAILURE_RETRY(sys_ftruncate(fd, (off_t) newsize))) {
+        handleError(env);
     }
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeMkdirAt)(JNIEnv *env, jclass type, jint target, jworkaroundstr name, jint mode) {
-    jboolean isArray = env -> IsInstanceOf(name, byteArrayClass);
-
-    const char* name_ = getUtf8(env, isArray, name);
-
-    int rc = TEMP_FAILURE_RETRY(sys_mkdirat(target, name_, static_cast<mode_t>(mode)));
-    int err = errno;
-
-    freeUtf8(env, isArray, name, name_);
-
-    if (rc) {
-        handleError(env, err);
-    }
-}
-
-
-JNIEXPORT void JNICALL PKG_SYM(fstat)(JNIEnv *env, jobject self, jint fd, jobject statStruct) {
-    kernel_stat64 dirStat;
+JNIEXPORT void JNICALL PKG_SYM(fstat)(JNIEnv *env, jobject obj, jint fd, jobject statStruct) {
+    struct kernel_stat64 dirStat;
 
     if (TEMP_FAILURE_RETRY(sys_fstat64(fd, &dirStat)) != 0) {
         handleError(env);
@@ -842,49 +786,62 @@ JNIEXPORT void JNICALL PKG_SYM(fstat)(JNIEnv *env, jobject self, jint fd, jobjec
 
     jint fileTypeOrdinal = 0;
 
-    if (S_ISBLK(dirStat.st_mode)) {
-        fileTypeOrdinal = 0;
-    } else if (S_ISCHR(dirStat.st_mode)) {
-        fileTypeOrdinal = 1;
-    } else if (S_ISFIFO(dirStat.st_mode)) {
-        fileTypeOrdinal = 2;
-    } else if (S_ISSOCK(dirStat.st_mode)) {
-        fileTypeOrdinal = 3;
-    } else if (S_ISLNK(dirStat.st_mode)) {
-        fileTypeOrdinal = 4;
-    } else if (S_ISREG(dirStat.st_mode)) {
-        fileTypeOrdinal = 5;
-    } else if (S_ISDIR(dirStat.st_mode)) {
-        fileTypeOrdinal = 6;
-    } else {
-        fileTypeOrdinal = 7;
+    switch (dirStat.st_mode & S_IFMT) {
+        case S_IFREG:
+            fileTypeOrdinal = 5;
+            break;
+        case S_IFDIR:
+            fileTypeOrdinal = 6;
+            break;
+        case S_IFLNK:
+            fileTypeOrdinal = 4;
+            break;
+        case S_IFBLK:
+            fileTypeOrdinal = 0;
+            break;
+        case S_IFCHR:
+            fileTypeOrdinal = 1;
+            break;
+        case S_IFIFO:
+            fileTypeOrdinal = 2;
+            break;
+        case S_IFSOCK:
+            fileTypeOrdinal = 3;
+            break;
+        default:
+            fileTypeOrdinal = 7;
+            break;
     }
 
-    env -> CallNonvirtualVoidMethod(statStruct, statContainer, statContainerInit,
-                            dirStat.st_dev, dirStat.st_ino, dirStat.st_size, dirStat.st_blksize, fileTypeOrdinal);
+    (*env)->CallNonvirtualVoidMethod(env, statStruct, statContainer, statContainerInit,
+        (uint64_t) dirStat.st_dev,
+        (uint64_t) dirStat.st_ino,
+        (jlong) dirStat.st_size,
+        (uint32_t) dirStat.st_rdev,
+        (jint) dirStat.st_blksize,
+        fileTypeOrdinal,
+        (jint) (dirStat.st_mode & ~S_IFMT));
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeRenameAt)(JNIEnv *env, jclass type, jint fd, jworkaroundstr o, jint fd2, jworkaroundstr o1) {
-    jboolean isArray1 = env -> IsInstanceOf(o, byteArrayClass);
-
-    const char* name_ = getUtf8(env, isArray1, o);
+JNIEXPORT void JNICALL PKG_SYM(nativeRenameAt)(JNIEnv *env, jclass type, jworkaroundstr o, jworkaroundstr o1, jint l1, jint l2, jint fd, jint fd2) {
+    const char* name_ = getUtf8(env, l1, o);
     if (name_ == NULL) {
         return;
     }
 
-    jboolean isArray2 = env -> IsInstanceOf(o1, byteArrayClass);
-
-    const char* name1_ = getUtf8(env, isArray2, o1);
-
-    if (name1_ != NULL) {
-        if (sys_renameat(fd, name_, fd2, name1_) == -1) {
-            handleError(env);
-        }
-
-        freeUtf8(env, isArray2, o1, name1_);
+    const char* name1_ = getUtf8(env, l2, o1);
+    if (name1_ == NULL) {
+        goto cleanup;
     }
 
-    freeUtf8(env, isArray1, o, name_);
+    if (sys_renameat(fd, name_, fd2, name1_) == -1) {
+        handleError(env);
+    }
+
+    freeUtf8(env, l2, o1, name1_);
+
+cleanup:
+    freeUtf8(env, l1, o, name_);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(readahead)(JNIEnv *env, jclass type, jint fd, jlong off, jint len) {
@@ -930,10 +887,11 @@ JNIEXPORT jint JNICALL PKG_SYM(dup)(JNIEnv *env, jobject instance, jint source) 
     return result;
 }
 
-JNIEXPORT jboolean JNICALL PKG_SYM(nativeFaccessAt)(JNIEnv *env, jclass type, jint fd, jworkaroundstr pathname_, jint mode) {
-    jboolean isArray = env -> IsInstanceOf(pathname_, byteArrayClass);
-
-    const char *utf8Path = getUtf8(env, isArray, pathname_);
+JNIEXPORT jboolean JNICALL PKG_SYM(nativeFaccessAt)(JNIEnv *env, jclass type, jworkaroundstr pathname_, jint l, jint fd, jint mode) {
+    const char *utf8Path = getUtf8(env, l, pathname_);
+    if (utf8Path == NULL) {
+        return 0;
+    }
 
     int ret = TEMP_FAILURE_RETRY(sys_faccessat(fd, utf8Path, mode));
     if (ret) {
@@ -948,27 +906,19 @@ JNIEXPORT jboolean JNICALL PKG_SYM(nativeFaccessAt)(JNIEnv *env, jclass type, ji
         }
     }
 
-    freeUtf8(env, isArray, pathname_, utf8Path);
+    freeUtf8(env, l, pathname_, utf8Path);
 
-    return static_cast<jboolean>(ret ? JNI_FALSE : JNI_TRUE);
-}
-
-JNIEXPORT jint JNICALL PKG_SYM(nativeCreat)(JNIEnv *env, jclass type, jobject pathname, jint mode) {
-    return coreio_openat(env, -1, pathname, O_CREAT | O_RDWR | O_TRUNC, mode);
+    return (jboolean) (ret ? JNI_FALSE : JNI_TRUE);
 }
 
 JNIEXPORT void JNICALL PKG_SYM(nativeFsync)(JNIEnv *env, jclass type, jlong nativePtr, jint fd) {
-    InterruptHandler* handler = reinterpret_cast<InterruptHandler*>(nativePtr);
+    i10n_ptr handler = (i10n_ptr) (intptr_t) nativePtr;
 
-    if (handler -> interrupted.load(memory_order_relaxed)) {
-        env -> ThrowNew(iIoException, "fsync");
-
-        handler -> clear_flag();
-
+    if (*handler) {
         return;
     }
 
-    bool eintr = false;
+    int eintr = 0;
 
     do {
         if (fsync(fd)) {
@@ -980,48 +930,40 @@ JNIEXPORT void JNICALL PKG_SYM(nativeFsync)(JNIEnv *env, jclass type, jlong nati
             }
         }
 
-        if (handler -> interrupted.load(memory_order_relaxed)) {
-            env -> ThrowNew(iIoException, "fsync");
-
-            handler -> clear_flag();
-
+        if (*handler) {
             return;
         }
     } while (eintr);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeLinkAt)(JNIEnv *env, jclass type, jint oldDirFd, jworkaroundstr o, jint newDirFd, jworkaroundstr o1, jint flags) {
-    jboolean isArray1 = env -> IsInstanceOf(o, byteArrayClass);
-
-    const char* name_ = getUtf8(env, isArray1, o);
+JNIEXPORT void JNICALL PKG_SYM(nativeLinkAt)(JNIEnv *env, jclass type, jworkaroundstr o, jworkaroundstr o1, jint l1, jint l2, jint oldDirFd, jint newDirFd, jint flags) {
+    const char* name_ = getUtf8(env, l1, o);
     if (name_ == NULL) {
         return;
     }
 
-    jboolean isArray2 = env -> IsInstanceOf(o1, byteArrayClass);
-
-    const char* name1_ = getUtf8(env, isArray2, o1);
-
-    if (name1_ != NULL) {
-        if (sys_linkat(oldDirFd, name_, newDirFd, name1_, flags)) {
-            handleError(env);
-        }
-
-        freeUtf8(env, isArray2, o1, name1_);
+    const char* name1_ = getUtf8(env, l2, o1);
+    if (name1_ == NULL) {
+        goto cleanup;
     }
 
-    freeUtf8(env, isArray1, o, name_);
+    if (sys_linkat(oldDirFd, name_, newDirFd, name1_, flags)) {
+        handleError(env);
+    }
+
+    freeUtf8(env, l2, o1, name1_);
+
+cleanup:
+    freeUtf8(env, l1, o, name_);
 }
 
-JNIEXPORT void JNICALL PKG_SYM(nativeFstatAt)(JNIEnv *env, jclass type, jint dir, jworkaroundstr pathname, jobject statStruct, jint flags) {
-    jboolean isArray = env -> IsInstanceOf(pathname, byteArrayClass);
-
-    const char *utf8Path = getUtf8(env, isArray, pathname);
+JNIEXPORT void JNICALL PKG_SYM(nativeFstatAt)(JNIEnv *env, jclass type, jworkaroundstr pathname, jobject statStruct, jint l, jint dir, jint flags) {
+    const char *utf8Path = getUtf8(env, l, pathname);
     if (utf8Path == NULL) {
         return;
     }
 
-    kernel_stat64 fdStat;
+    struct kernel_stat64 fdStat;
 
     jint fileTypeOrdinal = 0;
 
@@ -1030,29 +972,42 @@ JNIEXPORT void JNICALL PKG_SYM(nativeFstatAt)(JNIEnv *env, jclass type, jint dir
         goto cleanup;
     }
 
-    if (S_ISBLK(fdStat.st_mode)) {
-        fileTypeOrdinal = 0;
-    } else if (S_ISCHR(fdStat.st_mode)) {
-        fileTypeOrdinal = 1;
-    } else if (S_ISFIFO(fdStat.st_mode)) {
-        fileTypeOrdinal = 2;
-    } else if (S_ISSOCK(fdStat.st_mode)) {
-        fileTypeOrdinal = 3;
-    } else if (S_ISLNK(fdStat.st_mode)) {
-        fileTypeOrdinal = 4;
-    } else if (S_ISREG(fdStat.st_mode)) {
-        fileTypeOrdinal = 5;
-    } else if (S_ISDIR(fdStat.st_mode)) {
-        fileTypeOrdinal = 6;
-    } else {
-        fileTypeOrdinal = 7;
+    switch (fdStat.st_mode & S_IFMT) {
+        case S_IFREG:
+            fileTypeOrdinal = 5;
+            break;
+        case S_IFDIR:
+            fileTypeOrdinal = 6;
+            break;
+        case S_IFLNK:
+            fileTypeOrdinal = 4;
+            break;
+        case S_IFBLK:
+            fileTypeOrdinal = 0;
+            break;
+        case S_IFCHR:
+            fileTypeOrdinal = 1;
+            break;
+        case S_IFIFO:
+            fileTypeOrdinal = 2;
+            break;
+        case S_IFSOCK:
+            fileTypeOrdinal = 3;
+            break;
+        default:
+            fileTypeOrdinal = 7;
+            break;
     }
 
-    env -> CallNonvirtualVoidMethod(statStruct, statContainer, statContainerInit,
-                                    fdStat.st_dev, fdStat.st_ino, fdStat.st_size, fdStat.st_blksize, fileTypeOrdinal);
+    (*env)->CallNonvirtualVoidMethod(env, statStruct, statContainer, statContainerInit,
+                                     (uint64_t) fdStat.st_dev,
+                                     (uint64_t) fdStat.st_ino,
+                                     (jlong) fdStat.st_size,
+                                     (uint32_t) fdStat.st_rdev,
+                                     (jint) fdStat.st_blksize,
+                                     fileTypeOrdinal,
+                                     (jint) (fdStat.st_mode & ~S_IFMT));
 
     cleanup:
-    freeUtf8(env, isArray, pathname, utf8Path);
-}
-
+    freeUtf8(env, l, pathname, utf8Path);
 }

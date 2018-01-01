@@ -2,7 +2,7 @@
 #define MOAR_SYSCALL_SUPPORT_H
 
 #include <sys/syscall.h>
-#include <sys/linux-syscalls.h>
+#include <linux/capability.h>
 
 static inline int sys_symlinkat(const char *target, int newdirfd, const char *linkpath) {
     return syscall(__NR_symlinkat, target, newdirfd, linkpath);

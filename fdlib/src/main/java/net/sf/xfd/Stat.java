@@ -20,27 +20,51 @@ import android.os.Parcelable;
 import android.support.annotation.Keep;
 
 public final class Stat implements Parcelable {
-    public static final int BYTES = (Long.SIZE * 3 + Integer.SIZE * 2) / Byte.SIZE;
-
+    /**
+     * note: this is an unsigned 64-bit value, stored in signed Java long
+     */
     public long st_dev;
 
+    /**
+     * note: this is an unsigned 64-bit value, stored in signed Java long
+     */
     public long st_ino;
 
+    /**
+     * note: this is an unsigned 64-bit value, stored in signed Java long
+     */
     public long st_size;
 
     public FsType type;
 
+    /**
+     * While it is theoretically possible to have 64-bit dev_t on 64-bit
+     * architectures, there are no known device drivers with such rdev,
+     * and any such drivers would be innately incompatible with 32-bit apps.
+     * Let's keep this one 32-bit for simplicity.
+     */
+    public int st_rdev;
+
+    /**
+     * Again, while block size of underlying filesystem *may* be this big on x64,
+     * such filesystems are too horrifying to imagine, so let's keep it 32-bit.
+     */
     public int st_blksize;
+
+    public short mode;
 
     public Stat() {
     }
 
     @Keep
-    public void init(long st_dev, long st_ino, long st_size, int st_blksize, int fsTypeId) {
+    public void init(long st_dev, long st_ino, long st_size, int st_rdev, int st_blksize, int fsTypeId, int mode) {
         this.st_dev = st_dev;
         this.st_ino = st_ino;
         this.st_size = st_size;
+        this.st_rdev = st_rdev;
         this.st_blksize = st_blksize;
+
+        this.mode = (short) mode;
 
         this.type = FsType.at(fsTypeId);
     }
@@ -55,8 +79,10 @@ public final class Stat implements Parcelable {
         dest.writeLong(st_dev);
         dest.writeLong(st_ino);
         dest.writeLong(st_size);
+        dest.writeInt(st_rdev);
         dest.writeInt(st_blksize);
         dest.writeInt(type.ordinal());
+        dest.writeInt(mode);
     }
 
     public static final Creator<Stat> CREATOR = new Creator<Stat>() {
@@ -64,10 +90,14 @@ public final class Stat implements Parcelable {
         public Stat createFromParcel(Parcel in) {
             final Stat result = new Stat();
 
-            result.st_dev = in.readLong();
-            result.st_ino = in.readLong();
-            result.st_size = in.readLong();
-            result.st_blksize = in.readInt();
+            result.init(
+                    in.readLong(),
+                    in.readLong(),
+                    in.readLong(),
+                    in.readInt(),
+                    in.readInt(),
+                    in.readInt(),
+                    (short) in.readInt());
 
             return result;
         }
@@ -77,4 +107,20 @@ public final class Stat implements Parcelable {
             return new Stat[size];
         }
     };
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder(60);
+
+        builder.append("Stat(").append(type).append(")[");
+        builder.append("size: ").append(st_size).append("; ");
+        builder.append("mode: 0").append(Integer.toOctalString(mode)).append("; ");
+        if (type != null && type.isSpecial()) {
+            builder.append("rdev: ").append(st_rdev).append("; ");
+        }
+        builder.append("ino: ").append(st_ino);
+        builder.append("]");
+
+        return builder.toString();
+    }
 }

@@ -84,6 +84,25 @@ import java.nio.ByteBuffer;
  */
 public interface Directory extends Iterable<Directory.Entry>, Closeable {
     /**
+     * Attempt to keep internal buffers reasonably small.
+     *
+     * This flag should be used when you intend create a lot of Directory instances
+     * at once (for example, during recursive directory traversal).
+     */
+    int READDIR_SMALL_BUFFERS = 0b01;
+
+    /**
+     * Reuse {@link NativeString} instances, passed to {@link UnreliableIterator#get}
+     *
+     * When this flag is set, each call to {@link UnreliableIterator#get} will
+     * check if the target {@link Entry#name} contains a {@link NativeString}, and if
+     * so, reuse it instead of creating a new one. Reusing filename buffers might be
+     * error-prone, but have high positive effect on performance, especially during
+     * intensive filesystem traversal.
+     */
+    int READDIR_REUSE_STRINGS = 0b10;
+
+    /**
      * Iterators over Linux directories are weakly consistent. That is — they can usually
      * preserve their current position during failed advancement attempts, but aren't guaranteed to
      * do so. In particular, seeking backwards always has a chance to fail with exception,
@@ -110,6 +129,7 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable {
      * @see UnreliableIterator
      * @see <a href="http://pubs.opengroup.org/onlinepubs/9699919799/">Posix readdir() page</a>
      */
+    @NonNull
     @Override
     UnreliableIterator<Entry> iterator();
 

@@ -15,6 +15,8 @@
  */
 package net.sf.xfd;
 
+import android.support.annotation.Keep;
+
 import java.io.Closeable;
 
 final class BlockingGuards extends GuardFactory {

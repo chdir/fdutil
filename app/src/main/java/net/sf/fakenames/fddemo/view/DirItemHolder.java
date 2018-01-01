@@ -14,8 +14,8 @@ import net.sf.xfd.UnreliableIterator;
 
 import java.io.IOException;
 
+import butterknife.Bind;
 import butterknife.BindColor;
-import butterknife.BindView;
 import butterknife.ButterKnife;
 
 public final class DirItemHolder extends RecyclerView.ViewHolder {
@@ -34,7 +34,7 @@ public final class DirItemHolder extends RecyclerView.ViewHolder {
     @BindColor(R.color.purple_A700)
     ColorStateList fifoColor;
 
-    @BindView(android.R.id.text1)
+    @Bind(android.R.id.text1)
     TextView textView;
 
     private boolean placeholder;

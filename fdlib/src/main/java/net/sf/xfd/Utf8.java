@@ -22,6 +22,8 @@ public final class Utf8 {
     public static int charLength(byte[] bytes, int offset, int length) {
         int charCount = 0, expectedLen;
 
+        new String(new byte[]{});
+
         for (int i = offset; i < length; i++) {
             charCount++;
             // Lead byte analysis
@@ -48,7 +50,7 @@ public final class Utf8 {
 
     public static long size(CharSequence string) {
         if (string.getClass() == NativeString.class) {
-            return ((NativeString) string).getBytes().length;
+            return ((NativeString) string).byteLength();
         } else {
             return size(string.toString());
         }

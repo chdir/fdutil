@@ -33,19 +33,19 @@ import android.widget.TextView;
 
 import java.util.Arrays;
 
-import butterknife.BindView;
+import butterknife.Bind;
 import butterknife.OnClick;
 
 import static net.sf.xfd.provider.PermissionDelegate.*;
 
 public final class PermissionActivity extends BaseActivity {
-    @BindView(android.R.id.message)
+    @Bind(android.R.id.message)
     TextView message;
 
-    @BindView(android.R.id.button1)
+    @Bind(android.R.id.button1)
     TextView allow;
 
-    @BindView(android.R.id.button2)
+    @Bind(android.R.id.button2)
     TextView deny;
 
     private ResultReceiver resultReceiver;

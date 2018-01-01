@@ -120,8 +120,8 @@ public final class SyscallFactory implements Closeable {
 
         DEBUG = "true".equals(System.getProperty(DEBUG_MODE));
 
-        HELPER_TIMEOUT = Long.parseLong(System.getProperty(PRIMARY_TIMEOUT, "20000"));
-        IO_TIMEOUT = Long.parseLong(System.getProperty(SECONDARY_TIMEOUT, "2500"));
+        HELPER_TIMEOUT = Long.MAX_VALUE; //Long.parseLong(System.getProperty(PRIMARY_TIMEOUT, "20000"));
+        IO_TIMEOUT = Long.MAX_VALUE; // Long.parseLong(System.getProperty(SECONDARY_TIMEOUT, "2500"));
     }
 
     /**
@@ -230,12 +230,12 @@ public final class SyscallFactory implements Closeable {
     }
 
     @WorkerThread
-    public void mkdirat(@DirFd int fd, CharSequence filepath, int mode) throws IOException, FactoryBrokenException {
+    public boolean mkdirat(@DirFd int fd, CharSequence filepath, int mode) throws IOException, FactoryBrokenException {
         if (closedStatus.get()) throw new FactoryBrokenException("Already closed");
 
         final ParcelFileDescriptor pfd = fd < 0 ? null : ParcelFileDescriptor.fromFd(fd);
 
-        mkdirInternal(pfd, filepath, mode);
+        return mkdirInternal(pfd, filepath, mode);
     }
 
     @WorkerThread
@@ -669,7 +669,7 @@ public final class SyscallFactory implements Closeable {
                     if (response.message == null) {
                         FstatResp resp = (FstatResp) response;
 
-                        stat.init(resp.st_dev, resp.st_ino, resp.st_size, resp.st_blksize, resp.typeOrdinal);
+                        stat.init(resp.st_dev, resp.st_ino, resp.st_size, resp.st_rdev, resp.st_blksize, resp.typeOrdinal, resp.mode);
 
                         return;
                     } else {
@@ -722,7 +722,7 @@ public final class SyscallFactory implements Closeable {
         throw new FactoryBrokenException("Failed to retrieve response from helper");
     }
 
-    private void mkdirInternal(ParcelFileDescriptor fd, CharSequence path, int mode) throws IOException, FactoryBrokenException {
+    private boolean mkdirInternal(ParcelFileDescriptor fd, CharSequence path, int mode) throws IOException, FactoryBrokenException {
         final FdReq request = serverThread.new MkdirReq(fd, path, mode);
 
         FdResp response;
@@ -731,7 +731,7 @@ public final class SyscallFactory implements Closeable {
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
                     if ("READY".equals(response.message)) {
-                        return;
+                        return true;
                     }
 
                     throwException(response.message);
@@ -1801,9 +1801,13 @@ public final class SyscallFactory implements Closeable {
 
         public final long st_size;
 
+        public final int st_rdev;
+
         public final int typeOrdinal;
 
         public final int st_blksize;
+
+        public final short mode;
 
         public FstatResp(Server.FstatReq request, String message, ByteBuffer buffer) {
             super(request, message);
@@ -1811,8 +1815,10 @@ public final class SyscallFactory implements Closeable {
             this.st_dev = buffer.getLong();
             this.st_ino = buffer.getLong();
             this.st_size = buffer.getLong();
+            this.st_rdev = buffer.getInt();
             this.typeOrdinal = buffer.getInt();
             this.st_blksize = buffer.getInt();
+            this.mode = buffer.getShort();
         }
     }
 

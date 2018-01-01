@@ -31,30 +31,38 @@ public class CopyImpl implements Copy {
 
     @Override
     public long transfer(@Fd int source, Stat sourceStat, @Fd int target, Stat targetStat, long bytes) throws IOException {
-        final InterruptibleStageImpl stage = InterruptibleStageImpl.get();
-
-        stage.begin();
+        final Interruption stage = Interruption.begin();
         try {
-            Interruption i = stage.i;
+            long i10nPtr = stage.toNative();
 
             if (bytes <= 0) {
                 bytes = Long.MAX_VALUE;
             }
+
+            Android.i10nCheck(stage, "copy", 0);
+
+            long copied;
 
             if (bytes > CHUNK_SIZE && sourceStat != null && targetStat != null) {
                 final FsType sType = sourceStat.type;
                 final FsType tType = targetStat.type;
 
                 if (sType == FsType.FILE && (tType == FsType.FILE || tType == FsType.DOMAIN_SOCKET)) {
-                    return Android.doSendfile(nativePtr, i.nativePtr, bytes, source, target);
+                    copied = Android.doSendfile(nativePtr, i10nPtr, bytes, source, target);
                 } else if (sType == FsType.NAMED_PIPE || tType == FsType.NAMED_PIPE) {
-                    return Android.doSplice(nativePtr, i.nativePtr, bytes, source, target);
+                    copied = Android.doSplice(nativePtr, i10nPtr, bytes, source, target);
+                } else {
+                    copied = Android.doDumbCopy(nativePtr, i10nPtr, bytes, source, target);
                 }
+            } else {
+                copied = Android.doDumbCopy(nativePtr, i10nPtr, bytes, source, target);
             }
 
-            return Android.doDumbCopy(nativePtr, i.nativePtr, bytes, source, target);
+            Android.i10nCheck(stage, "copy", copied);
+
+            return copied;
         } finally {
-            stage.end();
+            Interruption.end();
         }
     }
 

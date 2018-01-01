@@ -188,6 +188,12 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @NonNull
     @Override
+    public Directory list(int fd, int flags) {
+        return delegate.list(fd, flags);
+    }
+
+    @NonNull
+    @Override
     public Inotify observe(@InotifyFd int inotifyDescriptor) {
         return observe(inotifyDescriptor, Looper.myLooper());
     }
@@ -214,6 +220,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     @Override
     public void fstat(int fd, @NonNull Stat stat) throws IOException {
         delegate.fstat(fd, stat);
+    }
+
+    @Override
+    public void fchmod(int fd, short mode) throws IOException {
+
     }
 
     @Override
@@ -285,11 +296,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
 
     @Override
     @WorkerThread
-    public void mkdirat(@DirFd int target, @NonNull CharSequence pathname, int mode) throws IOException {
+    public boolean mkdirat(@DirFd int target, @NonNull CharSequence pathname, int mode) throws IOException {
         try {
             final SyscallFactory factory = getFactory();
 
-            factory.mkdirat(target, pathname, mode);
+            return factory.mkdirat(target, pathname, mode);
         } catch (FactoryBrokenException e) {
             factory = null;
 
@@ -342,6 +353,11 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
     @Override
     public int dup(int source) throws IOException {
         return delegate.dup(source);
+    }
+
+    @Override
+    public void ftruncate(int fd, long length) throws IOException {
+        delegate.ftruncate(fd, length);
     }
 
     @Override

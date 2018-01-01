@@ -23,9 +23,11 @@ import java.io.IOException;
 public final class NativeBits {
     private NativeBits() {}
 
-    public static final int O_PATH = 0b1000000000000000000000;
-
     public static final int O_CREAT = 0b1000000;
+
+    public static final int O_TRUNC = 0b1000000000;
+
+    public static final int O_PATH = 0b1000000000000000000000;
 
     public static final int O_DIRECTORY = 0b10000000000000000;
 

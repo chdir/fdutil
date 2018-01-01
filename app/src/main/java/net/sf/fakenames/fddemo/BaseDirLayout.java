@@ -16,6 +16,7 @@
  */
 package net.sf.fakenames.fddemo;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.os.Build;
@@ -28,9 +29,11 @@ import android.text.TextUtils;
 import com.carrotsearch.hppc.ObjectHashSet;
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
+import net.sf.xfd.DirFd;
 import net.sf.xfd.Fd;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.OS;
+import net.sf.xfd.Stat;
 import net.sf.xfd.provider.MountsSingleton;
 
 import java.io.File;
@@ -51,6 +54,10 @@ public class BaseDirLayout extends ContextWrapper {
     private File home;
 
     private MountInfo mountInfo;
+
+    private long homeDev;
+
+    private MountInfo.Mount appDir;
 
     private final ObjectHashSet<String> usableFilesystems = new ObjectHashSet<>(10); {
         usableFilesystems.addAll("ext2", "ext3", "ext4", "xfs", "jfs", "yaffs", "jffs2", "f2fS", "fuse", "vfat");
@@ -80,6 +87,14 @@ public class BaseDirLayout extends ContextWrapper {
         home = getBaseDir();
 
         mountInfo = MountsSingleton.get(os);
+
+        Stat homeStat = new Stat();
+
+        os.fstatat(DirFd.NIL, home.getAbsolutePath(), homeStat, 0);
+
+        homeDev = homeStat.st_dev;
+
+        appDir = mountInfo.mountMap.get(homeDev);
 
         final HashMap<File, String> pathNameMap = new HashMap<>();
 
@@ -201,6 +216,26 @@ public class BaseDirLayout extends ContextWrapper {
             lock.unlock();
         }
     }
+
+    /*
+    public boolean hasHardLinks(long dev_t) {
+        if (homeDev == dev_t) {
+            // we assume, that app internal storage directory
+            // is a proper Linux filesystem
+            return true;
+        }
+
+        final Lock lock = mountInfo.getLock();
+        lock.lock();
+        try {
+            MountInfo.Mount fs = mountInfo.mountMap.get(dev_t);
+
+            return fs.fstype.equals(appDir.fstype) || mountInfo.hasHardLinks(fs);
+        } finally {
+            lock.unlock();
+        }
+    }
+    */
 
     public File getHome() {
         return home;

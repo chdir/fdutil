@@ -3,9 +3,13 @@
 buildscript {
     repositories {
         jcenter()
+        maven {
+            url 'https://maven.google.com/'
+            name 'Google'
+        }
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:2.2.2'
+        classpath 'com.android.tools.build:gradle:3.0.1'
         classpath 'me.tatarka:gradle-retrolambda:3.3.0-beta4'
         classpath 'me.tatarka.retrolambda.projectlombok:lombok.ast:0.2.3.a2'
         classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7'
@@ -16,6 +20,39 @@ buildscript {
 allprojects {
     repositories {
         jcenter()
+        maven {
+            url 'https://maven.google.com/'
+            name 'Google'
+        }
+    }
+}
+
+configurations.all {
+    resolutionStrategy {
+        // fail eagerly on version conflict (includes transitive dependencies)
+        // e.g. multiple different versions of the same dependency (group and name are equal)
+        failOnVersionConflict()
+
+        // prefer modules that are part of this build (multi-project or composite build) over external modules
+        preferProjectModules()
+
+        force 'com.google.guava:guava:19.0'
+    }
+}
+
+if (!project.hasProperty('deploymentProps')) {
+    ext.deploymentProps = new Properties();
+
+    def propFile
+
+    def propName = project.properties.deploymentConfig
+
+//    logger.warn 'hahahahahahahaha'
+
+    if(propName && (propFile = file(propName)).exists()) {
+        new FileInputStream(propFile).withStream { InputStream is ->
+            deploymentProps.load(is)
+        }
     }
 }
 

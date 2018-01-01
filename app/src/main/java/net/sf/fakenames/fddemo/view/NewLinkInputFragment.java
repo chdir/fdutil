@@ -32,7 +32,7 @@ import android.view.View;
 import net.sf.fakenames.fddemo.R;
 import net.sf.fakenames.fddemo.util.Utils;
 
-import butterknife.BindView;
+import butterknife.Bind;
 import butterknife.ButterKnife;
 
 public final class NewLinkInputFragment extends DialogFragment implements DialogInterface.OnClickListener {
@@ -52,16 +52,16 @@ public final class NewLinkInputFragment extends DialogFragment implements Dialog
     private @StringRes int fileTypeTitle;
     private int type;
 
-    @BindView(R.id.dlg_sym_input)
+    @Bind(R.id.dlg_sym_input)
     TextInputEditText editText;
 
-    @BindView(R.id.dlg_sym_input_layout)
+    @Bind(R.id.dlg_sym_input_layout)
     TextInputLayout editLayout;
 
-    @BindView(R.id.dlg_sym_targ_input)
+    @Bind(R.id.dlg_sym_targ_input)
     TextInputEditText editTargetText;
 
-    @BindView(R.id.dlg_sym_targ_input_layout)
+    @Bind(R.id.dlg_sym_targ_input_layout)
     TextInputLayout editTargetLayout;
 
     @Override

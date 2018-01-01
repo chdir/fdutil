@@ -1,17 +1,30 @@
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in /home/uniqa/android-sdk/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+-dontwarn android.support.v4.app.ActivityCompatApi21
+-dontwarn okio.**
+-dontwarn javax.annotation.Nullable
+-dontwarn javax.annotation.ParametersAreNonnullByDefault
+-dontwarn org.codehaus.mojo.animal_sniffer.**
+-dontwarn **$$Lambda$*
 
-# Add any project specific keep options here:
+-keepattributes Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-keep,allowoptimization public class * implements butterknife.ViewBinder {
+    public <init>();
+}
+-keepclasseswithmembernames,allowoptimization,includedescriptorclasses class * {
+    @butterknife.* <methods>;
+}
+-keepclasseswithmembernames,allowoptimization,includedescriptorclasses class * {
+    @butterknife.* <fields>;
+}
+
+-optimizationpasses 6
+
+-repackageclasses xfd
+-allowaccessmodification
+-useuniqueclassmembernames
+-dontskipnonpubliclibraryclasses
+-dontskipnonpubliclibraryclassmembers
+
+-dontwarn butterknife.internal.ButterKnifeProcessor
+-dontwarn java.nio.file.**
+-dontwarn com.google.j2objc.**

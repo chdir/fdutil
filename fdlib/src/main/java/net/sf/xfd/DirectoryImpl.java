@@ -28,7 +28,7 @@ import static net.sf.xfd.DebugAsserts.failIf;
 
 public final class DirectoryImpl implements Directory {
     // "Maximum" length of filename
-    // As of 2016 ext3/ext4 limit name lengths to 256 bytes
+    // As of 2017 ext3/ext4 limit name lengths to 256 bytes
     // VFAT offers 255 2-byte UCS-2 units instead
     // Other filesystems may offer more, but it is still handy to have a reference size
     public static final int FILENAME_MAX = 255;
@@ -62,19 +62,18 @@ public final class DirectoryImpl implements Directory {
     private DirectoryIterator iterator;
 
     private final int fd;
+    private final int flags;
     private final ByteBuffer byteBuffer;
     private final long nativePtr;
     private final Arena arena;
 
     private byte[] nameBytes;
-    private ByteBuffer nameBuffer;
 
-    DirectoryImpl(int fd, Arena arena) {
+    DirectoryImpl(int fd, Arena arena, int flags) {
         this.fd = fd;
+        this.flags = flags;
 
-        nameBytes = new byte[FILENAME_MAX * 2 + 1];
-
-        nameBuffer = ByteBuffer.wrap(nameBytes);
+        nameBytes = new byte[FILENAME_MAX * 4 + 1];
 
         this.arena = arena;
         this.nativePtr = arena.getPtr();
@@ -94,11 +93,19 @@ public final class DirectoryImpl implements Directory {
     CharSequence getName() {
         final int strLengthBytes = Android.nativeGetStringBytes(nativePtr + byteBuffer.position(), nameBytes, nameBytes.length);
 
-        nameBuffer.position(0);
+        return nameDecoder.decode(nameBytes, 0, strLengthBytes);
+    }
 
-        nameBuffer.limit(strLengthBytes);
+    CharSequence getName(NativeString reuse) {
+        if ((flags & Directory.READDIR_REUSE_STRINGS) == 0) {
+            return getName();
+        }
 
-        return nameDecoder.fromUtf8Bytes(nameBuffer);
+        reuse.length = Android.nativeGetStringBytes(nativePtr + byteBuffer.position(), reuse.bytes, reuse.bytes.length);
+
+        reuse.string = null;
+
+        return reuse;
     }
 
     /**
@@ -106,6 +113,7 @@ public final class DirectoryImpl implements Directory {
      * instance, which like the whole class, is not safe to use from multiple threads without
      * explicit synchronization.
      */
+    @NonNull
     @Override
     public DirectoryIterator iterator() {
         if (iterator != null) {
@@ -227,7 +235,7 @@ public final class DirectoryImpl implements Directory {
         // If the current entry is the  last one, returns false, otherwise sets buffer limit to
         // the number of bytes read (e.g. size of the new entry) and returns true.
         private boolean readNext() throws IOException {
-            int bytesRead = Android.nativeReadNext(fd, nativePtr, byteBuffer.capacity());
+            int bytesRead = Android.nativeReadNext(nativePtr, fd, byteBuffer.capacity());
 
             if (bytesRead == 0) {
                 return false;
@@ -255,7 +263,7 @@ public final class DirectoryImpl implements Directory {
                 return false;
             }
 
-            final long newPosition = Android.seekTo(fd, cookie);
+            final long newPosition = Android.seekTo(cookie, fd);
 
             if (newPosition == cookie) {
                 reset();
@@ -435,14 +443,18 @@ public final class DirectoryImpl implements Directory {
             }
 
             reuse.ino = byteBuffer.getLong(byteBuffer.position() + GETDENTS_OFF_INO);
+
             reuse.type = getFileType();
-            reuse.name = getName();
+
+            reuse.name = reuse.name instanceof NativeString
+                    ? getName((NativeString) reuse.name)
+                    : getName();
         }
 
         /**
          * @return true if the end of directory stream was reached during last advancement, false otherwise
          */
-        public boolean hasReachedEnd() {
+        boolean hasReachedEnd() {
             return lastPosition == position;
         }
 
@@ -456,7 +468,7 @@ public final class DirectoryImpl implements Directory {
          *
          * @return always true, the position is -1, otherwise true if can advanced
          *
-         * @see {@link #next}
+         * @see #next
          */
         @Override
         public boolean hasNext() {
@@ -476,8 +488,8 @@ public final class DirectoryImpl implements Directory {
          * @return element at the *current* position (as specified by {@link #getPosition} at the
          * time of calling this method)
          *
+         * @throws NoSuchElementException if advancement fails due to absence of next element
          * @throws WrappedIOException if an IO error occurs
-         * @throws NoSuchElementException
          */
         @NonNull
         @Override

@@ -4,17 +4,7 @@ def mainLic = 'Apache-2.0'
 def libVcs = 'https://github.com/chdir/fdutil'
 def helperVer = '1.6'
 
-def props = new Properties()
-
-def propFile
-def propName = project.properties.deploymentConfig
-if(propName && (propFile = file(propName)).exists()) {
-    new FileInputStream(propFile).withStream { InputStream is ->
-        props.load(is)
-    }
-}
-
-if (props) {
+if (deploymentProps) {
     task androidSourcesJar(type: Jar) {
         classifier = 'sources'
         from android.sourceSets.main.java.srcDirs
@@ -56,8 +46,8 @@ if (props) {
     }
 
     bintray {
-        user = props['bintrayUser']
-        key = props['bintrayKey']
+        user = deploymentProps['bintrayUser']
+        key = deploymentProps['bintrayKey']
         publications = ['xfdbase']
 
         pkg {

@@ -77,13 +77,12 @@ public interface UnreliableIterator<E> extends Iterator<E> {
     @NonNull E next();
 
     /**
+     * This method is not supported by the class.
+     *
      * All modern filesystems decouple directories from files within. In Linux having access to
-     * directory descriptor does not automatically imply being able to delete contained files:
-     * you still have to pass a security check and/or obtain the descriptor of each file in
-     * question. This is inherently racy and may to result in {@link IOException},
-     * which violates both implicit and explicit contracts of {@link Iterator}. As such, the method
-     * is not implemented: when you want to delete a file use {@code unlink} system call with
-     * proper error handling.
+     * directory descriptor does not automatically imply being able to delete contained files.
+     * As such, the method is not implemented: when you want to delete a file use {@code unlink}
+     * system call with proper error handling.
      *
      * @deprecated always throws UnsupportedOperationException
      */

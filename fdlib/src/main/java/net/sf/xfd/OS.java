@@ -82,6 +82,7 @@ public abstract class OS {
     @Retention(RetentionPolicy.SOURCE)
     public @interface FileTypeFlag {}
 
+    public static final int S_IFMT =   0b1111000000000000;
 
     public static final int S_IFREG =  0b1000000000000000;
     public static final int S_IFSOCK = 0b1100000000000000;
@@ -148,6 +149,10 @@ public abstract class OS {
 
     @NonNull
     @CheckResult
+    public abstract Directory list(@DirFd int fd, int flags);
+
+    @NonNull
+    @CheckResult
     public abstract Inotify observe(@InotifyFd int inotifyDescriptor);
 
     @NonNull
@@ -169,26 +174,31 @@ public abstract class OS {
     public abstract void renameat(@DirFd int fd, @Nullable CharSequence name, @DirFd int fd2, @Nullable CharSequence name2) throws IOException;
 
     @WorkerThread
-    public abstract void symlinkat(@NonNull CharSequence name, @DirFd int target, @NonNull CharSequence newpath) throws IOException;
-
-    @WorkerThread
     public abstract void linkat(@DirFd int oldDirFd, @NonNull CharSequence oldName, @DirFd int newDirFd, @NonNull CharSequence newName, @LinkAtFlags int flags) throws IOException;
 
     @WorkerThread
     public abstract void unlinkat(@DirFd int target, @NonNull CharSequence name, @UnlinkAtFlags int flags) throws IOException;
 
     @WorkerThread
-    public abstract void mknodat(@DirFd int target, @NonNull CharSequence name, @FileTypeFlag int mode, int device) throws IOException;
+    public abstract void symlinkat(@NonNull CharSequence name, @DirFd int target, @NonNull CharSequence newpath) throws IOException;
 
     @WorkerThread
-    public abstract void mkdirat(@DirFd int target, @NonNull CharSequence name, int mode) throws IOException;
+    public abstract void mknodat(@DirFd int target, @NonNull CharSequence name, @FileTypeFlag int mode, int device) throws IOException;
+
+    @CheckResult
+    @WorkerThread
+    public abstract boolean mkdirat(@DirFd int target, @NonNull CharSequence name, int mode) throws IOException;
 
     @CheckResult
     public abstract int dup(int source) throws IOException;
 
+    public abstract void ftruncate(@Fd int fd, long length) throws IOException;
+
     public abstract void fsync(int fd) throws IOException;
 
     public abstract void fstat(int dir, @NonNull Stat stat) throws IOException;
+
+    public abstract void fchmod(@Fd int fd, short mode) throws IOException;
 
     public abstract void getrlimit(int type, @NonNull Limit stat) throws IOException;
 
