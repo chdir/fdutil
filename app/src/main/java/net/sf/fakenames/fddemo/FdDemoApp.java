@@ -53,11 +53,8 @@ import java.security.DigestException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
-import java.util.Collections;
 import java.util.Date;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -73,7 +70,6 @@ public final class FdDemoApp extends Application implements Thread.UncaughtExcep
     static {
         System.setProperty(SyscallFactory.DEBUG_MODE, "true");
         System.setProperty(OS.DEBUG_MODE, "true");
-        Interruption.unblockSignal();
     }
 
     private NotificationManager nm;

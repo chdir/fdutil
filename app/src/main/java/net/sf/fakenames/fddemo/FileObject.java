@@ -66,7 +66,7 @@ public abstract class FileObject implements Closeable {
     protected final OS os;
     protected final Stat stat;
 
-    protected String description;
+    protected CharSequence description;
 
     protected AtomicBoolean closed = new AtomicBoolean();
 
@@ -90,7 +90,7 @@ public abstract class FileObject implements Closeable {
     public abstract long getMaxSize(CancellationHelper ch) throws IOException, RemoteException, RuntimeException;
 
     @WorkerThread
-    public String getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
+    public CharSequence getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
         return TextUtils.isEmpty(description) ? "unnamed" + new Random().nextLong() : description;
     }
 
@@ -324,8 +324,9 @@ public abstract class FileObject implements Closeable {
         return new DescriptorFileObject(os, context, file, newName, tmpfile);
     }
 
-    public static FileObject fromFile(OS os, Context context, String file, Stat stat) {
-        return new LocalFileObject(os, context, file, stat);
+    public static FileObject fromFile(OS os, Context context,
+                                      Stat stat, String file, int fd) {
+        return new LocalFileObject(os, context, file, extractName(file), stat, fd);
     }
 
     public static FileObject fromClip(OS os, Context context, ClipData clipData) {
@@ -383,7 +384,9 @@ public abstract class FileObject implements Closeable {
                     return null;
                 }
 
-                result = new LocalFileObject(os, context, uri);
+                final String filePath = uri.getPath();
+                final String fileName = uri.getLastPathSegment();
+                result = new LocalFileObject(os, context, filePath, fileName, new Stat(), Fd.NIL);
 
                 break;
             case ContentResolver.SCHEME_ANDROID_RESOURCE:
@@ -591,7 +594,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public String getDescription(CancellationHelper ch) throws RemoteException, IOException, RuntimeException {
+        public CharSequence getDescription(CancellationHelper ch) throws RemoteException, IOException, RuntimeException {
             if (TextUtils.isEmpty(description)) {
                 fetchMetadata(ch);
             }
@@ -642,7 +645,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public String getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
+        public CharSequence getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
             return fileInfo.name;
         }
 
@@ -692,21 +695,25 @@ public abstract class FileObject implements Closeable {
     }
 
     private static class LocalFileObject extends FileObject {
-        private final String path;
-        private final String name;
+        private final CharSequence path;
+        private final CharSequence name;
         private final OS os;
+        private final int dirFd;
 
-        public LocalFileObject(OS os, Context context, Uri uri) {
-            super(os, context);
+        private LocalFileObject(OS os, Context context,
+                                String path, String name,
+                                Stat stat, int dirFd) {
+            super(os, context, stat);
 
+            this.dirFd = dirFd;
             this.os = os;
-            this.path = uri.getPath();
-            this.name = uri.getLastPathSegment();
+            this.path = path;
+            this.name = name;
         }
 
         @Override
         protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException {
-            @Fd int sourceFd = os.open(path, OS.O_RDONLY, 0);
+            @Fd int sourceFd = os.openat(dirFd, path, OS.O_RDONLY, 0);
             try {
                 os.fstat(sourceFd, stat);
 
@@ -729,7 +736,7 @@ public abstract class FileObject implements Closeable {
                             final CharSequence targetPath = os.readlinkat(DirFd.NIL,
                                     "/proc/" + Process.myPid() + "/fd/" + targetFd.getFd());
 
-                            os.renameat(DirFd.NIL, path, DirFd.NIL, targetPath);
+                            os.renameat(dirFd, path, DirFd.NIL, targetPath);
 
                             return true;
                         } catch (Throwable tooBad) {
@@ -748,14 +755,6 @@ public abstract class FileObject implements Closeable {
             }
 
             return false;
-        }
-
-        public LocalFileObject(OS os, Context context, String path, Stat stat) {
-            super(os, context, stat);
-
-            this.os = os;
-            this.path = path;
-            this.name = extractName(path);
         }
 
         @Override
@@ -791,7 +790,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        public String getDescription(CancellationHelper unused) {
+        public CharSequence getDescription(CancellationHelper unused) {
             return name;
         }
 

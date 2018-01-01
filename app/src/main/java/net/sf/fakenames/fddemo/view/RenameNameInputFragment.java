@@ -31,7 +31,7 @@ import android.widget.EditText;
 
 import net.sf.fakenames.fddemo.R;
 
-import butterknife.BindView;
+import butterknife.Bind;
 import butterknife.ButterKnife;
 
 public final class RenameNameInputFragment extends DialogFragment implements DialogInterface.OnClickListener {
@@ -48,10 +48,10 @@ public final class RenameNameInputFragment extends DialogFragment implements Dia
 
     private CharSequence fileName;
 
-    @BindView(R.id.dlg_input)
+    @Bind(R.id.dlg_input)
     TextInputEditText editText;
 
-    @BindView(R.id.dlg_input_layout)
+    @Bind(R.id.dlg_input_layout)
     TextInputLayout editLayout;
 
     @Override

@@ -4,15 +4,13 @@
 #include <sys/inotify.h>
 #include <errno.h>
 
-extern "C" {
-
 JNIEXPORT void JNICALL Java_net_sf_xfd_InotifyImpl_nativeInit(JNIEnv *env, jclass type) {
-    jfieldID maskIgnoredField = env -> GetStaticFieldID(type, "MASK_IGNORED", "I");
+    jfieldID maskIgnoredField = (*env)->GetStaticFieldID(env, type, "MASK_IGNORED", "I");
     if (maskIgnoredField == NULL) {
         return;
     }
 
-    env -> SetStaticIntField(type, maskIgnoredField, reinterpret_cast<jint>(IN_IGNORED));
+    (*env)->SetStaticIntField(env, type, maskIgnoredField, (jint) IN_IGNORED);
 }
 
 JNIEXPORT jint JNICALL Java_net_sf_xfd_InotifyImpl_addSubscription(JNIEnv *env, jobject self, jint fd, jint watchedFd) {
@@ -24,7 +22,7 @@ JNIEXPORT jint JNICALL Java_net_sf_xfd_InotifyImpl_addSubscription(JNIEnv *env, 
     // if we still have an open descriptor of the monitored file, and the file gets unlinked,
     // the inode will remain alive and link count will decrease without IN_DELETE_SELF arriving!
     /// It will only arrive after no one keeps the file alive anymore
-    int watchDescriptor = inotify_add_watch(fd, const_cast<const char*>(procFile),
+    int watchDescriptor = inotify_add_watch(fd, procFile,
                                             IN_ATTRIB | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE | IN_MOVE_SELF);
 
     if (watchDescriptor == -1) {
@@ -41,7 +39,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_InotifyImpl_removeSubscription(JNIEnv *en
 }
 
 JNIEXPORT jint JNICALL Java_net_sf_xfd_InotifyImpl_read(JNIEnv *env, jclass type, jint fd, jlong buffer, jint bufSizeRemaining) {
-    int bytesRead = read(fd, reinterpret_cast<void*>(buffer), static_cast<size_t>(bufSizeRemaining));
+    int bytesRead = read(fd, (void *) (intptr_t) buffer, (size_t) bufSizeRemaining);
 
     if (bytesRead == -1) {
         if (errno != EAGAIN || errno != EWOULDBLOCK) {
@@ -50,6 +48,4 @@ JNIEXPORT jint JNICALL Java_net_sf_xfd_InotifyImpl_read(JNIEnv *env, jclass type
     }
 
     return bytesRead;
-}
-
 }

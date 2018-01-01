@@ -24,63 +24,66 @@ import android.text.GetChars;
 import net.openhft.hashing.Access;
 import net.openhft.hashing.LongHashFunction;
 
-import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
-final class NativeString implements GetChars, Parcelable {
+/**
+ * A string of bytes, received from Linux filesystem.
+ *
+ * The only assumptions, that can be made about such "string" are:
+ *
+ * <li>
+ *     <ul> It is terminated by zero-byte and does not contain it elsewhere
+ *     <ul> If it is meant to represent a file name, it can't contain a slash
+ * </li>
+ */
+public final class NativeString implements GetChars, Parcelable {
     private static final LongHashFunction hasher = LongHashFunction.xx();
 
-    private final ByteBuffer bytes;
+    final byte[] bytes;
+
+    int length;
 
     String string;
 
-    NativeString(byte[] bytes) {
-        this.bytes = ByteBuffer.wrap(bytes);
-    }
-
-    NativeString(ByteBuffer container) {
-        this.bytes = ByteBuffer.allocate(container.limit());
-
-        container.rewind();
-
-        this.bytes.put(container);
-    }
-
-    NativeString(byte[] bytes, @Nullable String decoded) {
-        this.bytes = ByteBuffer.wrap(bytes);
+    private NativeString(@Nullable String decoded, byte[] bytes, int length) {
         this.string = decoded;
+        this.bytes = bytes;
+        this.length = length;
+    }
+
+    NativeString(@Nullable String decoded, byte[] bytes) {
+        this(decoded, bytes, bytes.length);
+    }
+
+    NativeString(@NonNull byte[] bytes) {
+        this(null, bytes, bytes.length);
     }
 
     @Override
     public int length() {
-        if (string == null) {
-            createString();
-        }
+        decode();
+
         return string.length();
     }
 
     @Override
     public char charAt(int index) {
-        if (string == null) {
-            createString();
-        }
+        decode();
+
         return string.charAt(index);
     }
 
     @Override
     public CharSequence subSequence(int start, int end) {
-        if (string == null) {
-            createString();
-        }
+        decode();
+
         return string.subSequence(start, end);
     }
 
     @Override
     public void getChars(int start, int end, char[] dest, int destoff) {
-        if (string == null) {
-            createString();
-        }
+        decode();
 
         string.getChars(start, end, dest, destoff);
     }
@@ -88,14 +91,62 @@ final class NativeString implements GetChars, Parcelable {
     @NonNull
     @Override
     public String toString() {
-        if (string == null) {
-            createString();
-        }
+        return toString(null);
+    }
+
+    @NonNull
+    public String toString(FileNameDecoder decoder) {
+        decode(decoder);
+
         return string;
     }
 
-    private void createString() {
-        string = new String(bytes.array());
+    private void decode() {
+        decode(null);
+    }
+
+    private void decode(FileNameDecoder decoder) {
+        if (string == null) {
+            return;
+        }
+
+        if (decoder == null) {
+            decoder = new FileNameDecoder();
+        }
+
+        string = decoder.toString(bytes, 0, length);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+
+        if (!(obj instanceof NativeString)) {
+            return false;
+        }
+
+        NativeString other = ((NativeString) obj);
+
+        int length = other.length;
+
+        if (length != this.length) {
+            return false;
+        }
+
+        for (int i = 0; i < length; ++i) {
+            if (other.bytes[i] != this.bytes[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return (int) longHash();
     }
 
     @Override
@@ -105,7 +156,27 @@ final class NativeString implements GetChars, Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeByteArray(bytes.array());
+        dest.writeByteArray(bytes, 0, length);
+    }
+
+    public long longHash() {
+        return hasher.hash(bytes, ArrayAccess.INSTANCE, 0, length);
+    }
+
+    public byte[] getBytes() {
+        return bytes;
+    }
+
+    public int byteLength() {
+        return length;
+    }
+
+    public NativeString slice(int start, int end) {
+        byte[] array = Arrays.copyOfRange(bytes, start, end);
+
+        String str = string == null ? null : string.substring(start, end);
+
+        return new NativeString(str, array);
     }
 
     public static final Creator<NativeString> CREATOR = new Creator<NativeString>() {
@@ -120,75 +191,49 @@ final class NativeString implements GetChars, Parcelable {
         }
     };
 
-    @Override
-    public int hashCode() {
-        return (int) longHash();
-    }
+    private static final class ArrayAccess extends Access<byte[]> {
+        static final ArrayAccess INSTANCE = new ArrayAccess();
 
-    public long longHash() {
-        return hasher.hash(bytes, BufferAccess.INSTANCE, 0, bytes.capacity());
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) {
-            return true;
-        }
-
-        if (obj.getClass()  == NativeString.class) {
-            return Arrays.equals(bytes.array(), ((NativeString) obj).bytes.array());
-        }
-
-        return false;
-    }
-
-    public byte[] getBytes() {
-        return bytes.array();
-    }
-
-    private static final class BufferAccess extends Access<ByteBuffer> {
-        public static final BufferAccess INSTANCE = new BufferAccess();
-
-        private BufferAccess() {}
+        private ArrayAccess() {}
 
         @Override
-        public long getLong(ByteBuffer input, long offset) {
-            return input.getLong((int) offset);
+        public long getLong(byte[] input, long offset) {
+            return input[(int) offset];
         }
 
         @Override
-        public long getUnsignedInt(ByteBuffer input, long offset) {
+        public long getUnsignedInt(byte[] input, long offset) {
             return getInt(input, offset) & 0xFFFFFFFFL;
         }
 
         @Override
-        public int getInt(ByteBuffer input, long offset) {
-            return input.getInt((int) offset);
+        public int getInt(byte[] input, long offset) {
+            return input[(int) offset];
         }
 
         @Override
-        public int getUnsignedShort(ByteBuffer input, long offset) {
+        public int getUnsignedShort(byte[] input, long offset) {
             return getShort(input, offset) & 0xFFFF;
         }
 
         @Override
-        public int getShort(ByteBuffer input, long offset) {
-            return input.getShort((int) offset);
+        public int getShort(byte[] input, long offset) {
+            return input[(int) offset];
         }
 
         @Override
-        public int getUnsignedByte(ByteBuffer input, long offset) {
+        public int getUnsignedByte(byte[] input, long offset) {
             return getByte(input, offset) & 0xFF;
         }
 
         @Override
-        public int getByte(ByteBuffer input, long offset) {
-            return input.get((int) offset);
+        public int getByte(byte[] input, long offset) {
+            return input[(int) offset];
         }
 
         @Override
-        public ByteOrder byteOrder(ByteBuffer input) {
-            return input.order();
+        public ByteOrder byteOrder(byte[] input) {
+            return ByteOrder.BIG_ENDIAN;
         }
     }
 }

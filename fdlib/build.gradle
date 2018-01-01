@@ -1,12 +1,12 @@
 apply plugin: 'com.android.library'
 apply plugin: 'me.tatarka.retrolambda'
 
-final int appVersionCode = 1
-final int nativeVersionCode = 0
+final int appVersionCode = 2
+final int nativeVersionCode = 1
 
 android {
     compileSdkVersion 24
-    buildToolsVersion '25.0.2'
+    buildToolsVersion '26.0.2'
 
     publishNonDefault true
 
@@ -14,7 +14,9 @@ android {
         minSdkVersion 19
         targetSdkVersion 24
         versionCode appVersionCode
-        versionName '0.1'
+        versionName '2.0'
+
+        consumerProguardFiles 'consumer-rules.pro'
 
         buildConfigField 'int', 'NATIVE_VER', "$nativeVersionCode"
         buildConfigField 'String', 'LOG_TAG', '"fdutil"'
@@ -59,6 +61,7 @@ dependencies {
     androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
+    compile 'net.sf.xfd:i10n:0.3.1'
     compile 'com.carrotsearch:hppc:0.7.1'
     compile 'net.openhft:zero-allocation-hashing:0.8'
     //compile 'it.unimi.dsi:fastutil:7.0.13'

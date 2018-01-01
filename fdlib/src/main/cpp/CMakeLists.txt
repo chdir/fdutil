@@ -18,11 +18,10 @@ add_library( # Sets the name of the library.
              # Provides a relative path to your source file(s).
              # Associated headers in the same location as their source
              # file are automatically included.
-             globals.cpp
-             interrupt.cpp
-             dir-utils.cpp
-             inotify.cpp
-             native-lib.cpp )
+             globals.c
+             dir-utils.c
+             inotify.c
+             native-lib.c )
 
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VERBOSE_MAKEFILE on)

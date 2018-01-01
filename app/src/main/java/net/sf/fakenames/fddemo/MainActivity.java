@@ -81,10 +81,12 @@ import net.sf.xfd.provider.RootSingleton;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.LinkedHashSet;
+import java.util.TreeMap;
 
+import butterknife.Bind;
 import butterknife.BindColor;
 import butterknife.BindString;
-import butterknife.BindView;
 import butterknife.OnClick;
 
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
@@ -120,16 +122,16 @@ public class MainActivity extends BaseActivity implements
     private GuardedState state;
     private RecyclerView.LayoutManager layoutManager;
 
-    @BindView(R.id.contentPanel)
+    @Bind(R.id.contentPanel)
     ViewGroup content;
 
-    @BindView(R.id.act_main_dirList)
+    @Bind(R.id.act_main_dirList)
     RecyclerView directoryList;
 
-    @BindView(R.id.act_main_quick_scroll)
+    @Bind(R.id.act_main_quick_scroll)
     DirFastScroller quickScroller;
 
-    @BindView(R.id.act_main_btn_append)
+    @Bind(R.id.act_main_btn_append)
     View button;
 
     @BindColor(R.color.colorPrimary)
@@ -876,25 +878,37 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
+    private void doMkdir(CharSequence name) throws IOException {
+        final int fd = state.adapter.getFd();
+
+        if (!state.os.mkdirat(fd, name, OS.DEF_DIR_MODE)) {
+            state.os.fstatat(fd, name, tmpStat, OS.AT_SYMLINK_NOFOLLOW);
+
+            if (tmpStat.type != FsType.DIRECTORY) {
+                throw new IOException("non directory with this name already exists");
+            }
+        }
+    }
+
     private void doMknod(String name, int type) {
         @OS.FileTypeFlag int fileType;
 
         switch (type) {
-            case R.id.menu_fifo:
-                fileType = OS.S_IFIFO;
-                break;
-            case R.id.menu_socket:
-                fileType = OS.S_IFSOCK;
-                break;
             case R.id.menu_dir:
                 try {
-                    state.os.mkdirat(state.adapter.getFd(), name, OS.DEF_DIR_MODE);
+                    doMkdir(name);
                 } catch (IOException e) {
                     LogUtil.logCautiously("Failed to create a directory", e);
 
                     toast("Unable to create a directory. " + e.getMessage());
                 }
                 return;
+            case R.id.menu_fifo:
+                fileType = OS.S_IFIFO;
+                break;
+            case R.id.menu_socket:
+                fileType = OS.S_IFSOCK;
+                break;
             case R.id.menu_file:
             default:
                 fileType = OS.S_IFREG;

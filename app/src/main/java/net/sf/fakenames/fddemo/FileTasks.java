@@ -16,6 +16,7 @@
  */
 package net.sf.fakenames.fddemo;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Application;
 import android.app.Notification;
@@ -44,10 +45,14 @@ import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
 import net.sf.fakenames.fddemo.service.NotificationCallback;
 import net.sf.fakenames.fddemo.service.UpkeepService;
+import net.sf.xfd.Copy;
+import net.sf.xfd.CrappyDirectory;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
 import net.sf.xfd.ErrnoException;
+import net.sf.xfd.Fd;
 import net.sf.xfd.FsType;
+import net.sf.xfd.InterruptedIOException;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.NativeBits;
@@ -58,7 +63,6 @@ import net.sf.xfd.UnreliableIterator;
 import java.io.Closeable;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.util.ArrayDeque;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executor;
@@ -68,6 +72,11 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static net.sf.xfd.NativeBits.O_CREAT;
+import static net.sf.xfd.NativeBits.O_NOCTTY;
+import static net.sf.xfd.NativeBits.O_NOFOLLOW;
+import static net.sf.xfd.NativeBits.O_NONBLOCK;
+import static net.sf.xfd.provider.ProviderBase.extractName;
 import static net.sf.xfd.provider.ProviderBase.isPosix;
 
 public final class FileTasks extends ContextWrapper implements Application.ActivityLifecycleCallbacks {
@@ -135,8 +144,9 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
         final NotificationCallback callback = makeCallback(taskId);
 
+        @SuppressLint("StaticFieldLeak")
         final AsyncTask<CancellationHelper, ?, ?> at = new AsyncTask<CancellationHelper, Void, Throwable>() {
-            private String fileName;
+            private CharSequence fileName;
 
             @Override
             protected Throwable doInBackground(CancellationHelper... params) {
@@ -145,7 +155,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 boolean copied = false;
                 FileObject targetFile = null;
                 try (Closeable c = sourceFile) {
-                    final String desc = sourceFile.getDescription(ch);
+                    final CharSequence desc = sourceFile.getDescription(ch);
 
                     fileName = canUseExtChars
                             ? FilenameUtil.sanitize(desc)
@@ -209,7 +219,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 if (s == null) {
                     final String msg = canRemoveOriginal ? "Move complete" : "Copy complete";
 
-                    callback.onStatusUpdate(msg, fileName);
+                    callback.onStatusUpdate(msg, fileName.toString());
 
                     toast(msg);
                 } else {
@@ -228,7 +238,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                             result = "Copy failed";
                         }
 
-                        callback.onStatusUpdate(result, fileName);
+                        callback.onStatusUpdate(result, fileName.toString());
 
                         toast(result);
                     }
@@ -444,6 +454,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
         final NotificationCallback callback = makeCallback(taskId);
 
+        @SuppressLint("StaticFieldLeak")
         final AsyncTask<CancellationHelper, ?, ?> at = new AsyncTask<CancellationHelper, Void, Throwable>() {
             @Override
             protected Throwable doInBackground(CancellationHelper... params) {
@@ -546,6 +557,346 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                         }
 
                         callback.onStatusUpdate(result, dirNameString);
+
+                        toast(result);
+                    }
+                }
+            }
+        };
+
+        final CancellationHelper ch = new CancellationHelper(at);
+
+        tasks.put(taskId, ch);
+
+        UpkeepService.start(this);
+
+        callback.onProgressUpdate("Preparing to delete…");
+
+        //noinspection unchecked
+        at.executeOnExecutor(exec, ch);
+    }
+
+    private static String typeToName(FsType type) {
+        switch (type) {
+            case LINK:
+                return "link";
+            case DIRECTORY:
+                return "directory";
+            case NAMED_PIPE:
+                return "pipe";
+            case DOMAIN_SOCKET:
+                return "socket";
+            case FILE:
+                return "regular file";
+            case CHAR_DEV:
+            case BLOCK_DEV:
+                return "special device";
+            default:
+                return "special file";
+        }
+    }
+    private static void onConflict(Stat srcStat, CharSequence source, Stat dstStat, CharSequence target) throws IOException {
+        String sourceType = typeToName(srcStat.type);
+
+        String targetType;
+
+        if (dstStat == null) {
+            targetType = "non " + sourceType;
+        } else {
+            targetType = typeToName(dstStat.type);
+        }
+
+        throw new IOException(
+                "cannot overwrite " + targetType + " " + target + " with " + sourceType + " " + source
+        );
+    }
+
+    public void copyDir(OS os, BaseDirLayout layout, CharSequence dirPath, CharSequence newName, @DirFd int destDir) throws IOException {
+        final Directory.Entry tempEntry = new Directory.Entry();
+        final Stat srcDirStat = new Stat();
+        final Stat trgDirStat = new Stat();
+
+        CharSequence dirName = extractName(dirPath);
+
+        os.fstat(destDir, trgDirStat);
+
+        final @DirFd int destDirCopy = os.dup(destDir);
+
+        final SerialExecutor exec = getExecutor(trgDirStat.st_dev);
+
+        final int taskId = nextTask();
+
+        final NotificationCallback callback = makeCallback(taskId);
+
+        @SuppressLint("StaticFieldLeak")
+        final AsyncTask<CancellationHelper, ?, ?> at = new AsyncTask<CancellationHelper, Void, Throwable>() {
+            @Override
+            protected Throwable doInBackground(CancellationHelper... params) {
+                try {
+                    final @DirFd int srcDirFd = os.opendir(dirPath);
+
+                    try {
+                        os.fstat(srcDirFd, srcDirStat);
+
+                        if (srcDirStat.st_dev == trgDirStat.st_dev
+                                && srcDirStat.st_ino == trgDirStat.st_ino) {
+                            throw new IOException("cannot copy a directory into self");
+                        }
+
+                        callback.onProgressUpdate("Copying files");
+
+                        if (!os.mkdirat(destDirCopy, newName, OS.DEF_DIR_MODE)) {
+                            os.fstatat(destDirCopy, newName, trgDirStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                            if (trgDirStat.type != FsType.DIRECTORY) {
+                                onConflict(trgDirStat, newName, srcDirStat, extractName(dirPath));
+                            }
+                        }
+
+                        final @DirFd int dstDirFd = os.opendirat(destDirCopy, newName);
+
+                        try (Directory srcDir = os.list(srcDirFd);
+                             Copy helper = os.copy()) {
+
+                            copyContents(helper, srcDir, srcDirFd, dstDirFd);
+                        }
+
+                        return null;
+                    } finally {
+                        os.dispose(srcDirFd);
+                    }
+                } catch (ErrnoException errnoe) {
+                    return errnoe;
+                } catch (CancellationException | InterruptedIOException t) {
+                    Thread.interrupted();
+
+                    return t;
+                } catch (Throwable t) {
+                    t.printStackTrace();
+
+                    return t;
+                } finally {
+                    os.dispose(destDirCopy);
+                }
+            }
+
+            private final int DIR_OPEN_FLAGS =
+                            NativeBits.O_DIRECTORY |
+                            NativeBits.O_NOCTTY |
+                            NativeBits.O_NOFOLLOW;
+
+            private void copyContents(Copy helper,
+                                      Directory srcDir,
+                                      @DirFd int srcDirFd,
+                                      @DirFd int dstDirFd) throws IOException
+            {
+                if (isCancelled()) {
+                    throw new CancellationException();
+                }
+
+                final UnreliableIterator<Directory.Entry> iterator = srcDir.iterator();
+
+                boolean didStat;
+
+                while (iterator.moveToNext()) {
+                    iterator.get(tempEntry);
+
+                    final CharSequence entryName = tempEntry.name;
+
+                    if (".".contentEquals(entryName) || "..".contentEquals(entryName)) continue;
+
+                    if (tempEntry.type == null) {
+                        os.fstatat(srcDirFd, tempEntry.name, srcDirStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                        tempEntry.type = srcDirStat.type;
+
+                        didStat = true;
+                    } else {
+                        srcDirStat.type = tempEntry.type;
+                        srcDirStat.st_ino = tempEntry.ino;
+
+                        didStat = false;
+                    }
+
+                    switch (tempEntry.type) {
+                        case DIRECTORY:
+                            if (!os.mkdirat(destDir, entryName, OS.DEF_DIR_MODE)) {
+                                os.fstatat(destDir, entryName, trgDirStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                                if (trgDirStat.type != FsType.DIRECTORY) {
+                                    onConflict(trgDirStat, entryName, srcDirStat, entryName);
+                                }
+                            }
+
+                            @DirFd int foundDirFd =
+                                    os.openat(destDir, entryName, DIR_OPEN_FLAGS, 0);
+
+                            try {
+                                boolean closedDir = false;
+
+                                @DirFd int createdDirFd = os.openat(destDir, entryName,
+                                        NativeBits.O_DIRECTORY | NativeBits.O_NOFOLLOW, 0);
+
+                                Directory existingDir = os.list(foundDirFd);
+                                try {
+                                    // A simple yet important optimisation: preload
+                                    // first N  items of directory, then close both descriptor
+                                    // and native window if we exhausted it. This will allow
+                                    // for much deeper nested traversal as long as directory
+                                    // contents are small enough
+                                    CrappyDirectory cache = new CrappyDirectory(existingDir);
+
+                                    UnreliableIterator<?> readahead = cache.iterator();
+
+                                    if (!readahead.moveToPosition(150) && readahead.getPosition() >= 0) {
+                                        existingDir.close();
+
+                                        closedDir = true;
+                                    }
+
+                                    if (readahead.moveToFirst()) {
+                                        copyContents(helper, cache, foundDirFd, createdDirFd);
+                                    }
+                                } finally {
+                                    if (!closedDir) {
+                                        existingDir.close();
+                                    }
+
+                                    os.dispose(foundDirFd);
+                                }
+                            } finally {
+                                os.dispose(foundDirFd);
+                            }
+
+                            break;
+                        case FILE:
+                            @Fd int origFileFd =
+                                    os.openat(srcDirFd, entryName, O_NOFOLLOW, OS.DEF_DIR_MODE);
+
+                            try {
+                                if (!didStat) {
+                                    os.fstat(origFileFd, srcDirStat);
+                                }
+
+                                @Fd int fileFd =
+                                        os.openat(dstDirFd, entryName, O_NONBLOCK | O_NOFOLLOW | O_CREAT | O_NOCTTY, srcDirStat.mode);
+
+                                try {
+                                    os.fstat(fileFd, trgDirStat);
+
+                                    if (trgDirStat.type != FsType.FILE) {
+                                        onConflict(trgDirStat, entryName, srcDirStat, entryName);
+                                    }
+
+                                    if (trgDirStat.mode != srcDirStat.mode) {
+                                        os.fchmod(fileFd, srcDirStat.mode);
+                                    }
+
+                                    long dataSize = srcDirStat.st_size;
+
+                                    if (srcDirStat.st_size == 0) {
+                                        return;
+                                    }
+
+                                    if (srcDirStat.st_dev == trgDirStat.st_dev &&
+                                            srcDirStat.st_ino == trgDirStat.st_ino) {
+                                        // the target file is already the same as source
+                                        return;
+                                    }
+
+                                    try {
+                                        dataSize = helper.transfer(origFileFd, srcDirStat, fileFd, srcDirStat, dataSize);
+                                    } catch (InterruptedIOException iie) {
+                                        dataSize = iie.bytesTransferred;
+                                    } finally {
+                                        if (dataSize < trgDirStat.st_size) {
+                                            os.ftruncate(fileFd, dataSize);
+                                        }
+                                    }
+                                } finally {
+                                    os.close(fileFd);
+                                }
+                            } finally {
+                                os.close(origFileFd);
+                            }
+
+                            break;
+
+                        case LINK:
+                            CharSequence source = os.readlinkat(srcDirFd, entryName);
+
+                            try {
+                                os.symlinkat(source, dstDirFd, entryName);
+                            } catch (ErrnoException errno) {
+                                if (errno.code() != ErrnoException.EEXIST) {
+                                    throw errno;
+                                }
+
+                                CharSequence dest = os.readlinkat(destDir, entryName);
+
+                                os.fstatat(destDir, entryName, trgDirStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                                if (trgDirStat.type == srcDirStat.type && source.equals(dest)) {
+                                    continue;
+                                }
+
+                                onConflict(srcDirStat, entryName, trgDirStat, entryName);
+                            }
+
+                            break;
+
+                        default:
+                            if (!didStat) {
+                                os.fstatat(srcDirFd, entryName, srcDirStat, OS.AT_SYMLINK_NOFOLLOW);
+                            }
+
+                            try {
+                                os.mknodat(dstDirFd, entryName, OS.DEF_FILE_MODE, srcDirStat.st_rdev);
+                            } catch (ErrnoException errno) {
+                                if (errno.code() != ErrnoException.EEXIST) {
+                                    throw errno;
+                                }
+
+                                os.fstatat(srcDirFd, entryName, trgDirStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                                if (trgDirStat.type != srcDirStat.type
+                                        || trgDirStat.st_rdev != srcDirStat.st_rdev) {
+
+                                    onConflict(srcDirStat, entryName, trgDirStat, entryName);
+                                }
+                            }
+                    }
+                }
+            }
+
+            @Override
+            protected void onCancelled() {
+                removeTask(taskId);
+
+                callback.onDismiss();
+            }
+
+            @Override
+            protected void onPostExecute(Throwable s) {
+                removeTask(taskId);
+
+                if (s == null) {
+                    final String msg = "Copy complete";
+
+                    callback.onStatusUpdate(msg, dirName.toString());
+
+                    toast(msg);
+                } else {
+                    if (s instanceof InterruptedIOException) {
+                        callback.onDismiss();
+                    } else {
+                        String result = s.getMessage();
+
+                        if (TextUtils.isEmpty(result)) {
+                            result = "Copy failed";
+                        }
+
+                        callback.onStatusUpdate(result, dirName.toString());
 
                         toast(result);
                     }

@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.support.annotation.StringRes;
 import android.support.v7.app.AlertDialog;
 
+import java.io.FileOutputStream;
+
 public final class ConfirmationDialog extends DialogFragment implements DialogInterface.OnClickListener {
     private static final String ARG_TITLE = "title";
     private static final String ARG_MESSAGE = "message";

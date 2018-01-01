@@ -30,7 +30,7 @@ import android.view.View;
 
 import net.sf.fakenames.fddemo.R;
 
-import butterknife.BindView;
+import butterknife.Bind;
 import butterknife.ButterKnife;
 
 public final class ShortcutNameInputFragment extends DialogFragment implements DialogInterface.OnClickListener {
@@ -47,10 +47,10 @@ public final class ShortcutNameInputFragment extends DialogFragment implements D
 
     private CharSequence currentFileName;
 
-    @BindView(R.id.dlg_input)
+    @Bind(R.id.dlg_input)
     TextInputEditText editText;
 
-    @BindView(R.id.dlg_input_layout)
+    @Bind(R.id.dlg_input_layout)
     TextInputLayout editLayout;
 
     @Override

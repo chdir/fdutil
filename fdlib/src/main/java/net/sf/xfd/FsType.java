@@ -16,21 +16,24 @@
 package net.sf.xfd;
 
 public enum FsType {
-    BLOCK_DEV(6),
-    CHAR_DEV(2),
-    NAMED_PIPE(1),
-    DOMAIN_SOCKET(12),
-    LINK(10),
-    FILE(8),
-    DIRECTORY(4),
+    BLOCK_DEV(6, OS.S_IFREG),
+    CHAR_DEV(2, OS.S_IFCHR),
+    NAMED_PIPE(1, OS.S_IFIFO),
+    DOMAIN_SOCKET(12, OS.S_IFSOCK),
+    LINK(10, 0),
+    FILE(8, OS.S_IFREG),
+    DIRECTORY(4, 0),
 
     // catch-all for yet unknown file types
-    MYSTERY(0);
+    MYSTERY(0, 0);
 
     private int nativeType;
 
-    FsType(int nativeType) {
+    private int fileType;
+
+    FsType(int nativeType, int fileType) {
         this.nativeType = nativeType;
+        this.fileType = fileType;
     }
 
     public boolean isSpecial() {
@@ -54,6 +57,14 @@ public enum FsType {
             default:
                 return true;
         }
+    }
+
+    void setFileType(int fileType) {
+        this.fileType = fileType;
+    }
+
+    public int getFileType() {
+        return fileType;
     }
 
     private static final FsType[] VALUES = values();

@@ -342,23 +342,28 @@ public final class FileProvider extends DocumentsProvider {
 
         parentDocumentId = canonString(parentDocumentId);
 
-        try {
+        boolean conflict = false;
 
+        try {
             final @DirFd int parentFd = rooted.opendir(parentDocumentId);
             try {
                 if (mimeType.equals(MIME_TYPE_DIR)) {
-                    rooted.mkdirat(parentFd, displayName, 0);
+                    conflict = rooted.mkdirat(parentFd, displayName, 0);
                 } else {
                     rooted.mknodat(parentFd, displayName, OS.S_IFREG, 0);
                 }
             } finally {
                 rooted.dispose(parentFd);
             }
-
-            return appendPathPart(parentDocumentId, displayName);
         } catch (IOException e) {
             throw new FileNotFoundException("Failed to create a document. " + e.getMessage());
         }
+
+        if (conflict) {
+            throw new FileNotFoundException("Conflict detected: file already exist");
+        }
+
+        return appendPathPart(parentDocumentId, displayName);
     }
 
     @NonNull

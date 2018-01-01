@@ -5,13 +5,13 @@ final int libmagicVersionCode = 125
 
 android {
     compileSdkVersion 24
-    buildToolsVersion '25.0.2'
+    buildToolsVersion '26.0.2'
 
     defaultConfig {
         minSdkVersion 19
         targetSdkVersion 25
-        versionCode 1
-        versionName '0.4'
+        versionCode 2
+        versionName '1.6'
 
         buildConfigField 'int', 'MAGIC_VER', "$libmagicVersionCode"
 
@@ -21,7 +21,8 @@ android {
         externalNativeBuild {
             cmake {
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
-                arguments "-DMAGIC_NATIVE_VER:STRING=$libmagicVersionCode"
+                arguments "-DMAGIC_NATIVE_VER:STRING=$libmagicVersionCode", "-DANDROID_TOOLCHAIN=gcc"
+                cFlags '-std=gnu11'
             }
         }
     }

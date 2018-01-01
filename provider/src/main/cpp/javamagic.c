@@ -20,6 +20,8 @@
 #include <stdio.h> // printf
 
 #include <android/log.h>
+#include <string.h>
+#include <malloc.h>
 
 #include "javamagic.h"
 

@@ -15,224 +15,181 @@
  */
 package net.sf.xfd;
 
-import com.carrotsearch.hppc.CharArrayList;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
-final class FileNameDecoder {
+import static android.icu.lang.UCharacter.REPLACEMENT_CHAR;
+
+public final class FileNameDecoder {
     // 255 16-bit units is VFAT name length (biggest known so far), but let's make an extra
     private static final int NAME_CHAR_MAX = 255 * 2;
 
-    private final char[] smallTempArray = new char[NAME_CHAR_MAX];
+    private final CharBuilder buffer;
 
-    private final CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder();
-
-    private final CharBuffer charBuffer = CharBuffer.wrap(smallTempArray);
-
-    private final CharBuilder builder = new CharBuilder();
-
-    private CharSequence escapeEverything(ByteBuffer b) {
-        builder.elementsCount = 0;
-
-        b.rewind();
-
-        do builder.append(b.get()); while (b.hasRemaining());
-
-        final byte[] bytes = new byte[b.limit()];
-
-        b.rewind();
-
-        b.get(bytes);
-
-        return new NativeString(bytes, builder.toString());
+    public FileNameDecoder() {
+        this(NAME_CHAR_MAX, '\\');
     }
 
-    private void salvageBytes(ByteBuffer b, CoderResult r) {
-        final int e;
-
-        if (hasAdvanceBug) {
-            int pos = b.position();
-
-            b.reset();
-
-            e = Math.min((pos - b.position()) + r.length(), b.remaining());
-        } else {
-            e = Math.min(r.length(), b.remaining());
-
-            builder.append(charBuffer);
-        }
-
-        for (int i = 0; i < e; b.hasRemaining(), ++i) {
-            builder.append(b.get());
-        }
+    public FileNameDecoder(int capacity, char escape) {
+        this.buffer = new CharBuilder(capacity, escape);
     }
 
-    private CharSequence salvageValidBytes(ByteBuffer buffer, CoderResult r) {
-        if (r.length() <= 0) {
-            return escapeEverything(buffer);
-        }
-
-        builder.elementsCount = 0;
-
-        salvageBytes(buffer, r);
-
-        while (buffer.hasRemaining()) {
-            charBuffer.mark();
-
-            buffer.mark();
-
-            r = decoder.decode(buffer, charBuffer, true);
-
-            if (r.isOverflow()) {
-                // should not normally happen
-                return escapeEverything(buffer);
-            }
-
-            if (r.isError()) {
-                if (r.length() <= 0) {
-                    return escapeEverything(buffer);
-                }
-
-                salvageBytes(buffer, r);
-            } else {
-                builder.append(charBuffer);
-            }
-        }
-
-        charBuffer.mark();
-
-        if (decoder.flush(charBuffer) != CoderResult.UNDERFLOW) {
-            // Sadly, we can not salvage anything at this point. Thanks you, buggy decoder!
-            return escapeEverything(buffer);
-        }
-
-        builder.append(charBuffer);
-
-        final byte[] bytes = new byte[buffer.limit()];
-
-        buffer.rewind();
-
-        buffer.get(bytes);
-
-        return new NativeString(bytes, builder.toString());
-    }
-
-    @SuppressWarnings("ConstantConditions")
-    CharSequence fromUtf8Bytes(ByteBuffer buffer) {
-        charBuffer.clear();
-
-        decoder.reset();
-
-        charBuffer.mark();
-
-        CoderResult r;
-        do {
-            buffer.mark();
-
-            r = decoder.decode(buffer, charBuffer, true);
-
-            if (r.isOverflow()) {
-                // should not normally happen
-                return new NativeString(buffer);
-            }
-
-            if (r.isError()) {
-                return salvageValidBytes(buffer, r);
-            }
-        } while (buffer.hasRemaining());
-
-        r = decoder.flush(charBuffer);
-
-        if (r != CoderResult.UNDERFLOW) {
-            // Sadly, we can not salvage anything at this point. Thanks you, buggy decoder!
-            return escapeEverything(buffer);
-        }
-
-        charBuffer.flip();
-
-        switch (charBuffer.length()) {
+    @NonNull
+    public CharSequence decode(byte[] bytes, int offset, int count) {
+        switch (count) {
             default:
                 break;
-            case 1:
-                if (smallTempArray[0] == '.') return ".";
-                break;
             case 2:
-                if (smallTempArray[0] == '.' && smallTempArray[1] == '.') return "..";
+                if (bytes[offset] == '.' && bytes[offset + 1] == '.') {
+                    return "..";
+                }
                 break;
+            case 1:
+                if (bytes[offset] == '.') {
+                    return ".";
+                }
         }
 
-        return charBuffer.toString();
+        boolean cleanDecode = convert(bytes, offset, count);
+
+        String decodingResult = buffer.toString();
+
+        if (cleanDecode) {
+            return decodingResult;
+        }
+
+        return new NativeString(decodingResult, Arrays.copyOfRange(bytes, offset, offset + count));
     }
 
-    private static final class CharBuilder extends CharArrayList {
-        private static final char[] digits = {
-                '0' , '1' , '2' , '3' , '4' , '5' ,
-                '6' , '7' , '8' , '9' , 'A' , 'B' ,
-                'C' , 'D' , 'E' , 'F'
-        };
+    private static final int[] overlong = new int[] {
+            0,
+            0x80,
+            0x800,
+            0x10000,
+            0x200000,
+            0x4000000,
+    };
 
-        // append hex-escaped byte to builder (see Integer#toHexString)
-        void append(byte i) {
-            ensureBufferSpace(4);
+    public String toString(byte[] d, int offset, int byteCount) {
+        convert(d, offset, byteCount);
 
-            add('\\');
-
-            add('x');
-
-            add(digits[i & 15]);
-
-            i >>>= 4;
-
-            insert(elementsCount - 1, digits[i & 15]);
-        }
-
-        // append contents of CharBuffer to builder
-        void append(CharBuffer chars) {
-            int pos = chars.position();
-
-            chars.reset();
-
-            final int l = pos - chars.position();
-
-            ensureBufferSpace(l);
-
-            chars.get(buffer, elementsCount, l);
-
-            elementsCount += l;
-        }
-
-        @Override
-        public String toString() {
-            return new String(toArray());
-        }
+        return buffer.toString();
     }
 
-    private static final byte[] buggedChar = new byte[] { (byte) 0x80 };
+    private boolean convert(byte[] d, int offset, int byteCount) {
 
-    private static boolean hasAdvanceBug() {
-        final CharsetDecoder dec = StandardCharsets.UTF_8.newDecoder();
+        boolean hasFaults = false;
+        CharBuilder buffer = this.buffer;
+        int idx = offset;
+        int last = offset + byteCount;
+        int lookahead;
 
-        final ByteBuffer buffer = ByteBuffer.wrap(buggedChar);
+        buffer.elementsCount = 0;
 
-        final CharBuffer chars = CharBuffer.allocate(10);
+        do {
+pattern:
+            do {
+fuse:
+                do {
+                    while (idx < last) {
+                        byte b0 = d[idx++];
+                        if ((b0 & 0x80) == 0) {
+                            // 0xxxxxxx
+                            // Range:  U-00000000 - U-0000007F
+                            int val = b0 & 0xff;
+                            buffer.add((char) val);
+                        } else if (((b0 & 0xe0) == 0xc0) || ((b0 & 0xf0) == 0xe0) ||
+                                ((b0 & 0xf8) == 0xf0) || ((b0 & 0xfc) == 0xf8) || ((b0 & 0xfe) == 0xfc)) {
+                            int utfCount = 1;
+                            if ((b0 & 0xf0) == 0xe0) utfCount = 2;
+                            else if ((b0 & 0xf8) == 0xf0) utfCount = 3;
+                            else if ((b0 & 0xfc) == 0xf8) utfCount = 4;
+                            else if ((b0 & 0xfe) == 0xfc) utfCount = 5;
+                            // 110xxxxx (10xxxxxx)+
+                            // Range:  U-00000080 - U-000007FF (count == 1)
+                            // Range:  U-00000800 - U-0000FFFF (count == 2)
+                            // Range:  U-00010000 - U-001FFFFF (count == 3)
+                            // Range:  U-00200000 - U-03FFFFFF (count == 4)
+                            // Range:  U-04000000 - U-7FFFFFFF (count == 5)
+                            if (idx + utfCount > last) {
+                                break pattern;
+                            }
+                            // Extract usable bits from b0
+                            int val = b0 & (0x1f >> (utfCount - 1));
+                            for (lookahead = 0; lookahead++ < utfCount; ) {
+                                byte b = d[idx++];
+                                if ((b & 0xc0) != 0x80) {
+                                    break fuse;
+                                }
+                                // Push new bits in from the right side
+                                val <<= 6;
+                                val |= b & 0x3f;
+                            }
 
-        final CoderResult result = dec.decode(buffer, chars, true);
+                            // disallows overlong char by checking that val
+                            // is greater than or equal to the minimum
+                            // value for each count:
+                            //
+                            // count    min value
+                            // -----   ----------
+                            //   1           0x80
+                            //   2          0x800
+                            //   3        0x10000
+                            //   4       0x200000
+                            //   5      0x4000000
+                            if (val < overlong[utfCount]) {
+                                break fuse;
+                            }
 
-        if (!result.isError() || result.length() <= 0) {
-            // wow
-            return true;
+                            // Allow surrogate values (0xD800 - 0xDFFF) to
+                            // be specified using 3-byte UTF values only
+                            if ((utfCount != 2) && (val >= 0xD800) && (val <= 0xDFFF)) {
+                                break fuse;
+                            }
+
+                            // Reject chars greater than the Unicode maximum of U+10FFFF.
+                            if (val > 0x10FFFF) {
+                                break fuse;
+                            }
+
+                            // Encode chars from U+10000 up as surrogate pairs
+                            if (val < 0x10000) {
+                                buffer.add((char) val);
+                            } else {
+                                int x = val & 0xffff;
+                                int u = (val >> 16) & 0x1f;
+                                int w = (u - 1) & 0xffff;
+                                int hi = 0xd800 | (w << 6) | (x >> 10);
+                                int lo = 0xdc00 | (x & 0x3ff);
+                                buffer.add((char) hi, (char) lo);
+                            }
+                        } else {
+                            // Illegal values 0x8*, 0x9*, 0xa*, 0xb*, 0xfd-0xff
+                            break pattern;
+                        }
+                    }
+
+                    return !hasFaults;
+                }
+                while (false);
+
+                // Put input chars back
+                idx -= lookahead;
+            }
+            while (false);
+
+            // escape the offending byte
+            buffer.append(d[idx - 1]);
+
+            hasFaults = true;
         }
-
-        if (buffer.position() != 0) {
-            return true;
-        }
-
-        return false;
+        while (true);
     }
-
-    private static final boolean hasAdvanceBug = hasAdvanceBug();
 }

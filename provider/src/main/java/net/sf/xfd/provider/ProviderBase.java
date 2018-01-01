@@ -16,6 +16,7 @@
  */
 package net.sf.xfd.provider;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.pm.PackageManager;
@@ -38,12 +39,14 @@ import net.sf.xfd.Interruption;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.NativeBits;
+import net.sf.xfd.NativeString;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.locks.Lock;
 
 import static android.provider.DocumentsContract.Document.MIME_TYPE_DIR;
@@ -452,8 +455,38 @@ public final class ProviderBase extends ContextWrapper {
         }
     }
 
+    private static int lastIndexOf(byte[] array, byte value) {
+        for (int i = array.length - 2; i >= 0; --i) {
+            if (array[i] == value) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    public static NativeString extractName(NativeString chars) {
+        byte[] bytes = chars.getBytes();
+
+        final int lastSlash = lastIndexOf(bytes, (byte) '/');
+
+        switch (lastSlash) {
+            case 0:
+            case -1:
+                return chars;
+            default:
+                return chars.slice(lastSlash + 1, chars.length());
+        }
+    }
+
+    public static CharSequence extractName(CharSequence chars) {
+        return chars instanceof NativeString
+                ? extractName((NativeString) chars)
+                : extractName(chars.toString());
+    }
+
     public static String extractName(String chars) {
-        final int lastSlash = chars.lastIndexOf('/');
+        final int lastSlash = chars.lastIndexOf('/', Math.max(0, chars.length() - 2));
 
         switch (lastSlash) {
             case 0:
@@ -738,6 +771,7 @@ public final class ProviderBase extends ContextWrapper {
         return acceptedTypes.isEmpty() ? null : acceptedTypes.toArray(new String[acceptedTypes.size()]);
     }
 
+    @SuppressLint("WrongConstant")
     public CharSequence resolve(String externalPath) {
         final OS os = getOS();
         if (os == null) {
@@ -745,7 +779,6 @@ public final class ProviderBase extends ContextWrapper {
         }
 
         try {
-            //noinspection WrongConstant
             @Fd int fd = os.open(externalPath, NativeBits.O_PATH, OS.DEF_FILE_MODE);
             try {
                 return os.readlinkat(DirFd.NIL, fdPath(fd));
@@ -793,6 +826,7 @@ public final class ProviderBase extends ContextWrapper {
 
         final ObjectSet<String> mimeCandidates = new ObjectHashSet<>();
 
+        @Fd
         int fd = 0;
 
         try {

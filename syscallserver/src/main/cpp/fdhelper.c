@@ -479,7 +479,8 @@ static char* read_filepath(size_t nameLength) {
     if ((filepath = (char*) calloc(nameLength + 1, sizeof(char))) == NULL)
         DieWithError("calloc() failed");
 
-    if (verbose) LOG("Allocated %d - sized buffer", nameLength + 1);
+    //if (verbose)
+        LOG("Allocated %d - sized buffer", nameLength + 1);
 
     if (fgets(filepath, nameLength + 1, stdin) == NULL)
         DieWithError("reading filepath failed");
@@ -575,7 +576,8 @@ static void invoke_unlinkat(int sock) {
 
     char* filepath = read_filepath(nameLength);
 
-    if (verbose) LOG("Attempting to unlink %s", filepath);
+    //if (verbose)
+        LOG("Attempting to unlink %s", filepath);
 
     int receivedFd;
 
@@ -1099,8 +1101,11 @@ struct {
     int64_t st_dev;
     int64_t st_ino;
     int64_t st_size;
+    uint32_t st_rdev;
     int32_t type;
     int32_t blksize;
+    int16_t mode;
+
 } dumbStat;
 
 static void invoke_fstatat(int sock) {
@@ -1144,6 +1149,7 @@ static void invoke_fstatat(int sock) {
         dumbStat.st_dev = stat.st_dev;
         dumbStat.st_ino = stat.st_ino;
         dumbStat.st_size = stat.st_size;
+        dumbStat.st_rdev = (uint32_t) stat.st_rdev;
 
         if (S_ISBLK(stat.st_mode)) {
             dumbStat.type = 0;
@@ -1164,6 +1170,7 @@ static void invoke_fstatat(int sock) {
         }
 
         dumbStat.blksize = stat.st_blksize;
+        dumbStat.mode = (int16_t) (stat.st_mode & ~S_IFMT);
 
         write(STDERR_FILENO, &dumbStat, sizeof(dumbStat));
     }

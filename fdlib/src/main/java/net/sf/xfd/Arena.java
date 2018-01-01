@@ -32,6 +32,7 @@ import java.nio.ByteOrder;
  */
 public final class Arena implements Closeable {
     public static final int PAGE_ALIGN = -1;
+    public static final int WORD_ALIGN = 4;
 
     private Guard guard;
     private ByteBuffer buffer;

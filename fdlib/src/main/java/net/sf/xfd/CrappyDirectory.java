@@ -169,27 +169,33 @@ public class CrappyDirectory implements Directory {
             }
 
             switch (position) {
-                case -1:
-                    entries.clear();
-                    bogusPosition = -1;
-                    wrapped.moveToPosition(-1);
-                    lastPosition = -2;
-                    return true;
-                case 0:
-                    if (bogusPosition == -1) {
-                        if (wrapped.moveToFirst()) {
-                            appendEntry();
-                            bogusPosition = 0;
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    }
                 default:
                     if (position < entries.size() - 1) {
                         bogusPosition = position;
                         return true;
                     }
+
+                    break;
+                case -1:
+                    if (wrapped.moveToPosition(-1)) {
+                        entries.clear();
+                        bogusPosition = -1;
+                        lastPosition = -2;
+                        return true;
+                    }
+
+                    return false;
+                case 0:
+                    if (bogusPosition == -1) {
+                        if (!wrapped.moveToFirst()) {
+                            return false;
+                        } else {
+                            appendEntry();
+                            bogusPosition = 0;
+                        }
+                    }
+
+                    return true;
             }
 
             if (bogusPosition == -1 && !moveToFirst()) {

@@ -8,17 +8,38 @@
     native <methods>;
 }
 
-# denying obfuscation of members, used from native code (usually methods)
--keep,allowshrinking,allowoptimization,includedescriptorclasses class net.sf.xfd.** {
-    @android.support.annotation.Keep *;
+# Prevent removal of callback methods only if their classes are not removed
+# This ensures, that their full signatures are preserved via includedescriptorclasses
+# Two separate blocks and no "*" (asterisc) because of how keepclasseswithmembers works
+-keep class android.support.annotation.Keep {}
+-keepclasseswithmembers,allowshrinking,allowoptimization,includedescriptorclasses class net.sf.xfd.** {
+    @android.support.annotation.Keep <methods>;
+}
+-keepclasseswithmembers,allowshrinking,allowoptimization,includedescriptorclasses class net.sf.xfd.** {
+    @android.support.annotation.Keep <fields>;
+}
+-keepclassmembers,allowoptimization,includedescriptorclasses class net.sf.xfd.** {
+    @android.support.annotation.Keep <methods>;
+    @android.support.annotation.Keep <fields>;
 }
 
 # always keep annotated exceptions (they can be thrown from native code under some circumstances)
--keep,allowoptimization,includedescriptorclasses @android.support.annotation.Keep class net.sf.xfd.** extends java.lang.Throwable {
+-keep,includedescriptorclasses @android.support.annotation.Keep class net.sf.xfd.** extends java.lang.Throwable {
     *;
 }
 
-# if entire class is annotated, preserve it and all it's contents
--keep,allowshrinking,allowoptimization,includedescriptorclasses @android.support.annotation.Keep public class net.sf.xfd.** {
+# if entire class is annotated, preserve it and all it's contents from obfuscation
+-keep,allowshrinking,includedescriptorclasses @android.support.annotation.Keep public class net.sf.xfd.** {
     *;
 }
+
+-dontwarn **$$Lambda$*
+-dontwarn javax.lang.model.**
+-dontwarn javax.tools.**
+-dontwarn javax.annotation.**
+-dontwarn com.squareup.javapoet.**
+-dontwarn com.google.auto.**
+-dontwarn com.google.common.**
+-dontwarn sun.misc.Unsafe
+-dontwarn sun.nio.ch.DirectBuffer
+-dontwarn org.jetbrains.annotations.**

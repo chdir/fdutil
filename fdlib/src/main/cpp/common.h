@@ -11,6 +11,9 @@
 using namespace std;
 #else
 #include <stdatomic.h>
+#include <malloc.h>
+#include <alloca.h>
+
 #endif
 
 #define PKG(name) Java_net_sf_xfd_##name
@@ -25,7 +28,6 @@ typedef jobject jworkaroundstr;
 extern int API_VERSION;
 
 extern jclass ioException;
-extern jclass iIoException;
 extern jclass oomError;
 extern jclass illegalStateException;
 extern jclass errnoException;
@@ -33,7 +35,6 @@ extern jclass statContainer;
 extern jclass limitContainer;
 extern jclass byteArrayClass;
 
-extern jmethodID iieConstructor;
 extern jmethodID errnoExceptionConstructor;
 extern jmethodID statContainerInit;
 extern jmethodID limitContainerInit;
@@ -42,38 +43,66 @@ extern jmethodID arenaConstructor;
 extern size_t pageSize;
 
 extern void handleError(JNIEnv *env);
-extern void handleError(JNIEnv *env, int lastError);
+extern void handleError0(JNIEnv *env, int lastError);
 
-extern const char* getUtf8(JNIEnv* env, jboolean isArray, jworkaroundstr string);
-extern void freeUtf8(JNIEnv *env, jboolean isArray, jworkaroundstr string, const char* str);
+extern void oomThrow(JNIEnv *env, const char* explanation);
 extern jworkaroundstr toString(JNIEnv *env, char* linuxString, int bufferSize, jsize stringByteCount);
 
+#if DEBUG_LOG
 #define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "fdlib", __VA_ARGS__))
+#else
+#define LOG(...)
+#endif
 
-inline static jclass safeFindClass(const char* name, JNIEnv *env) {
-    jclass found = env -> FindClass(name);
+#define getUtf8(env, hint, str) ({                                          \
+  jbyte* buffer = NULL;                                                     \
+  if (hint > 0) buffer = hint <= 255 ? alloca(hint) : malloc((size_t) hint);\
+  utfconv(env, str, buffer, hint);                                          \
+})
 
-    if (found == NULL || env -> ExceptionCheck() == JNI_TRUE) {
-        return NULL;
+#define freeUtf8(env, hint, jstr, str) ({                      \
+  if (hint < 0 || hint > 255) utfrelease(env, jstr, str, hint);\
+})
+
+static const char* utfconv(JNIEnv* env, jworkaroundstr string, jbyte* buffer, jint hint) {
+    if (hint > 0) {
+        if (buffer == NULL) {
+            oomThrow(env, "malloc failed");
+            return NULL;
+        }
+
+        (*env)->GetByteArrayRegion(env, (jbyteArray) string, 0, hint, buffer);
+
+        buffer[hint] = '\0';
+
+        return (const char*) buffer;
+    } else {
+        return (*env)->GetStringUTFChars(env, (jstring) string, NULL);
     }
+}
 
-    return found;
+static void utfrelease(JNIEnv* env, jworkaroundstr string, const char* chars, jint hint) {
+    if (hint > 0) {
+        free((void *) chars);
+    } else {
+        (*env)->ReleaseStringUTFChars(env, string, chars);
+    }
 }
 
 inline static jclass saveClassRef(const char* name, JNIEnv *env) {
-    jclass found = safeFindClass(name, env);
+    jclass found = (*env)->FindClass(env, name);
 
     if (found == NULL) {
         return NULL;
     }
 
-    return reinterpret_cast<jclass>(env->NewGlobalRef(found));
+    return (jclass) (*env)->NewGlobalRef(env, found);
 }
 
 inline static jmethodID safeGetMethod(jclass type, const char* name, const char* sig, JNIEnv *env) {
-    jmethodID found = env -> GetMethodID(type, name, sig);
+    jmethodID found = (*env)->GetMethodID(env, type, name, sig);
 
-    if (found == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+    if (found == NULL || (*env)->ExceptionCheck(env) == JNI_TRUE) {
         return NULL;
     }
 
@@ -81,36 +110,13 @@ inline static jmethodID safeGetMethod(jclass type, const char* name, const char*
 }
 
 inline static jfieldID safeGetStaticField(jclass type, const char* name, const char* sig, JNIEnv *env) {
-    jfieldID found = env -> GetStaticFieldID(type, name, sig);
+    jfieldID found = (*env)->GetStaticFieldID(env, type, name, sig);
 
-    if (found == NULL || env -> ExceptionCheck() == JNI_TRUE) {
+    if (found == NULL || (*env)->ExceptionCheck(env) == JNI_TRUE) {
         return NULL;
     }
 
     return found;
 }
 
-inline static void throwInterrupted(JNIEnv* env, jlong copied, const char* message) {
-    jstring errMsg = env -> NewStringUTF(message);
-
-    if (errMsg == NULL) return;
-
-    jthrowable errInstance = (jthrowable) env -> NewObject(iIoException, iieConstructor, copied, errMsg);
-
-    if (errInstance != NULL) {
-        env -> Throw(errInstance);
-    }
-}
-
-struct InterruptHandler {
-public:
-    atomic_bool interrupted;
-
-    void set_flag() {
-        interrupted.store(true, memory_order_relaxed);
-    }
-
-    void clear_flag() {
-        interrupted.store(false, memory_order_relaxed);
-    }
-};
+typedef volatile uint8_t* i10n_ptr;

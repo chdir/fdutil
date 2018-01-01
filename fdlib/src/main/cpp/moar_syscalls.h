@@ -15,7 +15,7 @@ static inline int sys_mkdirat(int target, const char *name, mode_t mode) {
     return syscall(__NR_mkdirat, target, name, mode);
 }
 
-static inline int sys_lstat64(const char *name, kernel_stat64* stat) {
+static inline int sys_lstat64(const char *name, struct kernel_stat64* stat) {
     return syscall(__NR_lstat64, name, stat);
 }
 
@@ -31,7 +31,7 @@ static inline int sys_rt_tgsigqueueinfo(pid_t pid, pid_t tid, int signo, siginfo
     return syscall(__NR_rt_tgsigqueueinfo, pid, tid, signo, uinfo);
 }
 
-static inline int sys_fstatat64_fixed(int dirfd, const char *filename, kernel_stat64* statbuf, int flags) {
+static inline int sys_fstatat64_fixed(int dirfd, const char *filename, struct kernel_stat64* statbuf, int flags) {
     return syscall(__NR_fstatat64, dirfd, filename, statbuf, flags);
 }
 

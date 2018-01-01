@@ -21,10 +21,10 @@ import net.sf.xfd.Stat;
 
 public class FsFile {
     public final @DirFd int dirFd;
-    public final String name;
+    public final CharSequence name;
     public final Stat stat;
 
-    public FsFile(@DirFd int dirFd, String name, Stat stat) {
+    public FsFile(@DirFd int dirFd, CharSequence name, Stat stat) {
         this.dirFd = dirFd;
         this.name = name;
         this.stat = stat;
