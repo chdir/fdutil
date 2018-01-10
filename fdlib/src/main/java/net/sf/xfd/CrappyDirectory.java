@@ -191,9 +191,10 @@ public class CrappyDirectory implements Directory {
                             return false;
                         } else {
                             appendEntry();
-                            bogusPosition = 0;
                         }
                     }
+
+                    bogusPosition = 0;
 
                     return true;
             }

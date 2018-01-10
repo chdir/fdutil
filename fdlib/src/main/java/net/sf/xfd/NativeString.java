@@ -106,7 +106,7 @@ public final class NativeString implements GetChars, Parcelable {
     }
 
     private void decode(FileNameDecoder decoder) {
-        if (string == null) {
+        if (string != null) {
             return;
         }
 

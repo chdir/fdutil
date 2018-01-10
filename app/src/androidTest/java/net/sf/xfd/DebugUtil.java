@@ -45,11 +45,11 @@ public class DebugUtil {
     }
 
     public static CharSequence wrapRawForm(byte[] bytes) {
-        return new NativeString(bytes, "whoops");
+        return new NativeString("whoops", bytes);
     }
 
     public static CharSequence wrapRawForm(String utf8Suffix) {
-        return new NativeString(utf8Suffix.getBytes(), "whoops");
+        return new NativeString("whoops", utf8Suffix.getBytes());
     }
 
     public static CharSequence buildCharSequence(byte[] randPrefix, byte[] name, String utf8Suffix) {
@@ -68,10 +68,15 @@ public class DebugUtil {
         System.arraycopy(name, 0, resulting, randPrefix.length, name.length);
         System.arraycopy(last, 0, resulting, randPrefix.length + name.length, last.length);
 
-        return new NativeString(resulting, "whoops");
+        return new NativeString("whoops", resulting);
     }
 
     public static byte[] getBytes(CharSequence sequence) {
-        return sequence.getClass() == NativeString.class ? ((NativeString) sequence).getBytes() : sequence.toString().getBytes();
+        if (sequence.getClass() == NativeString.class) {
+            int l = ((NativeString) sequence).length;
+            byte[] b = ((NativeString) sequence).bytes;
+            return Arrays.copyOfRange(b, 0, l);
+        }
+        return sequence.toString().getBytes();
     }
 }

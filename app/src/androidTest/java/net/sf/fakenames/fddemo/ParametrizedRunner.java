@@ -23,6 +23,7 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ParametrizedRunner implements ParametersRunnerFactory {
     private final AndroidRunnerParams params = new AndroidRunnerParams(
@@ -35,12 +36,9 @@ public class ParametrizedRunner implements ParametersRunnerFactory {
 
     private static class Delegate extends AndroidJUnit4ClassRunner {
         private final Object[] parameters;
-        private final Class<?> testClass;
 
         public Delegate(TestWithParameters t, AndroidRunnerParams runnerParams) throws InitializationError {
             super(t.getTestClass().getJavaClass(), runnerParams);
-
-            testClass = t.getTestClass().getJavaClass();
 
             parameters = t.getParameters().toArray(new Object[t.getParameters().size()]);
         }
@@ -88,6 +86,7 @@ public class ParametrizedRunner implements ParametersRunnerFactory {
             return testClassInstance;
         }
 
+        /*
         @Override
         protected String testName(FrameworkMethod method) {
             if (parameters.length == 0) {
@@ -99,16 +98,7 @@ public class ParametrizedRunner implements ParametersRunnerFactory {
                     (parameters.length == 1 ? parameters[0].toString() : Arrays.toString(parameters))
                     + ']';
         }
-
-        @Override
-        public Description getDescription() {
-            return super.getDescription();
-        }
-
-        @Override
-        protected Description describeChild(FrameworkMethod method) {
-            return super.describeChild(method);
-        }
+        */
 
         @Override
         protected void validateConstructor(List<Throwable> errors) {
