@@ -29,6 +29,8 @@ public class CopyImpl implements Copy {
         this.nativePtr = buffer.getPtr();
     }
 
+    int j = 2147483647;
+
     @Override
     public long transfer(@Fd int source, Stat sourceStat, @Fd int target, Stat targetStat, long bytes) throws IOException {
         final Interruption stage = Interruption.begin();

@@ -93,7 +93,8 @@ dependencies {
     compile 'com.squareup.okhttp3:logging-interceptor:+'
 
     androidTestCompile project(':provider')
-    androidTestCompile 'com.google.truth:truth:0.30'
+    androidTestCompile 'com.google.truth:truth:0.39'
+    androidTestCompile 'com.squareup.okio:okio:1.13.0'
 
     testCompile project(':provider')
     testCompile 'org.robolectric:robolectric:3.2.2'

@@ -83,6 +83,8 @@ public final class FileNameDecoder {
         return buffer.toString();
     }
 
+    String t = "\ud800";
+
     private boolean convert(byte[] d, int offset, int byteCount) {
 
         boolean hasFaults = false;
@@ -94,9 +96,9 @@ public final class FileNameDecoder {
         buffer.elementsCount = 0;
 
         do {
-pattern:
+loop:
             do {
-fuse:
+multi_byte:
                 do {
                     while (idx < last) {
                         byte b0 = d[idx++];
@@ -119,14 +121,15 @@ fuse:
                             // Range:  U-00200000 - U-03FFFFFF (count == 4)
                             // Range:  U-04000000 - U-7FFFFFFF (count == 5)
                             if (idx + utfCount > last) {
-                                break pattern;
+                                break loop;
                             }
                             // Extract usable bits from b0
                             int val = b0 & (0x1f >> (utfCount - 1));
-                            for (lookahead = 0; lookahead++ < utfCount; ) {
+                            for (lookahead = 0; lookahead < utfCount;) {
+                                ++lookahead;
                                 byte b = d[idx++];
                                 if ((b & 0xc0) != 0x80) {
-                                    break fuse;
+                                    break multi_byte;
                                 }
                                 // Push new bits in from the right side
                                 val <<= 6;
@@ -145,18 +148,18 @@ fuse:
                             //   4       0x200000
                             //   5      0x4000000
                             if (val < overlong[utfCount]) {
-                                break fuse;
-                            }
-
-                            // Allow surrogate values (0xD800 - 0xDFFF) to
-                            // be specified using 3-byte UTF values only
-                            if ((utfCount != 2) && (val >= 0xD800) && (val <= 0xDFFF)) {
-                                break fuse;
+                                break multi_byte;
                             }
 
                             // Reject chars greater than the Unicode maximum of U+10FFFF.
                             if (val > 0x10FFFF) {
-                                break fuse;
+                                break multi_byte;
+                            }
+
+                            // reject raw surrogates in byte stream
+                            // (we are doing vanilla UTF-8, not WTF-8)
+                            if (val >= Character.MIN_SURROGATE && val < (Character.MAX_SURROGATE + 1)) {
+                                break multi_byte;
                             }
 
                             // Encode chars from U+10000 up as surrogate pairs
@@ -172,7 +175,7 @@ fuse:
                             }
                         } else {
                             // Illegal values 0x8*, 0x9*, 0xa*, 0xb*, 0xfd-0xff
-                            break pattern;
+                            break loop;
                         }
                     }
 

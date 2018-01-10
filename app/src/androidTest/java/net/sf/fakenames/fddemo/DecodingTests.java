@@ -10,6 +10,7 @@ import com.carrotsearch.hppc.ByteArrayList;
 import net.sf.xfd.DebugUtil;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
+import net.sf.xfd.FileNameDecoder;
 import net.sf.xfd.OS;
 
 import org.junit.AfterClass;
@@ -18,6 +19,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
@@ -89,7 +91,7 @@ public class DecodingTests {
             }
 
             if (gotAnother) {
-                final String escape = string.substring(next + 2, next + 4);
+                final String escape = string.substring(newPos + 2, newPos + 4);
 
                 int decoded = Integer.parseInt(escape, 16);
 
@@ -150,7 +152,14 @@ public class DecodingTests {
 
                     Log.e("!!!", escaped);
 
-                    assertThat(unescaped).isEqualTo(DebugUtil.getBytes(e.name));
+                    try {
+                        //assertThat(unescaped.length).isEqualTo(DebugUtil.getBytes(e.name).length);
+                        assertThat(unescaped).isEqualTo(DebugUtil.getBytes(e.name));
+                    } catch (Throwable t) {
+                        Log.e("!!!", "Failed at " + Arrays.toString(unescaped));
+
+                        throw t;
+                    }
                 }
             }
         } finally {

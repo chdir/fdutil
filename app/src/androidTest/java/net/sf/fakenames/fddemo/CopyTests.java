@@ -22,13 +22,25 @@ import org.junit.runners.Parameterized;
 
 import java.io.Closeable;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InterruptedIOException;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
 import java.security.SecureRandom;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import okio.BufferedSink;
+import okio.ByteString;
+import okio.HashingSource;
+import okio.Okio;
+import okio.Sink;
+import okio.Source;
 
 import static com.google.common.truth.Truth.assertThat;
 import static net.sf.xfd.DebugUtil.assertContentsEqual;
@@ -57,7 +69,9 @@ public class CopyTests {
     private static File couplePages;
     private static File severalMegabytes;
 
-    private final Random r = new SecureRandom();
+    private final Random r = new Random();
+
+    private File random = new File("/dev/urandom");
 
     private final TestSetup setup;
 
@@ -158,17 +172,13 @@ public class CopyTests {
     @Test
     @MediumTest
     public void copyFewMbs() throws IOException {
-        final byte[] sourceBytes = new byte[F3Size];
-
         severalMegabytes = File.createTempFile("severalMb", null, setup.dir);
 
-        r.nextBytes(sourceBytes);
-
-        try (FileOutputStream fos = new FileOutputStream(severalMegabytes)) {
-            fos.write(sourceBytes);
-        }
+        ByteString sourceHash, destHash;
 
         try (Copy c = os.copy()) {
+            sourceHash = produceRandom(severalMegabytes, F3Size);
+
             final File testCopy = File.createTempFile("severalMbs0", null, setup.dir);
             try {
                 int s = os.open(severalMegabytes.getAbsolutePath(), OS.O_RDONLY, 0);
@@ -183,33 +193,31 @@ public class CopyTests {
                     }
                 } finally {
                     os.dispose(s);
+
+                    //noinspection ResultOfMethodCallIgnored
+                    severalMegabytes.delete();
                 }
 
-                assertContentsEqual(severalMegabytes, testCopy);
+                try (HashingSource source = HashingSource.sha1(Okio.source(testCopy))) {
+                    Okio.buffer(source).skip(F3Size);
+
+                    destHash = source.hash();
+                }
+
+                assertThat(destHash).isEqualTo(sourceHash);
             } finally {
                 //noinspection ResultOfMethodCallIgnored
                 testCopy.delete();
             }
-        } finally {
-            //noinspection ResultOfMethodCallIgnored
-            severalMegabytes.delete();
         }
     }
 
     @Test
     @MediumTest
     public void pipeTest() throws IOException, InterruptedException {
-        severalMegabytes = File.createTempFile("severalMb", null, setup.dir);
+        severalMegabytes = produceTruncated("severalMb", F3Size);
 
         try (Copy c = os.copy()) {
-            final byte[] sourceBytes = new byte[F3Size];
-
-            r.nextBytes(sourceBytes);
-
-            try (FileOutputStream fos = new FileOutputStream(severalMegabytes)) {
-                fos.write(sourceBytes);
-            }
-
             final Stat pipeStat = new Stat();
             pipeStat.type = FsType.NAMED_PIPE;
 
@@ -270,17 +278,9 @@ public class CopyTests {
     @Test
     @LargeTest
     public void pipeInterrupted() throws IOException, InterruptedException {
-        severalMegabytes = File.createTempFile("severalMb", null, setup.dir);
+        severalMegabytes = produceTruncated("severalMb", F3Size);
 
         try (SelectorThread st = new SelectorThread(); Copy c = os.copy()) {
-
-            final byte[] sourceBytes = new byte[F3Size];
-
-            r.nextBytes(sourceBytes);
-
-            try (FileOutputStream fos = new FileOutputStream(severalMegabytes)) {
-                fos.write(sourceBytes);
-            }
 
             final Stat pipeStat = new Stat();
             pipeStat.type = FsType.NAMED_PIPE;
@@ -361,6 +361,8 @@ public class CopyTests {
                                     } catch (InterruptedIOException iie) {
                                         totalWritten += iie.bytesTransferred;
 
+                                        Thread.interrupted();
+
                                         Log.i("!!!", "bytes received so far: " + iie.bytesTransferred);
                                     }
                                 } while (lastWrite != 0);
@@ -389,6 +391,28 @@ public class CopyTests {
             //noinspection ResultOfMethodCallIgnored
             severalMegabytes.delete();
         }
+    }
+
+    // creates file, filled with random data
+    private ByteString produceRandom(File file, int size) throws IOException {
+        try (HashingSource source = HashingSource.sha1(Okio.source(random));
+             BufferedSink tmpFileSink = Okio.buffer(Okio.appendingSink(file))) {
+
+            tmpFileSink.write(source, size);
+
+            return source.hash();
+        }
+    }
+
+    // quickly creates file by truncation (sparse and full of zeroes)
+    private File produceTruncated(String prefix, int size) throws IOException {
+        File created = File.createTempFile(prefix, null, setup.dir);
+
+        try (RandomAccessFile fc = new RandomAccessFile(created, "rw")) {
+            fc.setLength(size);
+        }
+
+        return created;
     }
 
     @AfterClass
