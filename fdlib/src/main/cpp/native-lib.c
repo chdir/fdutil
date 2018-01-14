@@ -220,7 +220,7 @@ JNIEXPORT void JNICALL PKG_SYM(close)(JNIEnv *env, jclass type, jint fd) {
     }
 }
 
-JNIEXPORT void JNICALL PKG_SYM(dup2)(JNIEnv *env, jobject instance, jint source, jint dest) {
+JNIEXPORT void JNICALL PKG_SYM(dup2n)(JNIEnv *env, jclass type, jint source, jint dest) {
     if (TEMP_FAILURE_RETRY(dup2(source, dest)) == dest) {
         return;
     }

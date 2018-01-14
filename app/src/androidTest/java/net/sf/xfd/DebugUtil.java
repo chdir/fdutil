@@ -5,6 +5,7 @@ import com.carrotsearch.hppc.LongContainer;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.lang.reflect.Array;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
@@ -39,7 +40,6 @@ public class DebugUtil {
         if (source.length != target.length) {
             throw new IllegalStateException("Lengths of arrays differ");
         }
-
 
         assertThat(source).isEqualTo(target);
     }

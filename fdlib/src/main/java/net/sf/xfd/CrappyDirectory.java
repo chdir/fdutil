@@ -15,8 +15,10 @@
  */
 package net.sf.xfd;
 
+import android.graphics.Bitmap;
 import android.support.annotation.NonNull;
 
+import com.carrotsearch.hppc.ObjectArrayList;
 import com.carrotsearch.hppc.XorShift128P;
 
 import net.openhft.hashing.Access;
@@ -24,6 +26,8 @@ import net.openhft.hashing.LongHashFunction;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.NoSuchElementException;
 
 /**
@@ -65,7 +69,7 @@ public class CrappyDirectory implements Directory {
             this.wrapped = wrapped;
         }
 
-        private ArrayList<Entry> entries = new ArrayList<>();
+        private ObjectArrayList<Entry> entries = new ObjectArrayList<>();
 
         private int bogusPosition = -1;
 
@@ -195,7 +199,6 @@ public class CrappyDirectory implements Directory {
                     }
 
                     bogusPosition = 0;
-
                     return true;
             }
 

@@ -32,7 +32,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Process;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.StringRes;
@@ -81,8 +80,6 @@ import net.sf.xfd.provider.RootSingleton;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.LinkedHashSet;
-import java.util.TreeMap;
 
 import butterknife.Bind;
 import butterknife.BindColor;
@@ -541,14 +538,20 @@ public class MainActivity extends BaseActivity implements
 
         final FileMenuInfo info = (FileMenuInfo) menuInfo;
 
-        final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
-        bufferItem.setOnMenuItemClickListener(this);
+        final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
+        cutItem.setOnMenuItemClickListener(this);
+
+        final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
+        copyItem.setOnMenuItemClickListener(this);
 
         final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, 3, "Rename");
         renameItem.setOnMenuItemClickListener(this);
 
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
+
+        final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
+        bufferItem.setOnMenuItemClickListener(this);
 
         FsType type = null;
 
@@ -566,12 +569,6 @@ public class MainActivity extends BaseActivity implements
 
         if (type != null) {
             if (type.isNotDir()) {
-                final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
-                cutItem.setOnMenuItemClickListener(this);
-
-                final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
-                copyItem.setOnMenuItemClickListener(this);
-
                 final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, 2, "Edit");
                 editItem.setOnMenuItemClickListener(this);
 
@@ -696,14 +693,12 @@ public class MainActivity extends BaseActivity implements
         new ShortcutNameInputFragment(name).show(getFragmentManager(), null);
     }
 
-    private void pasteFile(FileObject sourceFile, boolean canRemoveOriginal) throws IOException {
+    private void pasteFileObject(FileObject sourceFile, boolean canRemoveOriginal) throws IOException {
         final OS os = state.os;
-
-        final @DirFd int dir = os.dup(state.adapter.getFd());
 
         FileTasks ft = FileTasks.getInstance(this);
 
-        ft.copy(os, state.layout, sourceFile, dir, canRemoveOriginal);
+        ft.copy(os, state.layout, sourceFile, state.adapter.getFd(), canRemoveOriginal);
     }
 
     private void showRenameDialog(CharSequence name) {
@@ -1121,19 +1116,24 @@ public class MainActivity extends BaseActivity implements
                 final ClipData clip = clipData;
 
                 FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
-                if (fileObject != null) {
-                    try {
-                        final Intent intent = clip.getItemAt(0).getIntent();
-
-                        final boolean canRemoveOriginal = intent != null
-                                && ACTION_MOVE.equals(intent.getAction());
-
-                        pasteFile(fileObject, canRemoveOriginal);
-                    } catch (IOException e) {
-                        toast(e.getMessage());
-                    }
-                } else {
+                if (fileObject == null) {
                     toast("Unsupported data type");
+
+                    return true;
+                }
+
+                final Intent intent = clip.getItemAt(0).getIntent();
+                if (intent == null) {
+                    LogUtil.swallowError("Clip does not contain Intent, bailing");
+
+                    return true;
+                }
+
+                final boolean canRemoveOriginal = ACTION_MOVE.equals(intent.getAction());
+                try {
+                    pasteFileObject(fileObject, canRemoveOriginal);
+                } catch (IOException e) {
+                    toast(e.getMessage());
                 }
 
                 return true;
