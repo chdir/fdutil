@@ -31,10 +31,12 @@ import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Fd;
+import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 import net.sf.xfd.provider.MountsSingleton;
+import net.sf.xfd.provider.ProviderBase;
 
 import java.io.File;
 import java.io.IOException;
@@ -55,8 +57,7 @@ public class BaseDirLayout extends ContextWrapper {
 
     private MountInfo mountInfo;
 
-    private long homeDev;
-
+    private MountInfo.Mount sdDir;
     private MountInfo.Mount appDir;
 
     private final ObjectHashSet<String> usableFilesystems = new ObjectHashSet<>(10); {
@@ -92,9 +93,7 @@ public class BaseDirLayout extends ContextWrapper {
 
         os.fstatat(DirFd.NIL, home.getAbsolutePath(), homeStat, 0);
 
-        homeDev = homeStat.st_dev;
-
-        appDir = mountInfo.mountMap.get(homeDev);
+        appDir = mountInfo.mountMap.get(homeStat.st_dev);
 
         final HashMap<File, String> pathNameMap = new HashMap<>();
 
@@ -142,6 +141,34 @@ public class BaseDirLayout extends ContextWrapper {
             lock.unlock();
         }
 
+    }
+
+    public boolean hasPermissionlessFs(long... devIds) throws IOException {
+        final File sdFile = getExternalFilesDir(null);
+
+        if (sdFile == null) {
+            return false;
+        }
+
+        final Stat stat = new Stat();
+
+        try {
+            os.fstatat(DirFd.NIL, sdFile.getAbsolutePath(), stat, 0);
+        } catch (IOException ioe) {
+            LogUtil.logCautiously("Failed to stat external files dir");
+
+            return false;
+        }
+
+        for (long devId : devIds) {
+            if (stat.st_dev == devId) {
+                MountInfo.Mount sdFs = getFs(stat.st_dev);
+
+                return sdFs != null && !ProviderBase.isPosix(sdFs.fstype);
+            }
+        }
+
+        return false;
     }
 
     private void parseMounts(HashMap<File, String> pathNameMap, List<StorageVolume> volumes) throws IOException {

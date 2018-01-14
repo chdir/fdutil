@@ -350,7 +350,9 @@ final class Android extends OS {
     public native void fadvise(@Fd int fd, long off, long length, int advice) throws IOException;
 
     @Override
-    public native void dup2(int source, int dest) throws IOException;
+    public void dup2(int source, int dest) throws IOException {
+        dup2n(source, dest);
+    }
 
     @Override
     public native int dup(int source) throws IOException;
@@ -427,6 +429,8 @@ final class Android extends OS {
 
         throw new InterruptedIOException(transferred, caller);
     }
+
+    private static native void dup2n(int source, int dest) throws IOException;
 
     private static native void nativeFstatAt(Object pathname, Stat stat, int length, @DirFd int dir, int flags);
 

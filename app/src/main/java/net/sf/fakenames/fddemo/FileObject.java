@@ -21,7 +21,9 @@ import android.content.ClipDescription;
 import android.content.ContentProviderClient;
 import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
+import android.content.res.AssetManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -47,10 +49,12 @@ import net.sf.xfd.Stat;
 import net.sf.xfd.provider.ProviderBase;
 
 import java.io.Closeable;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -62,6 +66,8 @@ import static net.sf.xfd.provider.ProviderBase.extractName;
  * Container for information about Uri-addressable object
  */
 public abstract class FileObject implements Closeable {
+    public static String EXTRA_DATA = "net.sf.xfd.PATH";
+
     protected final Context context;
     protected final OS os;
     protected final Stat stat;
@@ -78,6 +84,14 @@ public abstract class FileObject implements Closeable {
         this.os = os;
         this.context = context;
         this.stat = stat;
+    }
+
+    public AssetFileDescriptor openAsDirectory(CancellationHelper ch) throws IOException, RemoteException {
+        if (!isDirectory(ch)) {
+            throw new IOException("The file can not be open as directory");
+        }
+
+        return openForReading(ch);
     }
 
     @WorkerThread
@@ -256,7 +270,7 @@ public abstract class FileObject implements Closeable {
 
     // try to use the fact that the file may be on the same partition to out advantage
     // to perform rename instead of copy/delete
-    protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
+    public boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
         final AssetFileDescriptor sourceAssetFd = this.openForReading(ch);
 
         try (final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor()) {
@@ -330,6 +344,10 @@ public abstract class FileObject implements Closeable {
     }
 
     public static FileObject fromClip(OS os, Context context, ClipData clipData) {
+        if (clipData.getItemCount() != 1) {
+            return null;
+        }
+
         ClipData.Item clipItem = clipData.getItemAt(0);
         if (clipItem == null || clipItem.getUri() == null) {
             return null;
@@ -345,14 +363,25 @@ public abstract class FileObject implements Closeable {
             return null;
         }
 
-        String maybeFilename = null;
+        CharSequence maybeFilename = null;
 
-        // if someone puts anything besides a filename here, they are idiots
-        final ClipDescription clipDescription = clipData.getDescription();
-        if (clipDescription != null) {
-            final CharSequence label = clipDescription.getLabel();
-            if (!TextUtils.isEmpty(label)) {
-                maybeFilename = label.toString();
+        final Intent intent = clipItem.getIntent();
+        if (intent != null && intent.hasExtra(EXTRA_DATA)) {
+            maybeFilename = intent.getParcelableExtra(EXTRA_DATA);
+
+            if (maybeFilename != null) {
+                maybeFilename = extractName(maybeFilename);
+            }
+        }
+
+        if (maybeFilename == null) {
+            // if someone puts anything besides a filename here, they are idiots
+            final ClipDescription clipDescription = clipData.getDescription();
+            if (clipDescription != null) {
+                final CharSequence label = clipDescription.getLabel();
+                if (!TextUtils.isEmpty(label)) {
+                    maybeFilename = label.toString();
+                }
             }
         }
 
@@ -402,6 +431,8 @@ public abstract class FileObject implements Closeable {
         return result;
     }
 
+    public abstract boolean isDirectory(CancellationHelper ch) throws IOException, RemoteException;
+
     private static class ContentFileObject extends FileObject {
         private final ContentResolver resolver;
         private final Uri uri;
@@ -410,6 +441,7 @@ public abstract class FileObject implements Closeable {
         private Cursor info;
         private String description;
         private String mime;
+        private boolean isVirtual;
         private long maxSize;
         private int flags;
 
@@ -460,7 +492,6 @@ public abstract class FileObject implements Closeable {
                     return;
                 }
 
-                boolean isVirtual = false;
                 if (isDocument) {
                     int flagsColumn = info.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS);
                     if (flagsColumn != -1 && !info.isNull(flagsColumn)) {
@@ -500,10 +531,6 @@ public abstract class FileObject implements Closeable {
                     }
                 }
 
-                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
-                    throw new UnsupportedOperationException("Copying directories is not supported yet");
-                }
-
                 if (TextUtils.isEmpty(description)) {
                     int nameColumn = info.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                     if (nameColumn != -1 && !info.isNull(nameColumn)) {
@@ -513,6 +540,10 @@ public abstract class FileObject implements Closeable {
                     if (TextUtils.isEmpty(description)) {
                         description = uri.getLastPathSegment();
                     }
+                }
+
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                    return;
                 }
 
                 int sizeColumn = info.getColumnIndex(OpenableColumns.SIZE);
@@ -584,6 +615,13 @@ public abstract class FileObject implements Closeable {
             } else {
                 return resolver.delete(uri, null, null) > 0;
             }
+        }
+
+        @Override
+        public boolean isDirectory(CancellationHelper ch) throws RemoteException {
+            fetchMetadata(ch);
+
+            return DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
         }
 
         @Override
@@ -663,6 +701,13 @@ public abstract class FileObject implements Closeable {
             }
 
             return true;
+        }
+
+        @Override
+        public boolean isDirectory(CancellationHelper ch) throws IOException, RemoteException {
+            os.fstat(fd, stat);
+
+            return stat.type == FsType.DIRECTORY;
         }
 
         @Override
@@ -758,6 +803,13 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
+        public AssetFileDescriptor openAsDirectory(CancellationHelper ch) throws IOException {
+            @Fd int fd = os.opendir(path);
+
+            return new AssetFileDescriptor(ParcelFileDescriptor.adoptFd(fd), 0, -1);
+        }
+
+        @Override
         public AssetFileDescriptor openForReading(CancellationHelper ch) throws IOException {
             @Fd int fd = os.open(path, OS.O_RDONLY, 0);
 
@@ -800,6 +852,13 @@ public abstract class FileObject implements Closeable {
 
             return true;
         }
+
+        @Override
+        public boolean isDirectory(CancellationHelper ch) throws IOException, RemoteException {
+            os.fstatat(DirFd.NIL, path, stat, 0);
+
+            return stat.type == FsType.DIRECTORY;
+        }
     }
 
     private static final class ResourceObject extends FileObject {
@@ -811,6 +870,11 @@ public abstract class FileObject implements Closeable {
 
             this.uri = uri;
             this.resolver = context.getContentResolver();
+        }
+
+        @Override
+        public AssetFileDescriptor openAsDirectory(CancellationHelper ch) throws IOException {
+            throw new IOException("Can not open an application resource file as directory");
         }
 
         @Override
@@ -836,6 +900,11 @@ public abstract class FileObject implements Closeable {
         @Override
         protected boolean delete() throws IOException, RemoteException {
             throw new IOException("Can not delete an application resource file");
+        }
+
+        @Override
+        public boolean isDirectory(CancellationHelper ch) throws IOException, RemoteException {
+            return false;
         }
     }
 }

@@ -165,6 +165,52 @@ public class ApplicationTest {
     }
 
     @Test
+    @MediumTest
+    public void testWraparound() throws IOException {
+        final ArrayList<String> normalIterationResult = new ArrayList<>();
+        final ArrayList<String> cursorIterationResult = new ArrayList<>();
+
+        final String[] dirContents = setup.dir.list();
+        cursorIterationResult.ensureCapacity((dirContents.length + 2) * 2);
+        normalIterationResult.ensureCapacity((dirContents.length + 2) * 2);
+
+        normalIterationResult.add(".");
+        normalIterationResult.add("..");
+        Collections.addAll(normalIterationResult, dirContents);
+        normalIterationResult.add(".");
+        normalIterationResult.add("..");
+        Collections.addAll(normalIterationResult, dirContents);
+
+        try (Directory dir = setup.forFd(descriptor)) {
+            final UnreliableIterator<? super Directory.Entry> iterator = dir.iterator();
+
+            Directory.Entry file = new Directory.Entry();
+
+            iterator.moveToFirst();
+
+            do {
+                iterator.get(file);
+
+                cursorIterationResult.add(file.name.toString());
+            }
+            while (iterator.moveToNext());
+
+            iterator.moveToFirst();
+
+            do {
+                iterator.get(file);
+
+                cursorIterationResult.add(file.name.toString());
+            }
+            while (iterator.moveToNext());
+
+            assertThat(cursorIterationResult)
+                    .containsExactlyElementsIn(normalIterationResult)
+                    .inOrder();
+        }
+    }
+
+    @Test
     @LargeTest
     public void madJumping() throws IOException {
         final String[] dirContents = setup.dir.list();
