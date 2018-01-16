@@ -16,16 +16,8 @@
 package net.sf.xfd;
 
 import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
 
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.charset.CharsetDecoder;
-import java.nio.charset.CoderResult;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-
-import static android.icu.lang.UCharacter.REPLACEMENT_CHAR;
 
 public final class FileNameDecoder {
     // 255 16-bit units is VFAT name length (biggest known so far), but let's make an extra

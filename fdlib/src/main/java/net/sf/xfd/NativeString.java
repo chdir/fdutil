@@ -56,7 +56,7 @@ public final class NativeString implements GetChars, Parcelable {
         this(decoded, bytes, bytes.length);
     }
 
-    NativeString(@NonNull byte[] bytes) {
+    public NativeString(@NonNull byte[] bytes) {
         this(null, bytes, bytes.length);
     }
 

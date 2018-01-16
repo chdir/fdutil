@@ -270,7 +270,7 @@ public abstract class FileObject implements Closeable {
 
     // try to use the fact that the file may be on the same partition to out advantage
     // to perform rename instead of copy/delete
-    public boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
+    protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
         final AssetFileDescriptor sourceAssetFd = this.openForReading(ch);
 
         try (final ParcelFileDescriptor sourceFd = sourceAssetFd.getParcelFileDescriptor()) {
