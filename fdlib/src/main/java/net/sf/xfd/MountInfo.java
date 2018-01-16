@@ -240,7 +240,9 @@ public class MountInfo {
 
                     final String subject = scanner.next().intern();
 
-                    mountMap.put(dev_t, new Mount(fsType, location, subject));
+                    Mount prev = mountMap.put(dev_t, new Mount(dev_t, fsType, location, subject));
+
+                    if (prev.rootPath)
 
                     scanner.nextLine();
                 }
@@ -306,13 +308,15 @@ public class MountInfo {
     }
 
     public static final class Mount {
+        public final long device;
         public final String fstype;
         public final String subject;
 
         public volatile String rootPath;
         public volatile String description;
 
-        public Mount(String fstype, String rootPath, String subject) {
+        public Mount(long device, String fstype, String rootPath, String subject) {
+            this.device = device;
             this.fstype = fstype;
             this.rootPath = rootPath;
             this.subject = subject;

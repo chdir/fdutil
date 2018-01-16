@@ -56,6 +56,7 @@ import net.sf.xfd.InterruptedIOException;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
 import net.sf.xfd.NativeBits;
+import net.sf.xfd.NativeString;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 import net.sf.xfd.UnreliableIterator;
@@ -73,6 +74,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static net.sf.xfd.Directory.READDIR_REUSE_STRINGS;
+import static net.sf.xfd.Directory.READDIR_SMALL_BUFFERS;
 import static net.sf.xfd.NativeBits.O_CREAT;
 import static net.sf.xfd.NativeBits.O_NOCTTY;
 import static net.sf.xfd.NativeBits.O_NOFOLLOW;
@@ -287,7 +290,9 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                     return true;
                 }
 
-                try (Directory srcDir = os.list(srcDirFd);
+                tempEntry.name = new NativeString(new byte[256 * 3 / 2]);
+
+                try (Directory srcDir = os.list(srcDirFd, READDIR_REUSE_STRINGS);
                      Copy helper = os.copy()) {
 
                     this.helper = helper;
@@ -320,7 +325,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                     final CharSequence entryName = tempEntry.name;
 
-                    if (".".contentEquals(entryName) || "..".contentEquals(entryName)) continue;
+                    if (isFakeDotDir(entryName)) continue;
 
                     if (tempEntry.type == null) {
                         os.fstatat(srcDirFd, tempEntry.name, srcDirStat, OS.AT_SYMLINK_NOFOLLOW);
@@ -373,7 +378,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                                 Directory directory;
                                 if (cached == null) {
-                                    directory = os.list(foundDirFd);
+                                    directory = os.list(foundDirFd, READDIR_REUSE_STRINGS | READDIR_SMALL_BUFFERS);
 
                                     cached = new FsDir(directory, foundDirFd);
                                 } else {
@@ -514,6 +519,24 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                                 tempEntry.type == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
                     }
                 }
+            }
+
+            private boolean isFakeDotDir(CharSequence cs) {
+                if (cs.getClass() == NativeString.class) {
+                    NativeString ns = (NativeString) cs;
+                    byte[] bytes = ns.getBytes();
+
+                    switch (ns.byteLength()) {
+                        default:
+                            return false;
+                        case 1:
+                            return bytes[0] == '.';
+                        case 2:
+                            return bytes[0] == '.' && bytes[1] == '.';
+                    }
+                }
+
+                return ".".contentEquals(cs) || "..".contentEquals(cs);
             }
 
             @Override
