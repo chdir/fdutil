@@ -510,14 +510,21 @@ static void invoke_mkdirat(int sock) {
 
     if (sys_mkdirat(receivedFd, filepath, *(mode_t*)&mode) != 0) {
         int err = errno;
+        const char *errmsg;
 
-        const char *errmsg = strerror(err);
+        switch (err) {
+            case EEXIST:
+                fprintf(stderr, "false%c", '\0');
+                break;
+            default:
+                errmsg = strerror(err);
 
-        LOG("Error: failed to create a directory - %s\n", errmsg);
+                LOG("Error: failed to create a directory - %s\n", errmsg);
 
-        fprintf(stderr, "%d directory creation error - %s%c", err, errmsg, '\0');
+                fprintf(stderr, "%d %s%c", err, errmsg, '\0');
+        }
     } else {
-        fprintf(stderr, "READY%c", '\0');
+        fprintf(stderr, "true%c", '\0');
     }
 
     free(filepath);
