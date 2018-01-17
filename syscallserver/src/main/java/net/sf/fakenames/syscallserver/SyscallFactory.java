@@ -730,11 +730,14 @@ public final class SyscallFactory implements Closeable {
             if (enqueue(request)
                     && (response = responses.poll(IO_TIMEOUT, TimeUnit.MILLISECONDS)) != null) {
                 if (response.request == request) {
-                    if ("READY".equals(response.message)) {
-                        return true;
+                    switch (response.message) {
+                        case "true":
+                            return true;
+                        case "false":
+                            return false;
+                        default:
+                            throwException(response.message);
                     }
-
-                    throwException(response.message);
                 }
 
                 if (!"READY".equals(response.message)) {

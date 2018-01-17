@@ -757,7 +757,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException {
+        public boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException {
             @Fd int sourceFd = os.openat(dirFd, path, OS.O_RDONLY, 0);
             try {
                 os.fstat(sourceFd, stat);
@@ -888,7 +888,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        protected boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
+        public boolean shortcutMove(FileObject target, CancellationHelper ch) throws IOException, RemoteException {
             return false;
         }
 

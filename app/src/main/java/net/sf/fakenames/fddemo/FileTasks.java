@@ -26,6 +26,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
@@ -34,6 +35,7 @@ import android.os.RemoteException;
 import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
 import android.text.TextUtils;
+import android.util.Log;
 import android.widget.Toast;
 
 import com.carrotsearch.hppc.IntObjectHashMap;
@@ -63,9 +65,12 @@ import net.sf.xfd.UnreliableIterator;
 import net.sf.xfd.provider.ProviderBase;
 
 import java.io.Closeable;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.NoSuchElementException;
+import java.util.Scanner;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -193,6 +198,8 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                         if (!tryFsCopy(ch)) {
                             return new IOException("Directory copy failed");
                         }
+
+                        copied = true;
                     } else {
                         if (os.faccessat(dir, newName, OS.F_OK)) {
                             throw new IOException("File exists!");
@@ -234,7 +241,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                             targetFile.close();
                         }
                     } finally {
-                        os.dispose(dir);
+                        os.dispose(destDirCopy);
                     }
                 }
             }
@@ -299,6 +306,14 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                     copyContents(srcDir, srcDirFd, dstDirFd);
                 } finally {
+                    callback.onDismiss();
+
+                    for (FsDir cached : reusedDirs) {
+                        cached.directory.close();
+
+                        os.close(cached.fd);
+                    }
+
                     os.close(dstDirFd);
                 }
 
@@ -556,27 +571,31 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                     callback.onStatusUpdate(msg, newName.toString());
 
                     toast(msg);
-                } else {
-                    if (s instanceof InterruptedIOException) {
-                        callback.onDismiss();
-                    } else {
-                        //if (s instanceof FileNotFoundException) {
-                            // purge bogus entry from clipboard
-                            // TODO set up a filesystem watch when putting stuff in clipboard
-                        //    cbm.setPrimaryClip(ClipData.newPlainText("", ""));
-                        //}
 
-                        String result = s.getMessage();
-
-                        if (TextUtils.isEmpty(result)) {
-                            result = "Copy failed";
-                        }
-
-                        callback.onStatusUpdate(result, newName.toString());
-
-                        toast(result);
-                    }
+                    return;
                 }
+
+                if (s instanceof InterruptedIOException) {
+                    callback.onDismiss();
+
+                    return;
+                }
+
+                //if (s instanceof FileNotFoundException) {
+                // purge bogus entry from clipboard
+                // TODO set up a filesystem watch when putting stuff in clipboard
+                //    cbm.setPrimaryClip(ClipData.newPlainText("", ""));
+                //}
+
+                String result = s.getMessage();
+
+                if (TextUtils.isEmpty(result)) {
+                    result = "Copy failed";
+                }
+
+                callback.onStatusUpdate(result, newName.toString());
+
+                toast(result);
             }
         };
 
@@ -714,7 +733,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         if (Build.VERSION.SDK_INT >= 20) {
             final Intent cancelIntent = new Intent(MainActivity.ACTION_CANCEL, uniqueId, context, MainActivity.class);
             final PendingIntent cancel = PendingIntent.getActivity(context, R.id.req_task, cancelIntent, 0);
-            builder.addAction(new Notification.Action.Builder(-1, "Cancel", cancel).build());
+            builder.addAction(new Notification.Action.Builder(R.drawable.ic_provider_icon, "Cancel", cancel).build());
 
             builder.setLocalOnly(true);
 
