@@ -513,7 +513,8 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                             }
 
                             try {
-                                os.mknodat(dstDirFd, entryName, DEF_FILE_MODE, srcDirStat.st_rdev);
+                                os.mknodat(dstDirFd, entryName,
+                                        srcDirStat.type.getFileType() | DEF_FILE_MODE, srcDirStat.st_rdev);
                             } catch (ErrnoException errno) {
                                 if (errno.code() != ErrnoException.EEXIST) {
                                     throw errno;
