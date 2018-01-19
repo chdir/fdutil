@@ -229,20 +229,27 @@ public class MountInfo {
 
                     final long dev_t = makedev(major, minor);
 
-                    scanner.next();
+                    final String source = scanner.next();
 
-                    final String location = scanner.next();
+                    // ignore bind-mounts for now
+                    if ("/".equals(source)) {
+                        final String location = scanner.next();
 
-                    // skip optional parts
-                    scanner.skip("(.+ -)");
+                        // skip optional parts
+                        scanner.skip("(.+ -)");
 
-                    final String fsType = scanner.next().intern();
+                        final String fsType = scanner.next().intern();
 
-                    final String subject = scanner.next().intern();
+                        final String subject = scanner.next().intern();
 
-                    Mount prev = mountMap.put(dev_t, new Mount(dev_t, fsType, location, subject));
+                        Mount created = new Mount(dev_t, fsType, location, subject);
 
-                    if (prev.rootPath)
+                        Mount prev = mountMap.put(dev_t, created);
+
+                        if (prev != null) {
+                            created.next = prev;
+                        }
+                    }
 
                     scanner.nextLine();
                 }
@@ -312,8 +319,9 @@ public class MountInfo {
         public final String fstype;
         public final String subject;
 
-        public volatile String rootPath;
-        public volatile String description;
+        public String rootPath;
+        public String description;
+        public Mount next;
 
         public Mount(long device, String fstype, String rootPath, String subject) {
             this.device = device;
