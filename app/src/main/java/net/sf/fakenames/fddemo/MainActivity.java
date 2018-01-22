@@ -660,10 +660,8 @@ public class MainActivity extends BaseActivity implements
                 }
                 break;
             case R.id.menu_item_select:
-                startActionMode(new ActionMode.Callback() {
-
-                });
                 state.adapter.toggleSelection(info.position);
+                startActionMode(new ActionModeHandler());
                 break;
             case R.id.menu_item_edit:
                 editfile(info.parentDir, info.fileInfo.name);
@@ -1340,6 +1338,8 @@ public class MainActivity extends BaseActivity implements
     }
 
     public final class ActionModeHandler implements ActionMode.Callback {
+        private ActionMode mode;
+
         private boolean safe = true;
 
         @Override
@@ -1348,11 +1348,14 @@ public class MainActivity extends BaseActivity implements
                 mode.setType(ActionMode.TYPE_PRIMARY);
             }
 
+            this.mode = mode;
+
             return true;
         }
 
         @Override
         public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+
             return false;
         }
 
@@ -1363,6 +1366,10 @@ public class MainActivity extends BaseActivity implements
 
         @Override
         public void onDestroyActionMode(ActionMode mode) {
+            if (mode != null && mode.equals(this.mode)) {
+                this.mode = null;
+            }
+
             if (!safe) return;
 
             safe = false;
@@ -1374,11 +1381,20 @@ public class MainActivity extends BaseActivity implements
         }
 
         public void onSelectionCleared() {
-            startActionMode(this);
+            if (!safe) return;
+
+            safe = false;
+            try {
+                if (mode != null) {
+                    mode.finish();
+                }
+            } finally {
+                safe = true;
+            }
         }
 
         public void onSelectionStarted() {
-
+            startActionMode(this);
         }
     }
 

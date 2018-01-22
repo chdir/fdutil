@@ -350,8 +350,9 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
                     holder.itemView.setOnClickListener(itemClickListener);
                     holder.itemView.setOnTouchListener(itemTouchListener);
 
-                    final long id = directory.getOpaqueIndex(position);
-                    holder.itemView.setSelected(selection.containsKey(id));
+                    final long opaqueIdx = directory.getOpaqueIndex(position);
+
+                    holder.itemView.setSelected(selection.containsKey(opaqueIdx));
 
                     return;
                 }
