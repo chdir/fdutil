@@ -551,6 +551,9 @@ public class MainActivity extends BaseActivity implements
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
 
+        final MenuItem selectItem = menu.add(Menu.NONE, R.id.menu_item_select, 6, "Select");
+        selectItem.setOnMenuItemClickListener(this);
+
         final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
         bufferItem.setOnMenuItemClickListener(this);
 
@@ -613,6 +616,26 @@ public class MainActivity extends BaseActivity implements
                 }
                 break;
             case R.id.menu_copy_path:
+                try {
+                    final CharSequence path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
+
+                    ClipData data = ClipData.newPlainText("Absolute File Path", path);
+
+                    cbm.setPrimaryClip(data);
+                } catch (IOException e) {
+                    toast("Unable to resolve full path. "  + e.getMessage());
+                }
+                break;
+            case R.id.menu_item_select:
+                final int adapterPosition = info.position;
+
+                final long itemId = state.adapter.getItemId(adapterPosition);
+                if (itemId != info.opaqueIdx) {
+                    return true;
+                }
+
+                state.adapter.toggleSelection(adapterPosition);
+
                 try {
                     final CharSequence path = state.os.readlinkat(state.adapter.getFd(), info.fileInfo.name);
 

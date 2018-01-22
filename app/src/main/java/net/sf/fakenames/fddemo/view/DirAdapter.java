@@ -103,6 +103,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
         final List<FileObject> result = new ArrayList<>(selection.size());
 
+        /*
         try {
             selection.forEach((LongPredicate) value -> {
                 iterator.moveToPosition()
@@ -112,6 +113,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         } finally {
             iterator.moveToPosition(currentPos);
         }
+        */
     }
 
     public @DirFd int getFd() {
@@ -324,6 +326,9 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
                     holder.setFile(iterator);
 
+                    final long opaqueIdx = directory.getOpaqueIndex(position);
+
+                    holder.itemView.setSelected(selection.contains(opaqueIdx));
                     holder.itemView.setOnLongClickListener(itemLongClickListener);
                     holder.itemView.setOnClickListener(itemClickListener);
                     holder.itemView.setOnTouchListener(itemTouchListener);
