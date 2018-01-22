@@ -22,10 +22,18 @@ import android.os.Looper;
 import android.os.Message;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
+import android.util.SparseLongArray;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.carrotsearch.hppc.IntLongHashMap;
+import com.carrotsearch.hppc.LongArrayList;
+import com.carrotsearch.hppc.LongHashSet;
+import com.carrotsearch.hppc.predicates.LongPredicate;
+import com.carrotsearch.hppc.predicates.ObjectPredicate;
+
+import net.sf.fakenames.fddemo.FileObject;
 import net.sf.fakenames.fddemo.R;
 import net.sf.xfd.CrappyDirectory;
 import net.sf.xfd.DirFd;
@@ -39,6 +47,7 @@ import net.sf.xfd.UnreliableIterator;
 import java.io.Closeable;
 import java.io.IOException;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -60,6 +69,8 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private InotifyWatch subscription;
 
+    private LongHashSet selection = new LongHashSet();
+
     private Directory directory;
     private UnreliableIterator<Directory.Entry> iterator;
     private boolean ioFail;
@@ -73,6 +84,34 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         this.observer = observer;
 
         setHasStableIds(true);
+    }
+
+    public void toggleSelection(int position) {
+        long id = getItemId(position);
+
+        if (selection.contains(id)) {
+            selection.add(position);
+        } else {
+            selection.remove(position);
+        }
+
+        notifyItemChanged(position);
+    }
+
+    public void getSelected(ObjectPredicate<Directory.Entry> entries) throws IOException {
+        int currentPos = iterator.getPosition();
+
+        final List<FileObject> result = new ArrayList<>(selection.size());
+
+        try {
+            selection.forEach((LongPredicate) value -> {
+                iterator.moveToPosition()
+
+                return entries.apply(null);
+            });
+        } finally {
+            iterator.moveToPosition(currentPos);
+        }
     }
 
     public @DirFd int getFd() {

@@ -80,6 +80,7 @@ import net.sf.xfd.provider.RootSingleton;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 
 import butterknife.Bind;
 import butterknife.BindColor;
@@ -693,12 +694,12 @@ public class MainActivity extends BaseActivity implements
         new ShortcutNameInputFragment(name).show(getFragmentManager(), null);
     }
 
-    private void pasteFileObject(FileObject sourceFile, boolean canRemoveOriginal) throws IOException {
+    private void pasteFileObject(List<FileObject> sourceFiles, boolean canRemoveOriginal) throws IOException {
         final OS os = state.os;
 
         FileTasks ft = FileTasks.getInstance(this);
 
-        ft.copy(os, state.layout, sourceFile, state.adapter.getFd(), canRemoveOriginal);
+        ft.copy(os, state.layout, sourceFiles, state.adapter.getFd(), canRemoveOriginal);
     }
 
     private void showRenameDialog(CharSequence name) {
@@ -1115,23 +1116,26 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_paste:
                 final ClipData clip = clipData;
 
-                FileObject fileObject = FileObject.fromClip(state.os, getApplicationContext(), clip);
-                if (fileObject == null) {
+                List<FileObject> fileObjects = FileObject.fromClip(state.os, getApplicationContext(), clip);
+                if (fileObjects == null) {
                     toast("Unsupported data type");
 
                     return true;
                 }
 
+                final boolean canRemoveOriginal;
+
                 final Intent intent = clip.getItemAt(0).getIntent();
-                if (intent == null) {
+                if (intent != null) {
                     LogUtil.swallowError("Clip does not contain Intent, bailing");
 
-                    return true;
+                    canRemoveOriginal = ACTION_MOVE.equals(intent.getAction());
+                } else {
+                    canRemoveOriginal = false;
                 }
 
-                final boolean canRemoveOriginal = ACTION_MOVE.equals(intent.getAction());
                 try {
-                    pasteFileObject(fileObject, canRemoveOriginal);
+                    pasteFileObject(fileObjects, canRemoveOriginal);
                 } catch (IOException e) {
                     toast(e.getMessage());
                 }
