@@ -56,6 +56,9 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -343,92 +346,106 @@ public abstract class FileObject implements Closeable {
         return new LocalFileObject(os, context, file, extractName(file), stat, fd);
     }
 
-    public static FileObject fromClip(OS os, Context context, ClipData clipData) {
-        if (clipData.getItemCount() != 1) {
+    public static List<FileObject> fromClip(OS os, Context context, ClipData clipData) {
+        int count = clipData.getItemCount();
+        if (count <= 0) {
             return null;
         }
 
-        ClipData.Item clipItem = clipData.getItemAt(0);
-        if (clipItem == null || clipItem.getUri() == null) {
-            return null;
-        }
+        String commonFilename = null;
 
-        final Uri uri = clipItem.getUri();
-        if (uri == null) {
-            return null;
-        }
-
-        final String scheme = uri.getScheme();
-        if (TextUtils.isEmpty(scheme)) {
-            return null;
-        }
-
-        CharSequence maybeFilename = null;
-
-        final Intent intent = clipItem.getIntent();
-        if (intent != null && intent.hasExtra(EXTRA_DATA)) {
-            maybeFilename = intent.getParcelableExtra(EXTRA_DATA);
-
-            if (maybeFilename != null) {
-                maybeFilename = extractName(maybeFilename);
+        // if someone puts anything besides a filename here, they are idiots
+        final ClipDescription clipDescription = clipData.getDescription();
+        if (clipDescription != null) {
+            final CharSequence label = clipDescription.getLabel();
+            if (!TextUtils.isEmpty(label)) {
+                commonFilename = label.toString();
             }
         }
 
-        if (maybeFilename == null) {
-            // if someone puts anything besides a filename here, they are idiots
-            final ClipDescription clipDescription = clipData.getDescription();
-            if (clipDescription != null) {
-                final CharSequence label = clipDescription.getLabel();
-                if (!TextUtils.isEmpty(label)) {
-                    maybeFilename = label.toString();
+        ArrayList<FileObject> items = new ArrayList<>(Math.max(count, 20));
+
+        for (int i = 0; i < count; ++i) {
+            ClipData.Item clipItem = clipData.getItemAt(i);
+
+            if (clipItem == null || clipItem.getUri() == null) {
+                return null;
+            }
+
+            final Uri uri = clipItem.getUri();
+            if (uri == null) {
+                return null;
+            }
+
+            final String scheme = uri.getScheme();
+            if (TextUtils.isEmpty(scheme)) {
+                return null;
+            }
+
+            CharSequence maybeFilename = null;
+
+            final Intent intent = clipItem.getIntent();
+            if (intent != null && intent.hasExtra(EXTRA_DATA)) {
+                maybeFilename = intent.getParcelableExtra(EXTRA_DATA);
+
+                if (maybeFilename != null) {
+                    maybeFilename = extractName(maybeFilename);
                 }
             }
-        }
 
-        FileObject result = null;
-
-        switch (scheme) {
-            case ContentResolver.SCHEME_CONTENT:
-                final String authority = uri.getAuthority();
-                if (TextUtils.isEmpty(authority)) {
+            if (maybeFilename == null) {
+                if (commonFilename == null) {
                     return null;
                 }
 
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    if (DocumentsContract.isTreeUri(uri)) {
+                maybeFilename = i == 0 ? commonFilename : commonFilename + i;
+            }
+
+            FileObject result = null;
+
+            switch (scheme) {
+                case ContentResolver.SCHEME_CONTENT:
+                    final String authority = uri.getAuthority();
+                    if (TextUtils.isEmpty(authority)) {
                         return null;
                     }
-                }
 
-                result = new ContentFileObject(os, context, uri);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        if (DocumentsContract.isTreeUri(uri)) {
+                            return null;
+                        }
+                    }
 
-                break;
-            case ContentResolver.SCHEME_FILE:
-                final String path = uri.getPath();
-                if (TextUtils.isEmpty(path)) {
-                    return null;
-                }
+                    result = new ContentFileObject(os, context, uri);
 
-                if (!path.startsWith("/")) {
-                    return null;
-                }
+                    break;
+                case ContentResolver.SCHEME_FILE:
+                    final String path = uri.getPath();
+                    if (TextUtils.isEmpty(path)) {
+                        return null;
+                    }
 
-                final String filePath = uri.getPath();
-                final String fileName = uri.getLastPathSegment();
-                result = new LocalFileObject(os, context, filePath, fileName, new Stat(), Fd.NIL);
+                    if (!path.startsWith("/")) {
+                        return null;
+                    }
 
-                break;
-            case ContentResolver.SCHEME_ANDROID_RESOURCE:
-                result = new ResourceObject(os, context, uri);
+                    final String filePath = uri.getPath();
+                    final String fileName = uri.getLastPathSegment();
+                    result = new LocalFileObject(os, context, filePath, fileName, new Stat(), Fd.NIL);
 
-            default:
+                    break;
+                case ContentResolver.SCHEME_ANDROID_RESOURCE:
+                    result = new ResourceObject(os, context, uri);
+
+                default:
+            }
+
+            if (result != null) {
+                result.description = maybeFilename;
+            }
         }
 
-        if (result != null) {
-            result.description = maybeFilename;
-        }
-
-        return result;
+        return items;
     }
 
     public abstract boolean isDirectory(CancellationHelper ch) throws IOException, RemoteException;

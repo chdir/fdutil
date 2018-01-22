@@ -235,8 +235,8 @@ final class Android extends OS {
             } catch (ErrnoException ignored) {
             }
         } else {
-            size = 1024 * 2;
-            alignment = 8;
+            size = 1024 * 4;
+            alignment = size;
         }
 
         final Arena buf = Arena.allocate(size, alignment, GuardFactory.getInstance(this));

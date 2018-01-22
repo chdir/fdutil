@@ -69,6 +69,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Scanner;
 import java.util.concurrent.CancellationException;
@@ -138,7 +139,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         return lastTaskId;
     }
 
-    public void copy(OS os, BaseDirLayout layout, FileObject sourceFile, @DirFd int dir, boolean canRemoveOriginal) throws IOException {
+    public void copy(OS os, BaseDirLayout layout, List<FileObject> sourceFiles, @DirFd int dir, boolean canRemoveOriginal) throws IOException {
         final Context context = this;
 
         final Directory.Entry tempEntry = new Directory.Entry();
@@ -150,8 +151,6 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         final SerialExecutor exec = getExecutor(trgDirStat.st_dev);
 
         final MountInfo.Mount m = layout.getFs(trgDirStat.st_dev);
-
-        final boolean canUseExtChars = m != null && isPosix(m.fstype);
 
         final int taskId = nextTask();
 
@@ -183,39 +182,56 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                 boolean copied = false;
                 FileObject targetFile = null;
-                try (Closeable c = sourceFile) {
-                    newName = sourceFile.getDescription(ch);
 
-                    if (sourceFile.isDirectory(ch)) {
-                        if (!os.mkdirat(destDirCopy, newName, OS.DEF_DIR_MODE)) {
-                            os.fstatat(destDirCopy, newName, trgDirStat, OS.AT_SYMLINK_NOFOLLOW);
+                try {
+                    for (FileObject sourceFile : sourceFiles) {
+                        try (Closeable c = sourceFile) {
+                            newName = sourceFile.getDescription(ch);
 
-                            if (trgDirStat.type != FsType.DIRECTORY) {
-                                onConflict(trgDirStat, newName, srcDirStat, newName);
+                            if (sourceFile.isDirectory(ch)) {
+                                if (!os.mkdirat(destDirCopy, newName, OS.DEF_DIR_MODE)) {
+                                    os.fstatat(destDirCopy, newName, trgDirStat, OS.AT_SYMLINK_NOFOLLOW);
+
+                                    if (trgDirStat.type != FsType.DIRECTORY) {
+                                        onConflict(trgDirStat, newName, srcDirStat, newName);
+                                    }
+                                }
+
+                                if (!tryFsCopy(sourceFile, ch)) {
+                                    throw new IOException("Directory copy failed");
+                                }
+                            } else {
+                                if (os.faccessat(dir, newName, OS.F_OK)) {
+                                    throw new IOException("File exists!");
+                                }
+
+                                final FsFile tmpFileInfo = new FsFile(destDirCopy, newName, trgDirStat);
+
+                                targetFile = FileObject.fromTempFile(os, context, tmpFileInfo);
+
+                                copied = canRemoveOriginal
+                                        ? sourceFile.moveTo(targetFile, ch, callback)
+                                        : sourceFile.copyTo(targetFile, ch, callback);
+
+                                if (!copied) {
+                                    throw new IOException("Copy failed");
+                                }
+                            }
+                        } finally {
+                            if (targetFile != null) {
+                                if (!copied) {
+                                    try {
+                                        targetFile.delete();
+                                    } catch (RemoteException | IOException ioe) {
+                                        LogUtil.logCautiously("Failed to remove target file", ioe);
+                                    }
+                                }
+
+                                targetFile.close();
                             }
                         }
-
-                        if (!tryFsCopy(ch)) {
-                            return new IOException("Directory copy failed");
-                        }
-
-                        copied = true;
-                    } else {
-                        if (os.faccessat(dir, newName, OS.F_OK)) {
-                            throw new IOException("File exists!");
-                        }
-
-                        final FsFile tmpFileInfo = new FsFile(destDirCopy, newName, trgDirStat);
-
-                        targetFile = FileObject.fromTempFile(os, context, tmpFileInfo);
-
-                        copied = canRemoveOriginal
-                                ? sourceFile.moveTo(targetFile, ch, callback)
-                                : sourceFile.copyTo(targetFile, ch, callback);
                     }
-
-                    return copied ? null : new IOException("Copy failed");
-                } catch (CancellationException | InterruptedIOException t) {
+                }  catch (CancellationException | InterruptedIOException t) {
                     Thread.interrupted();
 
                     return t;
@@ -228,25 +244,13 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                     return t;
                 } finally {
-                    try {
-                        if (targetFile != null) {
-                            if (!copied) {
-                                try {
-                                    targetFile.delete();
-                                } catch (RemoteException | IOException ioe) {
-                                    LogUtil.logCautiously("Failed to remove target file", ioe);
-                                }
-                            }
-
-                            targetFile.close();
-                        }
-                    } finally {
-                        os.dispose(destDirCopy);
-                    }
+                    os.dispose(destDirCopy);
                 }
+
+                return null;
             }
 
-            private boolean tryFsCopy(CancellationHelper ch) throws IOException {
+            private boolean tryFsCopy(FileObject sourceFile, CancellationHelper ch) throws IOException {
                 final @DirFd int srcDirFd, dstDirFd;
 
                 try (AssetFileDescriptor srcDirAssetFd = sourceFile.openAsDirectory(ch)) {
@@ -254,15 +258,6 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                     try {
                         os.fstat(srcDirFd, srcDirStat);
-
-                        if (srcDirStat.type != FsType.DIRECTORY) {
-                            return false;
-                        }
-
-                        if (srcDirStat.st_dev == trgDirStat.st_dev
-                                && srcDirStat.st_ino == trgDirStat.st_ino) {
-                            return false;
-                        }
                     } catch (IOException t) {
                         LogUtil.logCautiously("Bad directory fd", t);
 
@@ -276,48 +271,66 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                     return false;
                 }
 
-                // if either source or target are on permissionless storage,
-                // skip stat() calls, because those won't return anything useful for us
-                skipPermissionChecks = layout.hasPermissionlessFs(srcDirStat.st_dev, trgDirStat.st_dev);
-
-                dstDirFd = os.opendirat(destDirCopy, newName);
-
-                if (canRemoveOriginal && srcDirStat.st_dev == trgDirStat.st_dev) {
-                    final CharSequence sourcePath;
-                    try {
-                        sourcePath = os.readlinkat(DirFd.NIL, ProviderBase.fdPath(srcDirFd));
-                    } catch (IOException renameError) {
-                        LogUtil.logCautiously("Failed to rename/move directory", renameError);
-
+                try {
+                    if (srcDirStat.type != FsType.DIRECTORY) {
+                        // wtf?
                         return false;
                     }
 
-                    os.renameat(DirFd.NIL, sourcePath, dstDirFd, newName);
-
-                    return true;
-                }
-
-                tempEntry.name = new NativeString(new byte[256 * 3 / 2]);
-
-                try (Directory srcDir = os.list(srcDirFd, READDIR_REUSE_STRINGS);
-                     Copy helper = os.copy()) {
-
-                    this.helper = helper;
-
-                    copyContents(srcDir, srcDirFd, dstDirFd);
-                } finally {
-                    callback.onDismiss();
-
-                    for (FsDir cached : reusedDirs) {
-                        cached.directory.close();
-
-                        os.close(cached.fd);
+                    if (srcDirStat.st_dev == trgDirStat.st_dev
+                            && srcDirStat.st_ino == trgDirStat.st_ino) {
+                        throw new IOException(context.getString(R.string.err_self_copy));
                     }
 
-                    os.close(dstDirFd);
-                }
+                    dstDirFd = os.opendirat(destDirCopy, newName);
 
-                return true;
+                    try {
+                        if (canRemoveOriginal && srcDirStat.st_dev == trgDirStat.st_dev) {
+                            final CharSequence sourcePath;
+                            try {
+                                sourcePath = os.readlinkat(DirFd.NIL, ProviderBase.fdPath(srcDirFd));
+                            } catch (IOException renameError) {
+                                LogUtil.logCautiously("Failed to rename/move directory", renameError);
+
+                                return false;
+                            }
+
+                            os.renameat(DirFd.NIL, sourcePath, dstDirFd, newName);
+
+                            return true;
+                        }
+
+                        // if either source or target are on permissionless storage,
+                        // skip stat() and chmod() calls, because those won't do anything useful
+                        skipPermissionChecks = layout.hasPermissionlessFs(srcDirStat.st_dev, trgDirStat.st_dev);
+
+                        tempEntry.name = new NativeString(new byte[256 * 3 / 2]);
+
+                        try (Directory srcDir = os.list(srcDirFd, READDIR_REUSE_STRINGS);
+                             Copy helper = os.copy()) {
+
+                            this.helper = helper;
+
+                            copyContents(srcDir, srcDirFd, dstDirFd);
+                        } finally {
+                            callback.onProgressUpdate("Flushing buffers");
+
+                            for (FsDir cached : reusedDirs) {
+                                cached.directory.close();
+
+                                os.close(cached.fd);
+                            }
+                        }
+
+                        os.fsync(dstDirFd);
+
+                        return true;
+                    } finally {
+                        os.close(dstDirFd);
+                    }
+                } finally {
+                    os.close(srcDirFd);
+                }
             }
 
             private final int DIR_OPEN_FLAGS =
@@ -457,13 +470,13 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                                     long dataSize = srcDirStat.st_size;
 
                                     if (srcDirStat.st_size == 0) {
-                                        return;
+                                        continue;
                                     }
 
                                     if (srcDirStat.st_dev == trgDirStat.st_dev &&
                                             srcDirStat.st_ino == trgDirStat.st_ino) {
                                         // the target file is already the same as source
-                                        return;
+                                        continue;
                                     }
 
                                     try {
