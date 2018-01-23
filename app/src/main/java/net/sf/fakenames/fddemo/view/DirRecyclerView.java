@@ -40,7 +40,7 @@ public final class DirRecyclerView extends RecyclerView {
             return false;
         }
 
-        lastMenuInfo = new FileMenuInfo(holder.getDirInfo(), adapter.getFd());
+        lastMenuInfo = new FileMenuInfo(holder.getDirInfo(), adapter.getFd(), holder.getAdapterPosition());
 
         return super.showContextMenuForChild(this);
     }

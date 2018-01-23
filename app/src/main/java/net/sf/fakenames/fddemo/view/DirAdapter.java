@@ -22,18 +22,16 @@ import android.os.Looper;
 import android.os.Message;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
-import android.util.SparseLongArray;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-import com.carrotsearch.hppc.IntLongHashMap;
-import com.carrotsearch.hppc.LongArrayList;
 import com.carrotsearch.hppc.LongHashSet;
-import com.carrotsearch.hppc.predicates.LongPredicate;
+import com.carrotsearch.hppc.LongObjectHashMap;
+import com.carrotsearch.hppc.ObjectHashSet;
+import com.carrotsearch.hppc.ObjectSet;
 import com.carrotsearch.hppc.predicates.ObjectPredicate;
 
-import net.sf.fakenames.fddemo.FileObject;
 import net.sf.fakenames.fddemo.R;
 import net.sf.xfd.CrappyDirectory;
 import net.sf.xfd.DirFd;
@@ -47,7 +45,6 @@ import net.sf.xfd.UnreliableIterator;
 import java.io.Closeable;
 import java.io.IOException;
 import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -69,7 +66,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private InotifyWatch subscription;
 
-    private LongHashSet selection = new LongHashSet();
+    private LongObjectHashMap<SelectionItem> selection = new LongObjectHashMap<>();
 
     private Directory directory;
     private UnreliableIterator<Directory.Entry> iterator;
@@ -89,28 +86,51 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     public void toggleSelection(int position) {
         long id = getItemId(position);
 
-        if (selection.contains(id)) {
-            selection.add(position);
-        } else {
-            selection.remove(position);
+        if (selection.containsKey(id)) {
+            selection.remove(id);
+            return;
         }
+
+        try {
+            iterator.moveToPosition(position);
+        } catch (IOException e) {
+            return;
+        }
+
+        SelectionItem item = new SelectionItem();
+
+        iterator.get(item);
+
+        item.cookie = id;
+
+        selection.put(id, item);
 
         notifyItemChanged(position);
     }
 
-    public void getSelected(ObjectPredicate<Directory.Entry> entries) throws IOException {
-        int currentPos = iterator.getPosition();
+    public int getSelectedCount() {
+        return selection.size();
+    }
 
-        final List<FileObject> result = new ArrayList<>(selection.size());
+    public void clearSelection() {
+        selection.clear();
 
-        try {
-            selection.forEach((LongPredicate) value -> {
-                iterator.moveToPosition()
+        notifyDataSetChanged();
+    }
 
-                return entries.apply(null);
-            });
-        } finally {
-            iterator.moveToPosition(currentPos);
+    public void forEachSelected(ObjectPredicate<Directory.Entry> callback) throws IOException {
+        if (selection.isEmpty()) return;
+
+        final long[] keys = selection.keys;
+        final int size = selection.size();
+
+        long selected;
+        for (int i = 0; i < size; ++i) {
+            if ((selected = keys[i]) == 0) continue;
+
+            if (!callback.apply(selection.indexGet(i))) {
+                return;
+            }
         }
     }
 
@@ -170,6 +190,8 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             iterator = null;
 
             oldFd = this.dirFd;
+
+            selection.clear();
         }
 
         if (dirFd >= 0) {
@@ -327,6 +349,9 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
                     holder.itemView.setOnLongClickListener(itemLongClickListener);
                     holder.itemView.setOnClickListener(itemClickListener);
                     holder.itemView.setOnTouchListener(itemTouchListener);
+
+                    final long id = directory.getOpaqueIndex(position);
+                    holder.itemView.setSelected(selection.containsKey(id));
 
                     return;
                 }
@@ -495,5 +520,9 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     public void setItemTouchListener(View.OnTouchListener itemTouchListener) {
         this.itemTouchListener = itemTouchListener;
+    }
+
+    private static final class SelectionItem extends Directory.Entry {
+        private long cookie;
     }
 }

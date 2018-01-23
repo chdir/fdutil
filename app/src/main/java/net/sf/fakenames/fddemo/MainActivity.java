@@ -39,6 +39,7 @@ import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
+import android.view.ActionMode;
 import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -551,6 +552,9 @@ public class MainActivity extends BaseActivity implements
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
 
+        final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_select, 6, "Select");
+        selItem.setOnMenuItemClickListener(this);
+
         final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
         bufferItem.setOnMenuItemClickListener(this);
 
@@ -654,6 +658,12 @@ public class MainActivity extends BaseActivity implements
                 } catch (IOException e) {
                     toast("Unable to resolve full path. "  + e.getMessage());
                 }
+                break;
+            case R.id.menu_item_select:
+                startActionMode(new ActionMode.Callback() {
+
+                });
+                state.adapter.toggleSelection(info.position);
                 break;
             case R.id.menu_item_edit:
                 editfile(info.parentDir, info.fileInfo.name);
@@ -1126,12 +1136,12 @@ public class MainActivity extends BaseActivity implements
                 final boolean canRemoveOriginal;
 
                 final Intent intent = clip.getItemAt(0).getIntent();
-                if (intent != null) {
-                    LogUtil.swallowError("Clip does not contain Intent, bailing");
-
-                    canRemoveOriginal = ACTION_MOVE.equals(intent.getAction());
-                } else {
+                if (intent == null) {
                     canRemoveOriginal = false;
+
+                    LogUtil.swallowError("Clip does not contain Intent");
+                } else {
+                    canRemoveOriginal = ACTION_MOVE.equals(intent.getAction());
                 }
 
                 try {
@@ -1326,6 +1336,49 @@ public class MainActivity extends BaseActivity implements
 
                 pool.setMaxRecycledViews(0, visibleViewsNew);
             }
+        }
+    }
+
+    public final class ActionModeHandler implements ActionMode.Callback {
+        private boolean safe = true;
+
+        @Override
+        public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+            if (Build.VERSION.SDK_INT >= 23) {
+                mode.setType(ActionMode.TYPE_PRIMARY);
+            }
+
+            return true;
+        }
+
+        @Override
+        public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+            return false;
+        }
+
+        @Override
+        public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+            return false;
+        }
+
+        @Override
+        public void onDestroyActionMode(ActionMode mode) {
+            if (!safe) return;
+
+            safe = false;
+            try {
+                state.adapter.clearSelection();
+            } finally {
+                safe = true;
+            }
+        }
+
+        public void onSelectionCleared() {
+            startActionMode(this);
+        }
+
+        public void onSelectionStarted() {
+
         }
     }
 

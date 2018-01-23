@@ -19,19 +19,19 @@ import butterknife.BindColor;
 import butterknife.ButterKnife;
 
 public final class DirItemHolder extends RecyclerView.ViewHolder {
-    @BindColor(R.color.blue_A700)
+    @BindColor(R.color.text_color_directory)
     ColorStateList directoryColor;
 
-    @BindColor(R.color.black_900)
+    @BindColor(R.color.text_color_file)
     ColorStateList miscColor;
 
-    @BindColor(R.color.pink_A700)
+    @BindColor(R.color.text_color_symlink)
     ColorStateList symlinkColor;
 
-    @BindColor(R.color.orange_A700)
+    @BindColor(R.color.text_color_socket)
     ColorStateList socketColor;
 
-    @BindColor(R.color.purple_A700)
+    @BindColor(R.color.text_color_fifo)
     ColorStateList fifoColor;
 
     @Bind(android.R.id.text1)
