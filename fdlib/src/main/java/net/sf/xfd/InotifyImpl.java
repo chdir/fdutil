@@ -408,7 +408,6 @@ public class InotifyImpl implements Inotify {
             }
 
             @Override
-            @SuppressWarnings("SuspiciousSystemArraycopy")
             public void handleMessage(Message msg) {
                 switch (msg.what) {
                     case NEXT:

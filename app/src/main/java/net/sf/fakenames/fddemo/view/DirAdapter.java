@@ -26,16 +26,14 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-import com.carrotsearch.hppc.LongHashSet;
 import com.carrotsearch.hppc.LongObjectHashMap;
-import com.carrotsearch.hppc.ObjectHashSet;
-import com.carrotsearch.hppc.ObjectSet;
 import com.carrotsearch.hppc.predicates.ObjectPredicate;
 
 import net.sf.fakenames.fddemo.R;
 import net.sf.xfd.CrappyDirectory;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
+import net.sf.xfd.ErrnoException;
 import net.sf.xfd.Inotify;
 import net.sf.xfd.InotifyWatch;
 import net.sf.xfd.LogUtil;
@@ -57,6 +55,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     private static final String TEST_DIR_NAME = "testDir";
 
     private final Inotify observer;
+    private final Inotify sharedInotify;
 
     private Context localContext;
     private LayoutInflater inflater;
@@ -68,6 +67,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private LongObjectHashMap<SelectionItem> selection = new LongObjectHashMap<>();
 
+    private SelectionCallback selectionCallback;
     private Directory directory;
     private UnreliableIterator<Directory.Entry> iterator;
     private boolean ioFail;
@@ -76,57 +76,82 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private final OS os;
 
-    public DirAdapter(OS os, Inotify observer) {
+    public DirAdapter(OS os, Inotify selfInotify, Inotify sharedInotify) {
         this.os = os;
-        this.observer = observer;
+        this.observer = selfInotify;
+        this.sharedInotify = sharedInotify;
 
         setHasStableIds(true);
-    }
-
-    public void toggleSelection(int position) {
-        long id = getItemId(position);
-
-        if (selection.containsKey(id)) {
-            selection.remove(id);
-            return;
-        }
-
-        try {
-            iterator.moveToPosition(position);
-        } catch (IOException e) {
-            return;
-        }
-
-        SelectionItem item = new SelectionItem();
-
-        iterator.get(item);
-
-        item.cookie = id;
-
-        selection.put(id, item);
-
-        notifyItemChanged(position);
     }
 
     public int getSelectedCount() {
         return selection.size();
     }
 
-    public void clearSelection() {
-        selection.clear();
+    public void toggleSelection(int position) {
+        int selectedCount = getSelectedCount();
 
-        notifyDataSetChanged();
+        long id = getOpaqueIndex(position);
+
+        if (selection.containsKey(id)) {
+            selection.remove(id);
+
+            if (selectedCount == 1) {
+                dispatchSelectionCleared();
+            }
+        } else {
+            SelectionItem item = new SelectionItem();
+
+            iterator.get(item);
+
+            selection.put(id, item);
+
+            if (selectedCount == 0) {
+                dispatchSelectionStarted();
+            }
+        }
+
+        notifyItemChanged(position);
     }
 
-    public void forEachSelected(ObjectPredicate<Directory.Entry> callback) throws IOException {
+    private void dispatchSelectionCleared() {
+        if (selectionCallback != null) {
+            selectionCallback.onSelectionCleared();
+        }
+    }
+
+    private void dispatchSelectionStarted() {
+        if (selectionCallback != null) {
+            selectionCallback.onSelectionStarted();
+        }
+    }
+
+    public void clearSelection() {
+        if (selectionCallback != null) {
+            selectionCallback.onSelectionCleared();
+        }
+
+        selection.clear();
+
+        forEachSelected(clearSelection);
+    }
+
+    private ObjectPredicate<SelectionItem> clearSelection = value -> {
+        if (value.position != RecyclerView.NO_POSITION) {
+            notifyItemChanged(value.position);
+        }
+
+        return true;
+    };
+
+    public void forEachSelected(ObjectPredicate<? super SelectionItem> callback) {
         if (selection.isEmpty()) return;
 
         final long[] keys = selection.keys;
         final int size = selection.size();
 
-        long selected;
         for (int i = 0; i < size; ++i) {
-            if ((selected = keys[i]) == 0) continue;
+            if (keys[i] == 0) continue;
 
             if (!callback.apply(selection.indexGet(i))) {
                 return;
@@ -350,9 +375,16 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
                     holder.itemView.setOnClickListener(itemClickListener);
                     holder.itemView.setOnTouchListener(itemTouchListener);
 
-                    final long opaqueIdx = directory.getOpaqueIndex(position);
+                    long opaqueIdx = directory.getOpaqueIndex(position);
+                    SelectionItem selectionData = selection.get(opaqueIdx);
 
-                    holder.itemView.setSelected(selection.containsKey(opaqueIdx));
+                    if (selectionData != null) {
+                        selectionData.position = position;
+
+                        holder.itemView.setSelected(true);
+                    } else {
+                        holder.itemView.setSelected(false);
+                    }
 
                     return;
                 }
@@ -366,6 +398,22 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         holder.clearHolder();
     }
 
+    private long getOpaqueIndex(int position) {
+        try {
+            iterator.moveToPosition(position);
+
+            checkCount();
+
+            return directory.getOpaqueIndex(position);
+        } catch (IOException e) {
+            Log.i(IO_ERR, "IO error during iteration", e);
+
+            noteError();
+
+            return -1;
+        }
+    }
+
     private final Random r = new SecureRandom();
 
     @Override
@@ -375,16 +423,10 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         }
 
         if (dirFd >= 0) {
-            try {
-                iterator.moveToPosition(position);
+            long result = getOpaqueIndex(position);
 
-                checkCount();
-
-                return directory.getOpaqueIndex(position);
-            } catch (IOException e) {
-                Log.i(IO_ERR, "IO error during iteration", e);
-
-                noteError();
+            if (result != 0L) {
+                return position;
             }
         }
 
@@ -486,7 +528,25 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
         @Override
         public void onReset() {
+            // queue overflow: resubscribe to the updates
+            packState();
+            recoverState();
+
+            Inotify inotify = os.observe(0);
+            inotify.close();
             onChanges();
+        }
+    };
+
+    private final Inotify.InotifyListener selectionListener = new Inotify.InotifyListener() {
+        @Override
+        public void onChanges() {
+        }
+
+        @Override
+        public void onReset() {
+            // one of selected items was removed: clear the selection
+            clearSelection();
         }
     };
 
@@ -523,7 +583,52 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         this.itemTouchListener = itemTouchListener;
     }
 
-    private static final class SelectionItem extends Directory.Entry {
-        private long cookie;
+    public void setSelectionListener(SelectionCallback selectionCallback) {
+        this.selectionCallback = selectionCallback;
+    }
+
+    private final class SelectionItem extends Directory.Entry implements Inotify.InotifyListener, Closeable {
+        int position = RecyclerView.NO_POSITION;
+
+        InotifyWatch watch = null;
+
+        boolean init(Inotify inotify) {
+            try {
+                int fd = os.openat(dirFd, name, OS.O_RDONLY,0);
+                try {
+                    watch = inotify.subscribe(fd, this);
+                } catch (IOException e) {
+                    LogUtil.logCautiously("Unable to observe selection", e);
+                } finally {
+                    os.dispose(fd);
+                }
+
+                return true;
+            } catch (IOException e) {
+                LogUtil.logCautiously("Failed to open selection", e);
+            }
+
+            return false;
+        }
+
+        @Override
+        public void onChanges() {
+        }
+
+        @Override
+        public void onReset() {
+            selection.remove()
+        }
+
+        @Override
+        public void close() {
+            watch.close();
+        }
+    }
+
+    public interface SelectionCallback {
+        void onSelectionStarted();
+
+        void onSelectionCleared();
     }
 }

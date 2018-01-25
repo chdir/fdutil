@@ -35,11 +35,11 @@ import android.os.Looper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.StringRes;
+import android.support.v7.view.ActionMode;
 import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
-import android.view.ActionMode;
 import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -50,6 +50,7 @@ import android.widget.Toast;
 
 import com.carrotsearch.hppc.IntObjectHashMap;
 import com.carrotsearch.hppc.IntObjectMap;
+import com.carrotsearch.hppc.predicates.ObjectPredicate;
 
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
@@ -118,6 +119,7 @@ public class MainActivity extends BaseActivity implements
 
     private RecyclerView.ItemDecoration decoration;
 
+    private ActionModeHandler amh;
     private GuardedState state;
     private RecyclerView.LayoutManager layoutManager;
 
@@ -221,6 +223,7 @@ public class MainActivity extends BaseActivity implements
         final DirAdapter adapter = state.adapter;
 
         adapter.setItemClickListener(clickHandler);
+        adapter.setSelectionListener(amh = new ActionModeHandler());
         adapter.registerAdapterDataObserver(scrollerObserver = quickScroller.getAdapterDataObserver());
         adapter.registerAdapterDataObserver(dirObserver = new DirObserver());
     }
@@ -237,6 +240,7 @@ public class MainActivity extends BaseActivity implements
             dirObserver = null;
         }
 
+        adapter.setSelectionListener(null);
         adapter.setItemClickListener(null);
     }
 
@@ -328,14 +332,12 @@ public class MainActivity extends BaseActivity implements
     }
 
     @Override
-    @SuppressWarnings("deprecation")
     public Object onRetainNonConfigurationInstance() {
         return state;
     }
 
     @Nullable
     @Override
-    @SuppressWarnings("deprecation")
     public GuardedState getLastNonConfigurationInstance() {
         return (GuardedState) super.getLastNonConfigurationInstance();
     }
@@ -372,6 +374,16 @@ public class MainActivity extends BaseActivity implements
 
             if (dirItemHolder.isPlaceholder()) {
                 return;
+            }
+
+            if (state.adapter != null && amh.isActive()) {
+                final int clickedPosition = dirItemHolder.getAdapterPosition();
+
+                if (clickedPosition != RecyclerView.NO_POSITION) {
+                    state.adapter.toggleSelection(clickedPosition);
+
+                    return;
+                }
             }
 
             final Directory.Entry dirInfo = dirItemHolder.getDirInfo();
@@ -540,17 +552,17 @@ public class MainActivity extends BaseActivity implements
 
         final FileMenuInfo info = (FileMenuInfo) menuInfo;
 
-        final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
-        cutItem.setOnMenuItemClickListener(this);
-
         final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
         copyItem.setOnMenuItemClickListener(this);
 
-        final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, 3, "Rename");
-        renameItem.setOnMenuItemClickListener(this);
-
         final MenuItem delItem = menu.add(Menu.NONE, R.id.menu_item_delete, 5, "Delete");
         delItem.setOnMenuItemClickListener(this);
+
+        final MenuItem cutItem = menu.add(Menu.NONE, R.id.menu_item_cut, 0, "Cut");
+        cutItem.setOnMenuItemClickListener(this);
+
+        final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, 3, "Rename");
+        renameItem.setOnMenuItemClickListener(this);
 
         final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_select, 6, "Select");
         selItem.setOnMenuItemClickListener(this);
@@ -661,7 +673,6 @@ public class MainActivity extends BaseActivity implements
                 break;
             case R.id.menu_item_select:
                 state.adapter.toggleSelection(info.position);
-                startActionMode(new ActionModeHandler());
                 break;
             case R.id.menu_item_edit:
                 editfile(info.parentDir, info.fileInfo.name);
@@ -696,6 +707,48 @@ public class MainActivity extends BaseActivity implements
         }
 
         return true;
+    }
+
+    private final ObjectPredicate<Directory.Entry> deletionHandler = fileInfo -> {
+        try {
+            final CharSequence targetName = fileInfo.name;
+            final int parentDir = state.adapter.getFd();
+            try {
+                FsType fsType = fileInfo.type;
+                if (fsType == null) {
+                    state.os.fstatat(parentDir, fileInfo.name, tmpStat, 0);
+                    fsType = tmpStat.type;
+                }
+
+                state.os.unlinkat(parentDir, targetName, fsType == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
+            } catch (ErrnoException errno) {
+                if (errno.code() == ErrnoException.ENOTEMPTY) {
+                    FileTasks ft = FileTasks.getInstance(this);
+
+                    try {
+                        ft.rmdir(state.os, targetName, parentDir);
+                    } catch (IOException e) {
+                        toast(e.getMessage());
+                    }
+                } else {
+                    throw errno;
+                }
+            }
+        } catch (IOException e) {
+            toast("Unable to perform removal. " + e.getMessage());
+        }
+
+        return false;
+    };
+
+    public boolean onActionModeItemClick(MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.menu_item_delete:
+                state.adapter.forEachSelected(deletionHandler);
+                return true;
+        }
+
+        return false;
     }
 
     private void showCreateShortcutDialog(CharSequence name) {
@@ -1337,16 +1390,19 @@ public class MainActivity extends BaseActivity implements
         }
     }
 
-    public final class ActionModeHandler implements ActionMode.Callback {
+    public final class ActionModeHandler implements android.support.v7.view.ActionMode.Callback, DirAdapter.SelectionCallback {
         private ActionMode mode;
 
         private boolean safe = true;
 
         @Override
         public boolean onCreateActionMode(ActionMode mode, Menu menu) {
-            if (Build.VERSION.SDK_INT >= 23) {
-                mode.setType(ActionMode.TYPE_PRIMARY);
-            }
+            menu.add(Menu.NONE, R.id.menu_item_copy, 500, "Copy");
+            menu.add(Menu.NONE, R.id.menu_item_delete, 600, "Delete");
+
+            //if (Build.VERSION.SDK_INT >= 23) {
+            //    mode.setType(ActionMode.TYPE_PRIMARY);
+            //}
 
             this.mode = mode;
 
@@ -1355,13 +1411,18 @@ public class MainActivity extends BaseActivity implements
 
         @Override
         public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
-
             return false;
         }
 
         @Override
         public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
-            return false;
+            boolean result = onActionModeItemClick(item);
+
+            if (result) {
+                mode.finish();
+            }
+
+            return result;
         }
 
         @Override
@@ -1394,7 +1455,11 @@ public class MainActivity extends BaseActivity implements
         }
 
         public void onSelectionStarted() {
-            startActionMode(this);
+            getDelegate().startSupportActionMode(this);
+        }
+
+        boolean isActive() {
+            return mode != null;
         }
     }
 

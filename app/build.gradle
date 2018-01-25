@@ -1,7 +1,7 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 24
+    compileSdkVersion 27
     buildToolsVersion '26.0.2'
 
     if (deploymentProps) {
@@ -30,6 +30,10 @@ android {
             annotationProcessorOptions {
                 includeCompileClasspath = true
             }
+        }
+
+        aaptOptions {
+            additionalParameters "--no-version-vectors"
         }
     }
 
@@ -66,9 +70,9 @@ dependencies {
     //noinspection GradleCompatible
     compile 'com.android.support:recyclerview-v7:25.0.1'
     //noinspection GradleCompatible
-    compile 'com.android.support:appcompat-v7:25.0.1'
+    compile 'com.android.support:appcompat-v7:27.0.2'
     //noinspection GradleCompatible
-    compile 'com.android.support:design:25.0.1'
+    compile 'com.android.support:design:27.0.2'
 
     compile 'org.parceler:parceler-api:1.1.6'
     annotationProcessor 'org.parceler:parceler:1.1.6'

@@ -626,7 +626,7 @@ public abstract class FileObject implements Closeable {
         }
 
         @Override
-        protected boolean delete() throws RuntimeException {
+        protected boolean delete() throws RuntimeException, FileNotFoundException {
             if (DocumentsContract.isDocumentUri(context, this.uri)) {
                 return DocumentsContract.deleteDocument(resolver, uri);
             } else {
