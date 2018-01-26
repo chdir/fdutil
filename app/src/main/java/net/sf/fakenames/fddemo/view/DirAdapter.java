@@ -16,10 +16,13 @@
  */
 package net.sf.fakenames.fddemo.view;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
+import android.support.annotation.IntDef;
 import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -37,6 +40,7 @@ import net.sf.xfd.ErrnoException;
 import net.sf.xfd.Inotify;
 import net.sf.xfd.InotifyWatch;
 import net.sf.xfd.LogUtil;
+import net.sf.xfd.NativeBits;
 import net.sf.xfd.OS;
 import net.sf.xfd.UnreliableIterator;
 
@@ -45,8 +49,12 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static net.sf.xfd.NativeBits.O_NOCTTY;
+import static net.sf.xfd.NativeBits.O_NONBLOCK;
 import static net.sf.xfd.provider.ProviderBase.fdPath;
 
 public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implements Closeable {
@@ -55,7 +63,6 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     private static final String TEST_DIR_NAME = "testDir";
 
     private final Inotify observer;
-    private final Inotify sharedInotify;
 
     private Context localContext;
     private LayoutInflater inflater;
@@ -76,10 +83,9 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
 
     private final OS os;
 
-    public DirAdapter(OS os, Inotify selfInotify, Inotify sharedInotify) {
+    public DirAdapter(OS os, Inotify selfInotify) {
         this.os = os;
         this.observer = selfInotify;
-        this.sharedInotify = sharedInotify;
 
         setHasStableIds(true);
     }
@@ -89,29 +95,68 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     }
 
     public void toggleSelection(int position) {
-        int selectedCount = getSelectedCount();
-
         long id = getOpaqueIndex(position);
 
         if (selection.containsKey(id)) {
-            selection.remove(id);
-
-            if (selectedCount == 1) {
-                dispatchSelectionCleared();
-            }
+            removeSelectedItem(id);
         } else {
-            SelectionItem item = new SelectionItem();
-
-            iterator.get(item);
-
-            selection.put(id, item);
-
-            if (selectedCount == 0) {
-                dispatchSelectionStarted();
-            }
+            addSelectedItem(id);
         }
 
         notifyItemChanged(position);
+    }
+
+    private void removeSelectedItem(long id) {
+        if (getSelectedCount() == 1) {
+            dispatchSelectionCleared();
+        }
+
+        SelectionItem removed = selection.remove(id);
+
+        releaseSelection(removed);
+    }
+
+    private void addSelectedItem(long id) {
+        if (getSelectedCount() == 0) {
+            dispatchSelectionStarted();
+        }
+
+        SelectionItem item = new SelectionItem();
+
+        iterator.get(item);
+
+        subscribeToSelection(item);
+
+        selection.put(id, item);
+    }
+
+    private void destroySelection() {
+        dispatchSelectionCleared();
+
+        forEachSelected(clearSelection);
+
+        selection.clear();
+
+        notifyDataSetChanged();
+    }
+
+    private void subscribeToSelection(SelectionItem item) {
+        try {
+            int fd = os.openat(dirFd, item.name, O_NOCTTY | O_NONBLOCK, 0);
+            try {
+                item.watch = observer.subscribe(fd, selectionCleanup);
+            } finally {
+                os.dispose(fd);
+            }
+        } catch (IOException err) {
+            LogUtil.logCautiously("Inotify on selected item failed", err);
+        }
+    }
+
+    private void releaseSelection(SelectionItem removed) {
+        if (removed == null || removed.watch == null) return;
+
+        removed.watch.close();
     }
 
     private void dispatchSelectionCleared() {
@@ -126,32 +171,22 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         }
     }
 
-    public void clearSelection() {
-        if (selectionCallback != null) {
-            selectionCallback.onSelectionCleared();
-        }
-
-        selection.clear();
-
-        forEachSelected(clearSelection);
-    }
-
-    private ObjectPredicate<SelectionItem> clearSelection = value -> {
-        if (value.position != RecyclerView.NO_POSITION) {
-            notifyItemChanged(value.position);
-        }
+    private SelectionPredicate<SelectionItem, RuntimeException> clearSelection = value -> {
+        releaseSelection(value);
 
         return true;
     };
 
-    public void forEachSelected(ObjectPredicate<? super SelectionItem> callback) {
+    public <T extends Throwable> void forEachSelected(SelectionPredicate<? super SelectionItem, T> callback) throws T {
         if (selection.isEmpty()) return;
 
         final long[] keys = selection.keys;
         final int size = selection.size();
 
-        for (int i = 0; i < size; ++i) {
+        for (int i = 0, seen = 0; seen < size; ++i) {
             if (keys[i] == 0) continue;
+
+            ++seen;
 
             if (!callback.apply(selection.indexGet(i))) {
                 return;
@@ -210,7 +245,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
                 subscription = null;
             }
 
-            isStalled = false;
+            pendingMessage = 0;
 
             iterator = null;
 
@@ -323,29 +358,27 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     }
 
     public boolean isStalled() {
-        return isStalled;
+        return pendingMessage != 0;
     }
 
-    private boolean isStalled;
+    private static final int EV_ERROR    = 1;
+    private static final int EV_RESET    = 1 << 1;
+    private static final int EV_DESELECT = 1 << 2;
+    private static final int EV_COUNTED  = 1 << 3;
 
-    private static final int MSG_COUNTED = 0;
-
-    private enum EventType {
-        COUNTED,
-        RESET,
-        ERROR,
-    }
+    @IntDef(value = { EV_ERROR, EV_RESET, EV_COUNTED, EV_DESELECT }, flag = true)
+    @interface EventType {}
 
     private void noteError() {
-        isStalled = true;
-
-        dispatchEventDelayed(EventType.ERROR, 0);
+        dispatchEventDelayed(EV_ERROR, 0);
     }
 
     private void advanceCount(int newCount) {
-        isStalled = true;
+        dispatchEventDelayed(EV_COUNTED, 0, newCount);
+    }
 
-        dispatchEventDelayed(EventType.COUNTED, 0, newCount);
+    public void clearSelection() {
+        dispatchEventDelayed(EV_DESELECT, 0);
     }
 
     private void setCount(int count) {
@@ -440,30 +473,40 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         }
     };
 
-    private static final int DEBOUNCE_INTERVAL = (int) TimeUnit.MILLISECONDS.toNanos(520);
+    private static final int DEBOUNCE_INTERVAL = 520;
 
     private long lastEvent;
+
+    private int pendingMessage;
 
     void dispatchEventDelayed(Message event) {
         int arg = event.arg1, delay = event.arg2;
 
-        dispatchEventDelayed((EventType) event.obj, delay, arg);
+        dispatchEventDelayed(event.what, delay, arg);
     }
 
-    private void dispatchEventDelayed(EventType type, int debounceDelay) {
+    private void dispatchEventDelayed(@EventType int type, int debounceDelay) {
         dispatchEventDelayed(type, debounceDelay, 0);
     }
 
-    private void dispatchEventDelayed(EventType type, int delay, int arg) {
-        notificationHandler.removeCallbacksAndMessages(null);
+    private void dispatchEventDelayed(@EventType int type, int delay, int arg) {
+        int msg = pendingMessage;
+
+        if (msg != 0) {
+            notificationHandler.removeMessages(msg);
+        }
+
+        msg |= type;
+
+        pendingMessage = msg;
 
         if (recyclerView != null && recyclerView.isComputingLayout()) {
-            final Message m = Message.obtain(notificationHandler, MSG_COUNTED, arg, delay, type);
+            final Message m = Message.obtain(notificationHandler, msg, arg, delay);
             m.sendToTarget();
             return;
         }
 
-        final long currentTime = System.nanoTime();
+        final long currentTime = SystemClock.uptimeMillis();
 
         if (delay != 0) {
             final long diff = Math.abs(currentTime - lastEvent);
@@ -471,8 +514,8 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             if (diff < DEBOUNCE_INTERVAL) {
                 final long extra = DEBOUNCE_INTERVAL - diff;
 
-                final Message m = Message.obtain(notificationHandler, MSG_COUNTED, arg, delay, type);
-                notificationHandler.sendMessageDelayed(m, TimeUnit.NANOSECONDS.toMillis(extra));
+                final Message m = Message.obtain(notificationHandler, msg, arg, delay, type);
+                notificationHandler.sendMessageAtTime(m, currentTime + extra);
                 return;
             }
         }
@@ -482,20 +525,26 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         handleEvent(type, arg);
     }
 
-    private void handleEvent(EventType type, int arg) {
-        isStalled = false;
+    private void handleEvent(@EventType int type, int arg) {
+        pendingMessage = 0;
 
-        switch (type) {
-            case COUNTED:
-                setCount(arg);
+        if ((type & EV_DESELECT) != 0) {
+            destroySelection();
+        }
 
-                break;
-            case ERROR:
-                handleIterationErrors();
+        if ((type & EV_ERROR) != 0) {
+            handleIterationErrors();
+        }
 
-                break;
-            case RESET:
-                refresh();
+        if ((type & EV_RESET) != 0) {
+            refresh();
+
+            // the last count is no longer valid
+            return;
+        }
+
+        if ((type & EV_COUNTED) != 0) {
+            setCount(arg);
         }
     }
 
@@ -523,7 +572,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
     private final Inotify.InotifyListener notificationListener = new Inotify.InotifyListener() {
         @Override
         public void onChanges() {
-            dispatchEventDelayed(EventType.RESET, DEBOUNCE_INTERVAL);
+            dispatchEventDelayed(EV_RESET, DEBOUNCE_INTERVAL);
         }
 
         @Override
@@ -532,20 +581,18 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
             packState();
             recoverState();
 
-            Inotify inotify = os.observe(0);
-            inotify.close();
             onChanges();
         }
     };
 
-    private final Inotify.InotifyListener selectionListener = new Inotify.InotifyListener() {
+    private final Inotify.InotifyListener selectionCleanup = new Inotify.InotifyListener() {
         @Override
         public void onChanges() {
         }
 
         @Override
         public void onReset() {
-            // one of selected items was removed: clear the selection
+            // one of selected items was removed: remove all selection
             clearSelection();
         }
     };
@@ -555,7 +602,7 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         swapDirectoryDescriptor(DirFd.NIL);
     }
 
-    public void refresh() {
+    private void refresh() {
         if (iterator != null) {
             try {
                 iterator.moveToPosition(-1);
@@ -587,48 +634,19 @@ public final class DirAdapter extends RecyclerView.Adapter<DirItemHolder> implem
         this.selectionCallback = selectionCallback;
     }
 
-    private final class SelectionItem extends Directory.Entry implements Inotify.InotifyListener, Closeable {
+    public final class SelectionItem extends Directory.Entry {
         int position = RecyclerView.NO_POSITION;
 
         InotifyWatch watch = null;
-
-        boolean init(Inotify inotify) {
-            try {
-                int fd = os.openat(dirFd, name, OS.O_RDONLY,0);
-                try {
-                    watch = inotify.subscribe(fd, this);
-                } catch (IOException e) {
-                    LogUtil.logCautiously("Unable to observe selection", e);
-                } finally {
-                    os.dispose(fd);
-                }
-
-                return true;
-            } catch (IOException e) {
-                LogUtil.logCautiously("Failed to open selection", e);
-            }
-
-            return false;
-        }
-
-        @Override
-        public void onChanges() {
-        }
-
-        @Override
-        public void onReset() {
-            selection.remove()
-        }
-
-        @Override
-        public void close() {
-            watch.close();
-        }
     }
 
     public interface SelectionCallback {
         void onSelectionStarted();
 
         void onSelectionCleared();
+    }
+
+    public interface SelectionPredicate<E, T extends Throwable> {
+        boolean apply(E item) throws T;
     }
 }

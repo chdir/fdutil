@@ -15,6 +15,8 @@
  */
 package net.sf.xfd;
 
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
@@ -155,7 +157,7 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable {
     long getOpaqueIndex(int position);
 
     @SuppressWarnings("NullableProblems")
-    class Entry {
+    class Entry implements Parcelable {
         /**
          * Linux inode number. Uniquely identifies each "file" within a parent filesystem.
          *
@@ -212,6 +214,49 @@ public interface Directory extends Iterable<Directory.Entry>, Closeable {
         public String toString() {
             return "" + name + ":" + type + " " + ino;
         }
+
+        @Override
+        public int describeContents() {
+            return 0;
+        }
+
+        @Override
+        public void writeToParcel(Parcel dest, int flags) {
+            dest.writeLong(ino);
+
+            dest.writeInt(type == null ? -1 : type.ordinal());
+
+            if (name instanceof NativeString) {
+                dest.writeInt(0);
+                ((NativeString) name).writeToParcel(dest, flags);
+            } else {
+                dest.writeInt(1);
+                dest.writeString(name.toString());
+            }
+        }
+
+        public static final Parcelable.Creator<Entry> CREATOR = new Creator<Entry>() {
+            @Override
+            public Entry createFromParcel(Parcel source) {
+                Entry entry = new Entry();
+
+                entry.ino = source.readLong();
+
+                int type = source.readInt();
+                entry.type = type == -1 ? null : FsType.at(type);
+
+                int strType = source.readInt();
+                entry.name = strType == 1
+                        ? source.readString()
+                        : NativeString.CREATOR.createFromParcel(source);
+                return entry;
+            }
+
+            @Override
+            public Entry[] newArray(int size) {
+                return new Entry[0];
+            }
+        };
     }
 
     /**

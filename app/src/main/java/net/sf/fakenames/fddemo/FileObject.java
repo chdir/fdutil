@@ -763,7 +763,7 @@ public abstract class FileObject implements Closeable {
         private final int dirFd;
 
         private LocalFileObject(OS os, Context context,
-                                String path, String name,
+                                CharSequence path, CharSequence name,
                                 Stat stat, int dirFd) {
             super(os, context, stat);
 

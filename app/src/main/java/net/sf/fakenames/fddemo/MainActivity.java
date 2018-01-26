@@ -50,13 +50,13 @@ import android.widget.Toast;
 
 import com.carrotsearch.hppc.IntObjectHashMap;
 import com.carrotsearch.hppc.IntObjectMap;
-import com.carrotsearch.hppc.predicates.ObjectPredicate;
 
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
 import net.sf.fakenames.fddemo.util.Utils;
 import net.sf.fakenames.fddemo.view.ConfirmationDialog;
 import net.sf.fakenames.fddemo.view.DirAdapter;
+import net.sf.fakenames.fddemo.view.DirAdapter.SelectionPredicate;
 import net.sf.fakenames.fddemo.view.DirFastScroller;
 import net.sf.fakenames.fddemo.view.DirItemHolder;
 import net.sf.fakenames.fddemo.view.DirLayoutManager;
@@ -68,6 +68,7 @@ import net.sf.fakenames.fddemo.view.SaneDecor;
 import net.sf.fakenames.fddemo.view.ShortcutNameInputFragment;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
+import net.sf.xfd.Directory.Entry;
 import net.sf.xfd.ErrnoException;
 import net.sf.xfd.FsType;
 import net.sf.xfd.Limit;
@@ -386,7 +387,7 @@ public class MainActivity extends BaseActivity implements
                 }
             }
 
-            final Directory.Entry dirInfo = dirItemHolder.getDirInfo();
+            final Entry dirInfo = dirItemHolder.getDirInfo();
 
             if (dirInfo.type != null && dirInfo.type.isNotDir()) {
                 openfile(state.adapter.getFd(), dirInfo.name);
@@ -608,8 +609,9 @@ public class MainActivity extends BaseActivity implements
             case R.id.menu_item_delete:
                 try {
                     final CharSequence targetName = info.fileInfo.name;
+
+                    FsType fsType = info.fileInfo.type;
                     try {
-                        FsType fsType = info.fileInfo.type;
                         if (fsType == null) {
                             state.os.fstatat(info.parentDir, info.fileInfo.name, tmpStat, 0);
                             fsType = tmpStat.type;
@@ -618,7 +620,9 @@ public class MainActivity extends BaseActivity implements
                         state.os.unlinkat(info.parentDir, targetName, fsType == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
                     } catch (ErrnoException errno) {
                         if (errno.code() == ErrnoException.ENOTEMPTY) {
-                            new ConfirmationDialog(targetName, R.string.rmdir_title, R.string.q_rmdir_msg, R.string.remove)
+                            info.fileInfo.type = fsType;
+
+                            new ConfirmationDialog(info.fileInfo, R.string.rmdir_title, R.string.q_rmdir_msg, R.string.remove)
                                     .show(getFragmentManager(), null);
                         } else {
                             throw errno;
@@ -709,42 +713,30 @@ public class MainActivity extends BaseActivity implements
         return true;
     }
 
-    private final ObjectPredicate<Directory.Entry> deletionHandler = fileInfo -> {
-        try {
-            final CharSequence targetName = fileInfo.name;
-            final int parentDir = state.adapter.getFd();
-            try {
-                FsType fsType = fileInfo.type;
-                if (fsType == null) {
-                    state.os.fstatat(parentDir, fileInfo.name, tmpStat, 0);
-                    fsType = tmpStat.type;
-                }
-
-                state.os.unlinkat(parentDir, targetName, fsType == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
-            } catch (ErrnoException errno) {
-                if (errno.code() == ErrnoException.ENOTEMPTY) {
-                    FileTasks ft = FileTasks.getInstance(this);
-
-                    try {
-                        ft.rmdir(state.os, targetName, parentDir);
-                    } catch (IOException e) {
-                        toast(e.getMessage());
-                    }
-                } else {
-                    throw errno;
-                }
-            }
-        } catch (IOException e) {
-            toast("Unable to perform removal. " + e.getMessage());
-        }
-
-        return false;
-    };
-
     public boolean onActionModeItemClick(MenuItem item) {
         switch (item.getItemId()) {
             case R.id.menu_item_delete:
-                state.adapter.forEachSelected(deletionHandler);
+                try {
+                    DirAdapter adapter = state.adapter;
+
+                    Entry[] selection = new Entry[adapter.getSelectedCount()];
+
+                    adapter.forEachSelected(new SelectionPredicate<Entry, RuntimeException>() {
+                        int i = 0;
+
+                        @Override
+                        public boolean apply(Entry item) {
+                            selection[i++] = item;
+                            return true;
+                        }
+                    });
+
+                    FileTasks ft = FileTasks.getInstance(this);
+
+                    ft.rmdir(state.os, selection, adapter.getFd());
+                } catch (IOException e) {
+                    toast("Unable to perform removal. " + e.getMessage());
+                }
                 return true;
         }
 
@@ -877,11 +869,11 @@ public class MainActivity extends BaseActivity implements
     }
 
     @Override
-    public void onAffirmed(CharSequence fileName) {
+    public void onAffirmed(Entry fileName) {
         FileTasks ft = FileTasks.getInstance(this);
 
         try {
-            ft.rmdir(state.os, fileName, state.adapter.getFd());
+            ft.rmdir(state.os, new Entry[] { fileName }, state.adapter.getFd());
         } catch (IOException e) {
             toast(e.getMessage());
         }

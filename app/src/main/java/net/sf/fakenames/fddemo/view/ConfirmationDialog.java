@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.support.annotation.StringRes;
 import android.support.v7.app.AlertDialog;
 
+import net.sf.xfd.Directory;
+
 import java.io.FileOutputStream;
 
 public final class ConfirmationDialog extends DialogFragment implements DialogInterface.OnClickListener {
@@ -21,9 +23,9 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
     public ConfirmationDialog() {}
 
     @SuppressLint("ValidFragment")
-    public ConfirmationDialog(CharSequence fileName, @StringRes int title, @StringRes int message, @StringRes int affirm) {
+    public ConfirmationDialog(Directory.Entry fileName, @StringRes int title, @StringRes int message, @StringRes int affirm) {
         final Bundle bundle = new Bundle();
-        bundle.putCharSequence(ARG_FILENAME, fileName);
+        bundle.putParcelable(ARG_FILENAME, fileName);
         bundle.putInt(ARG_TITLE, title);
         bundle.putInt(ARG_MESSAGE, message);
         bundle.putInt(ARG_AFFIRMATION, affirm);
@@ -39,10 +41,10 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
         title = bundle.getInt(ARG_TITLE);
         message = bundle.getInt(ARG_MESSAGE);
         affirm = bundle.getInt(ARG_AFFIRMATION);
-        fileName = bundle.getCharSequence(ARG_FILENAME);
+        fileName = bundle.getParcelable(ARG_FILENAME);
     }
 
-    private CharSequence fileName;
+    private Directory.Entry fileName;
     private @StringRes int title;
     private @StringRes int message;
     private @StringRes int affirm;
@@ -67,6 +69,6 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
     }
 
     public interface ConfirmationReceiver {
-        void onAffirmed(CharSequence filename);
+        void onAffirmed(Directory.Entry filename);
     }
 }
