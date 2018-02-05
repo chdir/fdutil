@@ -19,7 +19,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.support.annotation.Keep;
 
-public final class Stat implements Parcelable {
+public final class Stat implements Parcelable, Cloneable {
     /**
      * note: this is an unsigned 64-bit value, stored in signed Java long
      */
@@ -122,5 +122,14 @@ public final class Stat implements Parcelable {
         builder.append("]");
 
         return builder.toString();
+    }
+
+    @Override
+    public Stat clone() {
+        try {
+            return (Stat) super.clone();
+        } catch (CloneNotSupportedException e) {
+            throw new AssertionError(e);
+        }
     }
 }

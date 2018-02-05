@@ -21,7 +21,7 @@ import java.util.Arrays;
 
 public final class FileNameDecoder {
     // 255 16-bit units is VFAT name length (biggest known so far), but let's make an extra
-    private static final int NAME_CHAR_MAX = 255 * 2;
+    private static final int NAME_CHAR_MAX = 255 * 3 / 2;
 
     private final CharBuilder buffer;
 

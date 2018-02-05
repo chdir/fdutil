@@ -1,5 +1,5 @@
 /*
- * Copyright © 2017 Alexander Rvachev
+ * Copyright © 2017,2018 Alexander Rvachev
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
-import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
@@ -35,7 +34,6 @@ import android.os.RemoteException;
 import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
 import android.text.TextUtils;
-import android.util.Log;
 import android.widget.Toast;
 
 import com.carrotsearch.hppc.IntObjectHashMap;
@@ -48,7 +46,6 @@ import com.carrotsearch.hppc.cursors.LongObjectCursor;
 
 import net.sf.fakenames.fddemo.service.NotificationCallback;
 import net.sf.fakenames.fddemo.service.UpkeepService;
-import net.sf.fakenames.fddemo.view.ConfirmationDialog;
 import net.sf.xfd.Copy;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
@@ -58,7 +55,6 @@ import net.sf.xfd.FsType;
 import net.sf.xfd.InterruptedIOException;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.MountInfo;
-import net.sf.xfd.NativeBits;
 import net.sf.xfd.NativeString;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
@@ -66,13 +62,10 @@ import net.sf.xfd.UnreliableIterator;
 import net.sf.xfd.provider.ProviderBase;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Scanner;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -84,13 +77,12 @@ import java.util.concurrent.TimeUnit;
 import static net.sf.xfd.Directory.READDIR_REUSE_STRINGS;
 import static net.sf.xfd.Directory.READDIR_SMALL_BUFFERS;
 import static net.sf.xfd.NativeBits.O_CREAT;
+import static net.sf.xfd.NativeBits.O_DIRECTORY;
 import static net.sf.xfd.NativeBits.O_NOCTTY;
 import static net.sf.xfd.NativeBits.O_NOFOLLOW;
 import static net.sf.xfd.NativeBits.O_NONBLOCK;
 import static net.sf.xfd.NativeBits.O_TRUNC;
 import static net.sf.xfd.OS.DEF_FILE_MODE;
-import static net.sf.xfd.provider.ProviderBase.extractName;
-import static net.sf.xfd.provider.ProviderBase.isPosix;
 
 public final class FileTasks extends ContextWrapper implements Application.ActivityLifecycleCallbacks {
     private final IntObjectMap<CancellationHelper> tasks = new IntObjectHashMap<>();
@@ -158,6 +150,9 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         return ".".contentEquals(cs) || "..".contentEquals(cs);
     }
 
+    private static final int DIR_OPEN_FLAGS = O_DIRECTORY | O_NOCTTY | O_NOFOLLOW;
+
+
     public void copy(OS os, BaseDirLayout layout, List<FileObject> sourceFiles, @DirFd int dir, boolean canRemoveOriginal) throws IOException {
         final Context context = this;
 
@@ -175,10 +170,6 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
         final NotificationCallback callback = makeCallback(taskId);
 
-        UpkeepService.start(this);
-
-        callback.onProgressUpdate("Preparing to copy…");
-
         final ArrayDeque<FsDir> reusedDirs = new ArrayDeque<>(100);
 
         final @DirFd int destDirCopy = os.dup(dir);
@@ -188,6 +179,13 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
             private CharSequence newName;
             private Copy helper;
             private boolean skipPermissionChecks;
+
+            @Override
+            protected void onPreExecute() {
+                super.onPreExecute();
+
+                UpkeepService.start(getApplicationContext());
+            }
 
             @Override
             protected Throwable doInBackground(CancellationHelper... params) {
@@ -352,9 +350,6 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 }
             }
 
-            private final int DIR_OPEN_FLAGS =
-                    NativeBits.O_DIRECTORY | NativeBits.O_NOCTTY | NativeBits.O_NOFOLLOW;
-
             private void copyContents(Directory srcDir,
                                       @DirFd int srcDirFd,
                                       @DirFd int dstDirFd) throws IOException
@@ -370,7 +365,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 while (iterator.moveToNext()) {
                     iterator.get(tempEntry);
 
-                    final CharSequence entryName = tempEntry.name;
+                    NativeString entryName = (NativeString) tempEntry.name;
 
                     if (isFakeDotDir(entryName)) continue;
 
@@ -386,6 +381,8 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
                         didStat = false;
                     }
+
+                    FsType entryType = tempEntry.type;
 
                     switch (tempEntry.type) {
                         case DIRECTORY:
@@ -407,8 +404,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                                 }
                             }
 
-                            @DirFd int createdDirFd = os.openat(dstDirFd, entryName,
-                                    DIR_OPEN_FLAGS, 0);
+                            @DirFd int createdDirFd = os.openat(dstDirFd, entryName, DIR_OPEN_FLAGS, 0);
 
                             try {
                                 @DirFd int foundDirFd = os.openat(srcDirFd, entryName, DIR_OPEN_FLAGS, 0);
@@ -432,6 +428,10 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                                     directory = cached.directory;
 
                                     os.dup2(foundDirFd, cached.fd);
+                                }
+
+                                if (canRemoveOriginal) {
+                                    entryName = entryName.clone();
                                 }
 
                                 try {
@@ -563,8 +563,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                     }
 
                     if (canRemoveOriginal) {
-                        os.unlinkat(srcDirFd, tempEntry.name,
-                                tempEntry.type == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
+                        os.unlinkat(srcDirFd, entryName, entryType == FsType.DIRECTORY ? OS.AT_REMOVEDIR : 0);
                     }
                 }
             }
@@ -583,7 +582,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 if (s == null) {
                     final String msg = canRemoveOriginal ? "Move complete" : "Copy complete";
 
-                    callback.onStatusUpdate(msg, newName.toString());
+                    callback.onStatusUpdate(msg, newName == null ? null : newName.toString());
 
                     toast(msg);
 
@@ -617,6 +616,8 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         final CancellationHelper ch = new CancellationHelper(at);
 
         tasks.put(taskId, ch);
+
+        callback.onProgressUpdate("Preparing to copy…");
 
         //noinspection unchecked
         at.executeOnExecutor(exec, ch);
@@ -811,8 +812,6 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
     }
 
     public void rmdir(OS os, Directory.Entry[] dirNames, @DirFd int dir) throws IOException {
-        final @DirFd int dirCopy = os.dup(dir);
-
         final Stat targetDirStat = new Stat();
 
         os.fstat(dir, targetDirStat);
@@ -823,12 +822,27 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
 
         final NotificationCallback callback = makeCallback(taskId);
 
+        NativeString tmpName = new NativeString(new byte[256 * 3 / 2]);
+
+        Directory.Entry tempEntry = new Directory.Entry();
+
+        tempEntry.name = tmpName;
+
+        final @DirFd int dirCopy = os.dup(dir);
+
         @SuppressLint("StaticFieldLeak")
         final AsyncTask<CancellationHelper, ?, ?> at = new AsyncTask<CancellationHelper, Void, Throwable>() {
             @Override
+            protected void onPreExecute() {
+                super.onPreExecute();
+
+                UpkeepService.start(getApplicationContext());
+            }
+
+            @Override
             protected Throwable doInBackground(CancellationHelper... params) {
                 try {
-                    Directory.Entry tempEntry = new Directory.Entry();
+                    callback.onProgressUpdate("Deleting files");
 
                     for (Directory.Entry removable : dirNames) {
                         if (isCancelled()) {
@@ -849,13 +863,10 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                                     throw errno;
                                 }
 
-                                final @DirFd int dirFd = os.opendirat(dir, removable.name);
+                                final @DirFd int dirFd = os.openat(dirCopy, removable.name, DIR_OPEN_FLAGS, 0);
+
                                 try (Directory directory = os.list(dirFd, READDIR_SMALL_BUFFERS | READDIR_REUSE_STRINGS)) {
-                                    callback.onProgressUpdate("Deleting files");
-
-                                    tempEntry.name = new NativeString(new byte[256 * 3 / 2]);
-
-                                    removeContents(targetDirStat, tempEntry, directory, dirFd);
+                                    removeContents(directory, dirFd);
 
                                     os.unlinkat(dirCopy, removable.name, OS.AT_REMOVEDIR);
                                 } finally {
@@ -864,7 +875,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                             }
                         } catch (ErrnoException errnoe) {
                             if (errnoe.code() != ErrnoException.ENOENT) {
-                                throw new IOException("Failed to remove " + removable.name + ": " + errnoe.toString(), errnoe);
+                                throw new IOException("Deletion failed: " + errnoe.toString(), errnoe);
                             }
                         }
                     }
@@ -883,9 +894,7 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 return null;
             }
 
-            private void removeContents(Stat tempStat,
-                                        Directory.Entry tempEntry,
-                                        Directory directory,
+            private void removeContents(Directory directory,
                                         @DirFd int dirFd) throws IOException
             {
                 if (isCancelled()) {
@@ -897,34 +906,32 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
                 while (iterator.moveToNext()) {
                     iterator.get(tempEntry);
 
-                    final CharSequence entryName = tempEntry.name;
-
-                    if (isFakeDotDir(entryName)) continue;
+                    if (isFakeDotDir(tmpName)) continue;
 
                     try {
                         if (tempEntry.type == null) {
-                            os.fstatat(dirFd, tempEntry.name, tempStat, OS.AT_SYMLINK_NOFOLLOW);
-
-                            tempEntry.type = tempStat.type;
+                            os.fstatat(dirFd, tmpName, targetDirStat, OS.AT_SYMLINK_NOFOLLOW);
+                            tempEntry.type = targetDirStat.type;
                         }
 
                         if (tempEntry.type == FsType.DIRECTORY) {
-                            @DirFd int innerDirFd = os.openat(dirFd, entryName,
-                                    NativeBits.O_DIRECTORY | NativeBits.O_NOFOLLOW, 0);
+                            NativeString dirName = tmpName.clone();
+
+                            @DirFd int innerDirFd = os.openat(dirFd, dirName, DIR_OPEN_FLAGS, 0);
 
                             try (Directory newDir = os.list(innerDirFd, READDIR_SMALL_BUFFERS | READDIR_REUSE_STRINGS)) {
-                                removeContents(tempStat, tempEntry, newDir, innerDirFd);
+                                removeContents(newDir, innerDirFd);
 
-                                os.unlinkat(dirFd, entryName, OS.AT_REMOVEDIR);
+                                os.unlinkat(dirFd, dirName, OS.AT_REMOVEDIR);
                             } finally {
                                 os.dispose(innerDirFd);
                             }
                         } else {
-                            os.unlinkat(dirFd, tempEntry.name, 0);
+                            os.unlinkat(dirFd, tmpName, 0);
                         }
                     } catch (ErrnoException errno) {
                         if (errno.code() != ErrnoException.ENOENT) {
-                            throw new IOException("Failed to remove " + entryName + ": " + errno.toString(), errno);
+                            throw new IOException("Failed to remove " + tmpName + ": " + errno.toString(), errno);
                         }
                     }
                 }
@@ -968,8 +975,6 @@ public final class FileTasks extends ContextWrapper implements Application.Activ
         final CancellationHelper ch = new CancellationHelper(at);
 
         tasks.put(taskId, ch);
-
-        UpkeepService.start(this);
 
         callback.onProgressUpdate("Preparing to delete…");
 

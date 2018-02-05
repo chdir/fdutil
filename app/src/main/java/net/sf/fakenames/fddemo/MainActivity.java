@@ -108,8 +108,7 @@ public class MainActivity extends BaseActivity implements
     static final String ACTION_MOVE = "net.sf.chdir.action.MOVE";
     static final String ACTION_COPY = "net.sf.chdir.action.COPY";
     static final String ACTION_CANCEL = "net.sf.chdir.action.CANCEL";
-    static final String EXTRA_NOT_DIR = "net.sf.chdir.extra.IS_FILE";
-    static final String EXTRA_DIR_FS = "net.sf.chdir.extra.FS_ID";
+    static final String EXTRA_STAT = "net.sf.chdir.extra.STAT";
 
     private ClipboardManager cbm;
 
@@ -553,6 +552,14 @@ public class MainActivity extends BaseActivity implements
 
         final FileMenuInfo info = (FileMenuInfo) menuInfo;
 
+        if (state.adapter.getSelectedCount() == 0) {
+            final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_select, 0, "Select");
+            selItem.setOnMenuItemClickListener(this);
+        } else {
+            final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_deselect, 0, "Deselect all");
+            selItem.setOnMenuItemClickListener(this);
+        }
+
         final MenuItem copyItem = menu.add(Menu.NONE, R.id.menu_item_copy, 1, "Copy");
         copyItem.setOnMenuItemClickListener(this);
 
@@ -564,9 +571,6 @@ public class MainActivity extends BaseActivity implements
 
         final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, 3, "Rename");
         renameItem.setOnMenuItemClickListener(this);
-
-        final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_select, 6, "Select");
-        selItem.setOnMenuItemClickListener(this);
 
         final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
         bufferItem.setOnMenuItemClickListener(this);
@@ -662,9 +666,9 @@ public class MainActivity extends BaseActivity implements
                     final Intent intent = new Intent(cut ? ACTION_MOVE : ACTION_COPY);
                     if (type != null && type.isNotDir()) {
                         try {
-                            state.os.fstat(state.adapter.getFd(), tmpStat);
-                            intent.putExtra(EXTRA_NOT_DIR, true);
-                            intent.putExtra(EXTRA_DIR_FS, tmpStat.st_dev);
+                            Stat stat = new Stat();
+                            state.os.fstatat(state.adapter.getFd(), info.fileInfo.name, stat, OS.AT_SYMLINK_NOFOLLOW);
+                            intent.putExtra(EXTRA_STAT, stat);
                         } catch (IOException ioe) {
                             LogUtil.logCautiously("Failed to stat target file", ioe);
                         }
@@ -677,6 +681,9 @@ public class MainActivity extends BaseActivity implements
                 break;
             case R.id.menu_item_select:
                 state.adapter.toggleSelection(info.position);
+                break;
+            case R.id.menu_item_deselect:
+                state.adapter.clearSelection();
                 break;
             case R.id.menu_item_edit:
                 editfile(info.parentDir, info.fileInfo.name);
@@ -741,9 +748,7 @@ public class MainActivity extends BaseActivity implements
         }
 
         return false;
-    }
-
-    private void showCreateShortcutDialog(CharSequence name) {
+    }private void showCreateShortcutDialog(CharSequence name) {
         new ShortcutNameInputFragment(name).show(getFragmentManager(), null);
     }
 
@@ -1130,12 +1135,14 @@ public class MainActivity extends BaseActivity implements
 
         boolean allowHardLink = false;
 
-        if (canSymlinkClip && intent != null) {
-            if (intent.getBooleanExtra(EXTRA_NOT_DIR, false) && intent.hasExtra(EXTRA_DIR_FS)) {
+        if (canSymlinkClip && intent != null && intent.hasExtra(EXTRA_STAT)) {
+            Stat fileStat = intent.getParcelableExtra(EXTRA_STAT);
+
+            if (fileStat.type != null && fileStat.type.isNotDir()) {
                 try {
                     state.os.fstat(state.adapter.getFd(), tmpStat);
 
-                    allowHardLink = tmpStat.st_dev == intent.getLongExtra(EXTRA_DIR_FS, -1);
+                    allowHardLink = tmpStat.st_dev == fileStat.st_dev;
                 } catch (IOException e) {
                     LogUtil.logCautiously("Failed to stat current dir", e);
                 }
@@ -1250,12 +1257,19 @@ public class MainActivity extends BaseActivity implements
     private boolean canSymlinkClip;
 
     private void evaluateCurrentClip() {
-        clipData = cbm.getPrimaryClip();
-
         closeOptionsMenu();
 
-        boolean canHandleNew = canHandleClip();
-        boolean canSymlinkNew = canHandleNew && canSymlinkClip();
+        boolean canHandleNew = false;
+        boolean canSymlinkNew = false;
+
+        try {
+            clipData = cbm.getPrimaryClip();
+
+            canHandleNew = canHandleClip();
+            canSymlinkNew = canHandleNew && canSymlinkClip();
+        } catch (Throwable t) {
+            LogUtil.logCautiously("Failed to read clipboard contents", t);
+        }
 
         if (canHandleNew != canHandleClip || canSymlinkClip != canSymlinkNew) {
             canHandleClip = canHandleNew;

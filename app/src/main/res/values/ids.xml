@@ -17,4 +17,5 @@
     <item name="menu_make_shortcut" type="id" />
     <item name="req_err_activity" type="id" />
     <item name="menu_item_select" type="id" />
+    <item name="menu_item_deselect" type="id" />
 </resources>
