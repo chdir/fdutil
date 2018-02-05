@@ -3,6 +3,7 @@ package net.sf.fakenames.fddemo.util;
 import android.content.Context;
 import android.content.Intent;
 import android.support.annotation.NonNull;
+import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -11,6 +12,7 @@ import com.carrotsearch.hppc.CharArrayList;
 import net.sf.fakenames.fddemo.R;
 import net.sf.fakenames.fddemo.ShortcutActivity;
 import net.sf.xfd.LogUtil;
+import net.sf.xfd.NativeString;
 import net.sf.xfd.provider.ProviderBase;
 
 import java.io.FileInputStream;

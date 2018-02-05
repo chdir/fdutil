@@ -55,7 +55,7 @@ public final class ConfirmationDialog extends DialogFragment implements DialogIn
         return new AlertDialog.Builder(getActivity())
                 .setCancelable(true)
                 .setTitle(title)
-                .setMessage(getString(message, fileName))
+                .setMessage(getString(message, fileName.name))
                 .setPositiveButton(affirm, this)
                 .setNegativeButton(android.R.string.cancel, this)
                 .create();

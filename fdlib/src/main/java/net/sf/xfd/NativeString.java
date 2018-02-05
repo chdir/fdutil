@@ -37,7 +37,7 @@ import java.util.Arrays;
  *     <ul> If it is meant to represent a file name, it can't contain a slash
  * </li>
  */
-public final class NativeString implements GetChars, Parcelable {
+public final class NativeString implements GetChars, Parcelable, Cloneable {
     private static final LongHashFunction hasher = LongHashFunction.xx();
 
     final byte[] bytes;
@@ -62,6 +62,8 @@ public final class NativeString implements GetChars, Parcelable {
 
     @Override
     public int length() {
+        if (length == 0) return 0;
+
         decode();
 
         return string.length();
@@ -157,6 +159,11 @@ public final class NativeString implements GetChars, Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeByteArray(bytes, 0, length);
+    }
+
+    @Override
+    public NativeString clone() {
+        return new NativeString(Arrays.copyOf(bytes, length));
     }
 
     public long longHash() {

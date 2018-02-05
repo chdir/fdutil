@@ -23,7 +23,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.AssetFileDescriptor;
-import android.content.res.AssetManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -49,15 +48,12 @@ import net.sf.xfd.Stat;
 import net.sf.xfd.provider.ProviderBase;
 
 import java.io.Closeable;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -76,6 +72,7 @@ public abstract class FileObject implements Closeable {
     protected final Stat stat;
 
     protected CharSequence description;
+    protected CharSequence fallbackDescription;
 
     protected AtomicBoolean closed = new AtomicBoolean();
 
@@ -108,7 +105,11 @@ public abstract class FileObject implements Closeable {
 
     @WorkerThread
     public CharSequence getDescription(CancellationHelper ch) throws IOException, RemoteException, RuntimeException {
-        return TextUtils.isEmpty(description) ? "unnamed" + new Random().nextLong() : description;
+        if (!TextUtils.isEmpty(description)) {
+            return description;
+        }
+
+        return TextUtils.isEmpty(fallbackDescription) ? "unnamed" + new Random().nextLong() : fallbackDescription;
     }
 
     // Any smaller size is so small that using anything besides read/write is silly: the file is
@@ -347,6 +348,10 @@ public abstract class FileObject implements Closeable {
     }
 
     public static List<FileObject> fromClip(OS os, Context context, ClipData clipData) {
+        if (clipData == null) {
+            return null;
+        }
+
         int count = clipData.getItemCount();
         if (count <= 0) {
             return null;
@@ -382,26 +387,22 @@ public abstract class FileObject implements Closeable {
                 return null;
             }
 
-            CharSequence maybeFilename = null;
+            CharSequence filename = null, maybeFilename = null;
 
             final Intent intent = clipItem.getIntent();
             if (intent != null && intent.hasExtra(EXTRA_DATA)) {
-                maybeFilename = intent.getParcelableExtra(EXTRA_DATA);
+                filename = intent.getParcelableExtra(EXTRA_DATA);
 
-                if (maybeFilename != null) {
-                    maybeFilename = extractName(maybeFilename);
+                if (!TextUtils.isEmpty(filename)) {
+                    filename = extractName(filename);
                 }
             }
 
-            if (maybeFilename == null) {
-                if (commonFilename == null) {
-                    return null;
-                }
-
+            if (filename == null && commonFilename != null) {
                 maybeFilename = i == 0 ? commonFilename : commonFilename + i;
             }
 
-            FileObject result = null;
+            FileObject result;
 
             switch (scheme) {
                 case ContentResolver.SCHEME_CONTENT:
@@ -437,12 +438,18 @@ public abstract class FileObject implements Closeable {
                 case ContentResolver.SCHEME_ANDROID_RESOURCE:
                     result = new ResourceObject(os, context, uri);
 
+                    break;
                 default:
+                    return null;
             }
 
-            if (result != null) {
-                result.description = maybeFilename;
+            if (filename != null) {
+                result.description = filename;
+            } else if (maybeFilename != null) {
+                result.fallbackDescription = maybeFilename;
             }
+
+            items.add(result);
         }
 
         return items;
@@ -456,7 +463,6 @@ public abstract class FileObject implements Closeable {
 
         private ContentProviderClient cpc;
         private Cursor info;
-        private String description;
         private String mime;
         private boolean isVirtual;
         private long maxSize;
@@ -654,7 +660,7 @@ public abstract class FileObject implements Closeable {
                 fetchMetadata(ch);
             }
 
-            return TextUtils.isEmpty(description) ? super.getDescription(ch) : description;
+            return super.getDescription(ch);
         }
 
         @Override
@@ -758,7 +764,6 @@ public abstract class FileObject implements Closeable {
 
     private static class LocalFileObject extends FileObject {
         private final CharSequence path;
-        private final CharSequence name;
         private final OS os;
         private final int dirFd;
 
@@ -770,7 +775,7 @@ public abstract class FileObject implements Closeable {
             this.dirFd = dirFd;
             this.os = os;
             this.path = path;
-            this.name = name;
+            this.description = name;
         }
 
         @Override
@@ -860,7 +865,7 @@ public abstract class FileObject implements Closeable {
 
         @Override
         public CharSequence getDescription(CancellationHelper unused) {
-            return name;
+            return description;
         }
 
         @Override
