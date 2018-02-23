@@ -226,6 +226,7 @@ public class CrappyDirectory implements Directory {
         }
     }
 
+    @NonNull
     @Override
     public UnreliableIterator<Entry> iterator() {
         try {

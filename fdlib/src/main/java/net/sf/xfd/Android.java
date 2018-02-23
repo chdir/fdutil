@@ -99,6 +99,21 @@ final class Android extends OS {
         return new NativeString(nativeReadlink(toNative(p), length(p), fd));
     }
 
+    @NonNull
+    @Override
+    public CharSequence canonicalize(int fd, @NonNull CharSequence pathname) throws IOException {
+        try {
+            int newFd = openat(fd, pathname, NativeBits.O_NONBLOCK, 0);
+            try {
+                return readlinkat(DirFd.NIL, "/proc/self/fd/" + newFd);
+            } finally {
+                close(newFd);
+            }
+        } catch (Exception e) {
+            return readlinkat(fd, pathname);
+        }
+    }
+
     @Override
     public void linkat(@DirFd int oldDirFd, @NonNull CharSequence oldName, @DirFd int newDirFd, @NonNull CharSequence newName, @LinkAtFlags int flags) throws IOException {
         Object o1 = prepare(oldName);

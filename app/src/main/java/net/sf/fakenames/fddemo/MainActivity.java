@@ -70,6 +70,7 @@ import net.sf.xfd.DirFd;
 import net.sf.xfd.Directory;
 import net.sf.xfd.Directory.Entry;
 import net.sf.xfd.ErrnoException;
+import net.sf.xfd.Fd;
 import net.sf.xfd.FsType;
 import net.sf.xfd.Limit;
 import net.sf.xfd.LogUtil;
@@ -77,6 +78,7 @@ import net.sf.xfd.MountInfo;
 import net.sf.xfd.NativeBits;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
+import net.sf.xfd.provider.FileProvider;
 import net.sf.xfd.provider.ProviderBase;
 import net.sf.xfd.provider.PublicProvider;
 import net.sf.xfd.provider.RootSingleton;
@@ -722,6 +724,35 @@ public class MainActivity extends BaseActivity implements
 
     public boolean onActionModeItemClick(MenuItem item) {
         switch (item.getItemId()) {
+            case R.id.menu_item_copy:
+                try {
+                    DirAdapter adapter = state.adapter;
+
+                    Entry[] selection = new Entry[adapter.getSelectedCount()];
+
+                    CharSequence resolved = state.os.readlinkat(DirFd.NIL, fdPath(state.adapter.getFd()));
+
+                    adapter.forEachSelected(new SelectionPredicate<Entry, IOException>() {
+                        int i = 0;
+
+                        @Override
+                        public boolean apply(Entry item) throws IOException {
+                            Uri uri = PublicProvider.publicUri(getApplication(), resolved);
+                            selection[i++] = item;
+                            return true;
+                        }
+                    });
+
+                    FileTasks ft = FileTasks.getInstance(this);
+
+                    ft.rmdir(state.os, selection, adapter.getFd());
+
+                    toast("Multiple items have been copied to clipboard");
+                } catch (Throwable e) {
+                    toast("Unable to copy to clipboard. " + e.getMessage());
+                }
+
+                return true;
             case R.id.menu_item_delete:
                 try {
                     DirAdapter adapter = state.adapter;

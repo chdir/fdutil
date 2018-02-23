@@ -15,6 +15,7 @@
  */
 package net.sf.xfd;
 
+import android.net.Uri;
 import android.support.annotation.NonNull;
 
 import java.util.Arrays;
@@ -30,7 +31,11 @@ public final class FileNameDecoder {
     }
 
     public FileNameDecoder(int capacity, char escape) {
-        this.buffer = new CharBuilder(capacity, escape);
+        this(new CharBuilder(capacity, escape));
+    }
+
+    public FileNameDecoder(CharBuilder buffer) {
+        this.buffer = buffer;
     }
 
     @NonNull

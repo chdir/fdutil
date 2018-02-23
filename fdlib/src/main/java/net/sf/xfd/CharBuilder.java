@@ -54,6 +54,16 @@ public final class CharBuilder extends CharArrayList {
         insert(elementsCount - 1, digits[i & 15]);
     }
 
+    public void append(String s) {
+        int l = s.length();
+
+        ensureBufferSpace(l);
+
+        s.getChars(0, l, buffer, elementsCount);
+
+        elementsCount += l;
+    }
+
     // append contents of CharBuffer to builder
     public void append(CharBuffer chars) {
         int pos = chars.position();

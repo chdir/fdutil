@@ -167,6 +167,10 @@ public abstract class OS {
     @WorkerThread
     public abstract @NonNull CharSequence readlinkat(@DirFd int fd, @NonNull CharSequence pathname) throws IOException;
 
+    @CheckResult
+    @WorkerThread
+    public abstract @NonNull CharSequence canonicalize(@DirFd int fd, @NonNull CharSequence pathname) throws IOException;
+
     @WorkerThread
     public abstract void fstatat(@DirFd int dir, @NonNull CharSequence pathname, @NonNull Stat stat, @StatAtFlags int flags) throws IOException;
 

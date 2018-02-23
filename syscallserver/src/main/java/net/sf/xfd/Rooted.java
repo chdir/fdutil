@@ -155,6 +155,12 @@ public final class Rooted extends net.sf.xfd.OS implements Closeable {
         }
     }
 
+    @NonNull
+    @Override
+    public CharSequence canonicalize(int fd, @NonNull CharSequence pathname) throws IOException {
+        return delegate.canonicalize(fd, pathname);
+    }
+
     @Override
     @WorkerThread
     public void renameat(@DirFd int fd, CharSequence name, @DirFd int fd2, CharSequence name2) throws IOException {

@@ -60,6 +60,10 @@ public final class NativeString implements GetChars, Parcelable, Cloneable {
         this(null, bytes, bytes.length);
     }
 
+    public NativeString(@NonNull byte[] bytes, int len) {
+        this(null, bytes, len);
+    }
+
     @Override
     public int length() {
         if (length == 0) return 0;

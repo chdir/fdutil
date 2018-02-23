@@ -52,6 +52,19 @@ import java.util.concurrent.locks.Lock;
 import static android.provider.DocumentsContract.Document.MIME_TYPE_DIR;
 
 public final class ProviderBase extends ContextWrapper {
+    /**
+     * The biggest buffer, required to contain normal filenames on commonly used
+     * Linux file systems. This includes worst-case space for 255 UTF-16 characters,
+     * encoded in UTF-8 (each two-byte UTF-16 char corresponds to at most 4 bytes
+     * of UTF-8 byte stream). This does not include a terminating zero.
+     */
+    public static final int FILENAME_BYTES_MAX = 255 * 2;
+
+    /**
+     * The maximum length of Linux filename in UTF-16 characters
+     */
+    public static final int FILENAME_CHARS_MAX = 255;
+
     public static final String DEFAULT_MIME = "application/octet-stream";
 
     private static final String ALT_DIR_MIME = "inode/directory";
@@ -215,10 +228,6 @@ public final class ProviderBase extends ContextWrapper {
                 if (resolved == null) {
                     try {
                         resolved = os.readlinkat(dirFd, name);
-
-                        if (resolved.charAt(0) == '/') {
-                            resolved = canonString(resolved);
-                        }
                     } catch (IOException linkErr) {
                         return LINK_MIME;
                     }
@@ -341,11 +350,7 @@ public final class ProviderBase extends ContextWrapper {
                         }
 
                         if (resolved == null) {
-                            resolved = os.readlinkat(parentFd, name);
-
-                            if (resolved.charAt(0) == '/') {
-                                resolved = canonString(resolved);
-                            }
+                            resolved = os.canonicalize(parentFd, name);
                         }
 
                         final String linkTargetExtension = getExtensionFromPath(resolved);
@@ -497,15 +502,12 @@ public final class ProviderBase extends ContextWrapper {
         }
     }
 
-    public static boolean isCanon(CharSequence s) {
-        // XXX suspect conversion
-        final String str = s.toString();
-
+    public static boolean isCanon(String s) {
         int l = s.length();
 
         // check for dots at the end
         if (s.charAt(l - 1) == '.') {
-            final int i = str.lastIndexOf('/');
+            final int i = s.lastIndexOf('/');
 
             if (i == l - 2 || (i == l - 3 && s.charAt(l - 2) == '.')) {
                 return false;
@@ -515,7 +517,7 @@ public final class ProviderBase extends ContextWrapper {
         // detect slash-dot-slash segments
         int start = 0; int idx;
         do {
-            idx = str.indexOf('/', start);
+            idx = s.indexOf('/', start);
 
             if (idx == -1) {
                 break;
@@ -729,17 +731,14 @@ public final class ProviderBase extends ContextWrapper {
         return builder.toString();
     }
 
-    static String canonString(CharSequence path) {
-        // XXX suspect conversion
-        final String pathStr = path.toString();
-
+    static String canonString(String pathStr) {
         if (isCanon(pathStr)) return pathStr;
 
-        final StringBuilder builder = acquire(path.length());
+        final StringBuilder builder = acquire(pathStr.length());
 
         final String result;
         try {
-            builder.append(path);
+            builder.append(pathStr);
 
             stripSlashes(builder);
             removeDotSegments(builder);

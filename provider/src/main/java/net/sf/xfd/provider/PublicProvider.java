@@ -51,10 +51,13 @@ import android.util.Base64;
 import com.carrotsearch.hppc.ObjectIntHashMap;
 import com.carrotsearch.hppc.ObjectIntMap;
 
+import net.sf.xfd.CharBuilder;
 import net.sf.xfd.DirFd;
 import net.sf.xfd.Fd;
+import net.sf.xfd.FileNameDecoder;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.NativeBits;
+import net.sf.xfd.NativeString;
 import net.sf.xfd.OS;
 import net.sf.xfd.Stat;
 
@@ -63,10 +66,12 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.nio.ByteBuffer;
 import java.security.InvalidKeyException;
 import java.security.Key;
 import java.security.NoSuchAlgorithmException;
 import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
@@ -74,6 +79,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
+import javax.crypto.ShortBufferException;
 
 import static android.content.ContentResolver.SCHEME_CONTENT;
 import static android.os.ParcelFileDescriptor.MODE_READ_ONLY;
@@ -107,11 +113,13 @@ public final class PublicProvider extends ContentProvider {
 
     private static final String COOKIE_FILE = "key";
     private static final int COOKIE_SIZE = 20;
+    private static final int B64_FLAGS = URL_SAFE | NO_WRAP | NO_PADDING;
 
     public static final String URI_ARG_TYPE = "t";
     public static final String URI_ARG_EXPIRY = "e";
     public static final String URI_ARG_COOKIE = "c";
     public static final String URI_ARG_MODE = "m";
+    public static final String URI_ARG_B64 = "b";
 
     private static volatile Intent authActivity;
 
@@ -622,6 +630,7 @@ public final class PublicProvider extends ContentProvider {
                 }
             }
         }
+
         throw new FileNotFoundException("Can't open " + uri + " as type " + mimeTypeFilter);
     }
 
@@ -684,12 +693,6 @@ public final class PublicProvider extends ContentProvider {
         }
     }
 
-    @Nullable
-    @Override
-    public Uri insert(@NonNull Uri uri, ContentValues values) {
-        return null;
-    }
-
     @Override
     public int delete(@NonNull Uri uri, String selection, String[] selectionArgs) {
         try {
@@ -719,66 +722,305 @@ public final class PublicProvider extends ContentProvider {
         return 0;
     }
 
+    @Nullable
+    @Override
+    public Uri insert(@NonNull Uri uri, ContentValues values) {
+        return null;
+    }
+
     @Override
     public int update(@NonNull Uri uri, ContentValues values, String selection, String[] selectionArgs) {
         return 0;
     }
 
+
     public static @Nullable Uri publicUri(Context context, CharSequence path) {
-        return publicUri(context, path, "r");
+        return new Hasher(context).publicUri(path, "r");
     }
 
-    public static @Nullable Uri publicUri(Context context, CharSequence path, String mode) {
-        // XXX suspect coversion
-        final String pathString = path.toString();
-
-        final int modeInt = ParcelFileDescriptor.parseMode(mode);
-
-        final Key key = getSalt(context);
-
-        if (key == null) {
-            return null;
+    static int indexOf(byte[] array, int start, char symbol) {
+        for (int i = start; i < array.length; ++i) {
+            if (array[i] == symbol) {
+                return i;
+            }
         }
 
-        final Calendar c = Calendar.getInstance();
-        c.add(Calendar.DATE, 1);
-        final long l = c.getTimeInMillis();
+        return -1;
+    }
 
-        final byte[] encoded;
-        try {
-            final Mac hash = Mac.getInstance("HmacSHA1");
-            hash.init(key);
-
-            final byte[] modeBits = new byte[] {
-                    (byte) (modeInt >> 24), (byte) (modeInt >> 16), (byte) (modeInt >> 8), (byte) modeInt,
-            };
-            hash.update(modeBits);
-
-            final byte[] expiryDate = new byte[] {
-                    (byte) (l >> 56), (byte) (l >> 48), (byte) (l >> 40), (byte) (l >> 32),
-                    (byte) (l >> 24), (byte) (l >> 16), (byte) (l >> 8), (byte) l,
-            };
-            hash.update(expiryDate);
-
-            encoded = hash.doFinal(pathString.getBytes());
-        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            throw new AssertionError("Error while creating a hash: " + e.getMessage(), e);
+    static int lastIndexOf(byte[] array, int start, char symbol) {
+        for (int i = array.length - 1; i >= 0; --i) {
+            if (array[i] == symbol) {
+                return i;
+            }
         }
 
-        final String packageName = context.getPackageName();
+        return -1;
+    }
 
-        final Uri.Builder b = new Uri.Builder()
-                .scheme(SCHEME_CONTENT)
-                .authority(packageName + AUTHORITY_SUFFIX);
+    public static class Hasher {
+        private static final NativeString ROOT = new NativeString(new byte[] { '/' });
 
-        if (!"r".equals(mode)) {
-            b.appendQueryParameter(URI_ARG_MODE, mode);
+        private final Calendar c = GregorianCalendar.getInstance();
+        private final CharBuilder ch = new CharBuilder(20, '\0');
+        private final FileNameDecoder decoder = new FileNameDecoder(ch);
+        private final Uri.Builder b = new Uri.Builder();
+        private final byte[] prefix = new byte[12];
+        private final byte[] sha = new byte[20];
+        private final ByteBuffer p = ByteBuffer.wrap(prefix);
+
+        private final String packageName;
+        private final Mac hash;
+        private final Key key;
+
+        public Hasher(Context context) {
+            packageName = context.getPackageName();
+
+            b.scheme(SCHEME_CONTENT).authority(packageName + AUTHORITY_SUFFIX);
+
+            try {
+                hash = Mac.getInstance("HmacSHA1");
+
+                key = getSalt(context);
+
+                if (key != null) {
+                    hash.init(key);
+                }
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
         }
 
-        return b.path(pathString)
-                .appendQueryParameter(URI_ARG_EXPIRY, String.valueOf(l))
-                .appendQueryParameter(URI_ARG_COOKIE, encodeToString(encoded, URL_SAFE | NO_WRAP | NO_PADDING))
-                .build();
+        public NativeString getFilename(@CanonPath String path, boolean isBinary) {
+            int slash = path.lastIndexOf('/', Math.max(0, path.length() - 2));
+
+            switch (slash) {
+                default:
+                    break;
+                case 0:
+                    if (path.length() == 1) {
+                        return ROOT;
+                    }
+                    break;
+                case -1:
+                    throw new IllegalStateException(path + " must be absolute (with at least one slash!)");
+            }
+
+            byte[] decoded; int len;
+
+            if (!isBinary) {
+                String name = path.substring(slash + 1, path.length());
+
+                decoded = name.getBytes();
+
+                len = decoded.length;
+            } else {
+                int l = path.length();
+
+                int strEnd = path.charAt(l - 1) == '/' ? l - 1 : l;
+
+                int estimate = Base64Decoder.outLength(path, slash + 1, strEnd);
+
+                decoded = new byte[estimate];
+
+                len = Base64Decoder.decode(path, slash + 1, strEnd, decoded, 0);
+            }
+
+            return new NativeString(decoded, len);
+        }
+
+        public NativeString getParent(@CanonPath String path, boolean isBinary) {
+            int slash = path.lastIndexOf('/', Math.max(0, path.length() - 2));
+
+            switch (slash) {
+                default:
+                    break;
+                case 0:
+                    return ROOT;
+                case -1:
+                    throw new IllegalArgumentException(path + " must be absolute (with at least one slash!)");
+            }
+
+            byte[] decoded; int len = 0;
+
+            if (!isBinary) {
+                String parent = path.substring(0, slash + 1);
+
+                decoded = parent.getBytes();
+            } else {
+                int estimate = Base64Decoder.outLength(path, 0, slash);
+
+                decoded = new byte[estimate];
+
+                int segment, last = 0;
+
+                int current = path.indexOf('/', last + 1);
+
+                do {
+                    if (current == -1) {
+                        current = slash;
+                    }
+
+                    decoded[len++] = '/';
+
+                    segment = current - last - 1;
+
+                    switch (segment) {
+                        default:
+                            break;
+                        case 2:
+                            if ('.' == path.charAt(current - 1) && '.' == path.charAt(current - 2)) {
+                                decoded[len++] = '.';
+                                decoded[len++] = '.';
+                                continue;
+                            }
+                            break;
+                        case 1:
+                            if ('.' == path.charAt(current - 1)) {
+                                decoded[len++] = '.';
+                                continue;
+                            }
+                            break;
+                    }
+
+                    len += Base64Decoder.decode(path, last + 1, current, decoded, len);
+
+                    last = current;
+
+                    current = path.indexOf('/', last + 1);
+                }
+                while (current != slash);
+            }
+
+            return new NativeString(decoded, len - 1);
+        }
+
+        public @Nullable Uri publicUri(@CanonPath CharSequence path, String mode) {
+            if (key == null) {
+                return null;
+            }
+
+            final int modeInt = ParcelFileDescriptor.parseMode(mode);
+
+            String serializedPath;
+            byte[] authenticBytes;
+
+            if (path instanceof NativeString) {
+                NativeString asNs = (NativeString) path;
+
+                authenticBytes = asNs.getBytes();
+
+                ch.elementsCount = 0;
+
+                encodePath(asNs);
+
+                serializedPath = ch.toString();
+            } else {
+                serializedPath = path.toString();
+
+                authenticBytes = serializedPath.getBytes();
+            }
+
+            b.path(serializedPath);
+
+            c.setTimeInMillis(System.currentTimeMillis());
+            c.add(Calendar.DATE, 1);
+            long l = c.getTimeInMillis();
+
+            p.rewind();
+            p.putInt(modeInt);
+            p.putLong(l);
+
+            try {
+                hash.reset();
+                hash.update(prefix);
+                hash.update(authenticBytes);
+                hash.doFinal(sha, 0);
+            } catch (ShortBufferException e) {
+                throw new AssertionError(e);
+            }
+
+            ch.elementsCount = 0;
+
+            ch.append(URI_ARG_EXPIRY);
+            ch.add('=');
+            ch.append(String.valueOf(l));
+
+            ch.add('&');
+
+            ch.append(URI_ARG_COOKIE);
+            ch.add('=');
+            ch.append(encodeToString(sha, B64_FLAGS));
+
+            if (!"r".equals(mode)) {
+                ch.add('&');
+
+                ch.append(URI_ARG_MODE);
+                ch.add('=');
+                ch.append(mode);
+            }
+
+            b.query(ch.toString());
+
+            return b.build();
+        }
+
+        private void encodePath(@CanonPath NativeString source) {
+            int length = source.byteLength();
+
+            byte[] array = source.getBytes();
+
+            CharSequence decoded = decoder.decode(array, 0, length);
+
+            if (decoded instanceof NativeString) {
+                ch.elementsCount = 0;
+
+                int last, current = 0;
+
+                do {
+                    last = current;
+
+                    ch.add('/');
+
+                    current = indexOf(array, last + 1, '/');
+
+                    if (current == -1) {
+                        current = length;
+                    }
+
+                    int segment = current - last - 1;
+
+                    switch (segment) {
+                        default:
+                            break;
+                        case 2:
+                            if (array[current - 1] == '.' && array[current - 2] == '.') {
+                                ch.add('.', '.');
+                                continue;
+                            }
+                            break;
+                        case 1:
+                            if (array[current - 1] == '.') {
+                                ch.add('.');
+                                continue;
+                            }
+                            break;
+                    }
+
+                    int estimate = Math.min(Base64Encoder.outLength(segment), FILENAME_CHARS_MAX);
+
+                    ch.ensureCapacity(ch.size() + estimate);
+
+                    ch.elementsCount +=
+                            Base64Encoder.encode(array, last, current, ch.buffer, ch.elementsCount);
+                }
+                while (current != length);
+
+                b.path(ch.toString());
+            } else {
+                b.path(decoded.toString());
+            }
+        }
     }
 }
 
