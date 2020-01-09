@@ -28,6 +28,10 @@ import java.io.IOException;
 import java.io.SyncFailedException;
 import java.util.Scanner;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.truth.Truth.assertThat;
 
@@ -201,11 +205,7 @@ public class InotifyTests {
 
     @Test
     public void renameTillItDrops() throws IOException {
-        int needEventsToOverflow;
-
-        try (Scanner s = new Scanner(new FileInputStream("/proc/sys/fs/inotify/max_queued_events"))) {
-            needEventsToOverflow = s.nextInt() + 1;
-        }
+        int needEventsToOverflow = getMaxQueuedEvents();
 
         final File dir = new File("/proc/self/fd/" + dirDescriptor).getCanonicalFile();
 
@@ -329,17 +329,20 @@ public class InotifyTests {
         assertThat(listener.changesDetected).isEqualTo(1);
     }
 
+    private int getMaxQueuedEvents() {
+        try (Scanner s = new Scanner(new FileInputStream("/proc/sys/fs/inotify/max_queued_events"))) {
+            return s.nextInt();
+        } catch (Exception e) {
+            return 200000;
+        }
+    }
+
     @Test
     @LargeTest
-    @FlakyTest(detail = "using a SelectorThread, so results may be indeterminate")
     public void heavySelectorLoad() throws IOException, InterruptedException {
-        int queueMax;
+        int queueMax = getMaxQueuedEvents();
 
-        try (Scanner s = new Scanner(new FileInputStream("/proc/sys/fs/inotify/max_queued_events"))) {
-            queueMax = s.nextInt();
-        }
-
-        int tolerableCount = Math.min(queueMax - 1, 99999);
+        int tolerableCount = Math.min(queueMax - 1, 10000);
 
         final File dir = new File("/proc/self/fd/" + dirDescriptor).getCanonicalFile();
 
@@ -349,11 +352,12 @@ public class InotifyTests {
 
         final class Listener implements Inotify.InotifyListener {
             private volatile int resetsDetected = 0;
-            private volatile int changesDetected = 0;
+
+            private AtomicInteger changesDetected = new AtomicInteger();
 
             @Override
             public void onChanges() {
-                ++changesDetected;
+                changesDetected.incrementAndGet();
             }
 
             @Override
@@ -389,13 +393,13 @@ public class InotifyTests {
 
                 sync(dirDescriptor);
 
-                // give the kernel & SelectorThread some time to process entries
-                Thread.sleep(10);
-
                 instrumentation.waitForIdleSync();
 
-                assertThat(listener.changesDetected).isAtLeast(1);
-                assertThat(listener.resetsDetected).isEqualTo(0);
+                // give the kernel & SelectorThread some time to process entries
+                while (listener.changesDetected.get() == 0) {
+                }
+
+                assertThat(listener.changesDetected.get()).isAtLeast(1);
             } finally {
                 for (File file : dir.listFiles()) {
                     //noinspection ResultOfMethodCallIgnored
@@ -404,19 +408,13 @@ public class InotifyTests {
             }
         }
 
-        assertThat(listener.changesDetected).isAtLeast(1);
-        assertThat(listener.resetsDetected).isEqualTo(1);
+        assertThat(listener.resetsDetected).isAtLeast(1);
     }
 
     @Test
     @LargeTest
-    @FlakyTest(detail = "using a SelectorThread, so results may be indeterminate")
     public void headCount() throws IOException, InterruptedException {
-        int queueMax;
-
-        try (Scanner s = new Scanner(new FileInputStream("/proc/sys/fs/inotify/max_queued_events"))) {
-            queueMax = s.nextInt();
-        }
+        int queueMax = getMaxQueuedEvents();
 
         int eventsTotal = Math.min(queueMax - 1, 333);
 
@@ -426,13 +424,18 @@ public class InotifyTests {
         //noinspection ResultOfMethodCallIgnored
         aFile.createNewFile();
 
+        final SynchronousQueue<Object> sync = new SynchronousQueue<>();
+
         final class Listener implements Inotify.InotifyListener {
             private volatile int resetsDetected = 0;
-            private volatile int changesDetected = 0;
+
+            private int changesDetected = 0;
 
             @Override
             public void onChanges() {
                 ++changesDetected;
+
+                sync.offer(this);
             }
 
             @Override
@@ -486,7 +489,7 @@ public class InotifyTests {
                     }
 
                     // give the kernel & SelectorThread some time to process each entry
-                    Thread.sleep(10);
+                    sync.take();
                 }
 
                 sync(dirDescriptor);
@@ -503,8 +506,10 @@ public class InotifyTests {
             }
         }
 
+        sync.poll();
+
         assertThat(listener.changesDetected).isEqualTo(eventsTotal);
-        assertThat(listener.resetsDetected).isEqualTo(1);
+        assertThat(listener.resetsDetected).isAtLeast(1);
     }
 
     private static void sync(int fd) throws SyncFailedException {
