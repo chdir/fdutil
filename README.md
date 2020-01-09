@@ -19,7 +19,7 @@ repositories {
 }
 
 dependencies {
-  compile 'net.sf.xfd:providers:0.1'
+  implementation 'net.sf.xfd:providers:0.1'
 }
 ```
 
