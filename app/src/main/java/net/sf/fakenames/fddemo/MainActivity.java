@@ -17,6 +17,7 @@
 package net.sf.fakenames.fddemo;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipDescription;
@@ -147,8 +148,11 @@ public class MainActivity extends BaseActivity implements
     String rootPref;
 
     @Override
+    @SuppressLint("WrongThread")
     protected void onCreate(Bundle savedInstanceState) {
         cbm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        assert cbm != null;
+
         cbm.addPrimaryClipChangedListener(this);
 
         super.onCreate(savedInstanceState);
@@ -464,7 +468,7 @@ public class MainActivity extends BaseActivity implements
                 state.os.dispose(resolvedFd);
             }
 
-            final Uri uri = PublicProvider.publicUri(this, resolved, "r");
+            final Uri uri = PublicProvider.publicUri(this, resolved);
 
             final Intent view = new Intent(Intent.ACTION_VIEW, uri);
 

@@ -733,6 +733,9 @@ public final class PublicProvider extends ContentProvider {
         return 0;
     }
 
+    public static @Nullable Uri publicUri(Context context, CharSequence path, String mode) {
+        return new Hasher(context).publicUri(path, mode);
+    }
 
     public static @Nullable Uri publicUri(Context context, CharSequence path) {
         return new Hasher(context).publicUri(path, "r");

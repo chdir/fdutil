@@ -35,7 +35,10 @@ import java.io.IOException;
  * An inotify API is provided by kernel on best-effort basis. It may misreport non-existing
  * (from user's POV) change or omit an actual change. Many filesystems will silently ignore
  * registered watches and simply report nothing. Some notifications may arrive after you have
- * already unregistered a watch, some may never arrive. You should treat this API as a helpful hint
+ * already unregistered a watch, some may never arrive. Linux kernel inotify subsystem may coalesce
+ * subsequent events of the same type; in addition, implementations of this interface may coalesce
+ * events of different types, happening on the same watch, — do not expect the total count of reported
+ * events to match with number of "actual" filesystem changes. You should treat this API as a helpful hint
  * and never rely on it as the primary driving force in your code.
  *
  * <p/>
@@ -138,7 +141,8 @@ public interface Inotify extends Closeable {
         /**
          * Notifies of changes, related to renaming, creation and deletion of files. This callback
          * corresponds to IN_ATTR, IN_CREATE, IN_DELETE, IN_MOVED_FROM and IN_MOVED_TO events of
-         * native {@code inotify (7)} API.
+         * native {@code inotify (7)} API. <b>Multiple events of different types may be coalesced
+         * into single callback</b>.
          */
         void onChanges();
 
