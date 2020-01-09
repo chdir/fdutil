@@ -18,13 +18,9 @@ package net.sf.fakenames.fddemo;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.ActivityNotFoundException;
-import android.content.ClipData;
-import android.content.ClipDescription;
-import android.content.ClipboardManager;
-import android.content.ContentResolver;
-import android.content.Intent;
-import android.content.SharedPreferences;
+import android.app.PendingIntent;
+import android.content.*;
+import android.content.pm.ShortcutManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
@@ -41,11 +37,8 @@ import android.support.v7.widget.DefaultItemAnimator;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
 import android.text.TextUtils;
-import android.view.ContextMenu;
-import android.view.Menu;
-import android.view.MenuItem;
-import android.view.View;
-import android.view.ViewGroup;
+import android.util.Log;
+import android.view.*;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
@@ -55,34 +48,11 @@ import com.carrotsearch.hppc.IntObjectMap;
 import net.sf.fakenames.fddemo.icons.IconFontDrawable;
 import net.sf.fakenames.fddemo.icons.Icons;
 import net.sf.fakenames.fddemo.util.Utils;
-import net.sf.fakenames.fddemo.view.ConfirmationDialog;
-import net.sf.fakenames.fddemo.view.DirAdapter;
+import net.sf.fakenames.fddemo.view.*;
 import net.sf.fakenames.fddemo.view.DirAdapter.SelectionPredicate;
-import net.sf.fakenames.fddemo.view.DirFastScroller;
-import net.sf.fakenames.fddemo.view.DirItemHolder;
-import net.sf.fakenames.fddemo.view.DirLayoutManager;
-import net.sf.fakenames.fddemo.view.FileMenuInfo;
-import net.sf.fakenames.fddemo.view.NameInputFragment;
-import net.sf.fakenames.fddemo.view.NewLinkInputFragment;
-import net.sf.fakenames.fddemo.view.RenameNameInputFragment;
-import net.sf.fakenames.fddemo.view.SaneDecor;
-import net.sf.fakenames.fddemo.view.ShortcutNameInputFragment;
-import net.sf.xfd.DirFd;
-import net.sf.xfd.Directory;
+import net.sf.xfd.*;
 import net.sf.xfd.Directory.Entry;
-import net.sf.xfd.ErrnoException;
-import net.sf.xfd.Fd;
-import net.sf.xfd.FsType;
-import net.sf.xfd.Limit;
-import net.sf.xfd.LogUtil;
-import net.sf.xfd.MountInfo;
-import net.sf.xfd.NativeBits;
-import net.sf.xfd.OS;
-import net.sf.xfd.Stat;
-import net.sf.xfd.provider.FileProvider;
-import net.sf.xfd.provider.ProviderBase;
-import net.sf.xfd.provider.PublicProvider;
-import net.sf.xfd.provider.RootSingleton;
+import net.sf.xfd.provider.*;
 
 import java.io.File;
 import java.io.IOException;
@@ -108,6 +78,8 @@ public class MainActivity extends BaseActivity implements
         ClipboardManager.OnPrimaryClipChangedListener,
         SharedPreferences.OnSharedPreferenceChangeListener,
         PopupMenu.OnMenuItemClickListener {
+    public static final String EXTRA_FSO = "net.sf.xfd.FSO";
+
     static final String ACTION_MOVE = "net.sf.chdir.action.MOVE";
     static final String ACTION_COPY = "net.sf.chdir.action.COPY";
     static final String ACTION_CANCEL = "net.sf.chdir.action.CANCEL";
@@ -130,7 +102,7 @@ public class MainActivity extends BaseActivity implements
     ViewGroup content;
 
     @Bind(R.id.act_main_dirList)
-    RecyclerView directoryList;
+    DirRecyclerView directoryList;
 
     @Bind(R.id.act_main_quick_scroll)
     DirFastScroller quickScroller;
@@ -162,8 +134,6 @@ public class MainActivity extends BaseActivity implements
 
         setContentView(R.layout.file_manager);
 
-        evaluateCurrentClip();
-
         state = getLastNonConfigurationInstance();
 
         if (state == null) {
@@ -175,7 +145,7 @@ public class MainActivity extends BaseActivity implements
 
             final Intent intent = getIntent();
 
-            final CharSequence dest = intent.getCharSequenceExtra(ShortcutActivity.EXTRA_FSO);
+            final CharSequence dest = getPathFromIntent(intent);
 
             final CharSequence dirToOpen;
 
@@ -223,6 +193,30 @@ public class MainActivity extends BaseActivity implements
         quickScroller.setRecyclerView(directoryList);
 
         registerForContextMenu(directoryList);
+    }
+
+    @Override
+    public Intent getIntent() {
+        Intent intent = super.getIntent();
+        if (intent == null) {
+            return null;
+        }
+
+        Bundle extras = intent.getExtras();
+        if (extras != null) {
+            extras.setClassLoader(getClassLoader());
+        }
+
+        return intent;
+    }
+
+    private NativeString getPathFromIntent(Intent intent) {
+        final String encodedPath = intent.getStringExtra(EXTRA_FSO);
+        if (encodedPath == null || encodedPath.length() < 2) {
+            return null;
+        }
+
+        return NameCodec.fromEncodedForm(encodedPath);
     }
 
     private void setUpAdapter() {
@@ -321,6 +315,8 @@ public class MainActivity extends BaseActivity implements
 
         if (hasFocus) {
             getWindow().setBackgroundDrawable(null);
+
+            evaluateCurrentClip();
         }
     }
 
@@ -559,8 +555,10 @@ public class MainActivity extends BaseActivity implements
         final FileMenuInfo info = (FileMenuInfo) menuInfo;
 
         if (state.adapter.getSelectedCount() == 0) {
-            final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_select, 0, "Select");
-            selItem.setOnMenuItemClickListener(this);
+            if (!".".contentEquals(info.fileInfo.name) && !"..".contentEquals(info.fileInfo.name)) {
+                final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_select, 0, "Select");
+                selItem.setOnMenuItemClickListener(this);
+            }
         } else {
             final MenuItem selItem = menu.add(Menu.NONE, R.id.menu_item_deselect, 0, "Deselect all");
             selItem.setOnMenuItemClickListener(this);
@@ -578,7 +576,9 @@ public class MainActivity extends BaseActivity implements
         final MenuItem renameItem = menu.add(Menu.NONE, R.id.menu_item_rename, 3, "Rename");
         renameItem.setOnMenuItemClickListener(this);
 
-        final MenuItem bufferItem = menu.add(Menu.NONE, R.id.menu_copy_path, Menu.CATEGORY_ALTERNATIVE | 6, "Copy path");
+        final SubMenu moreActions = menu.addSubMenu(Menu.NONE, R.id.menu_more, Menu.CATEGORY_ALTERNATIVE | 10, "More actions");
+
+        final MenuItem bufferItem = moreActions.add(Menu.NONE, R.id.menu_copy_path, 0, "Copy path");
         bufferItem.setOnMenuItemClickListener(this);
 
         FsType type = null;
@@ -600,10 +600,10 @@ public class MainActivity extends BaseActivity implements
                 final MenuItem editItem = menu.add(Menu.NONE, R.id.menu_item_edit, 2, "Edit");
                 editItem.setOnMenuItemClickListener(this);
 
-                final MenuItem shareItem = menu.add(Menu.NONE, R.id.menu_item_share, 4, "Share");
+                final MenuItem shareItem = moreActions.add(Menu.NONE, R.id.menu_item_share, 1, "Share");
                 shareItem.setOnMenuItemClickListener(this);
             } else {
-                final MenuItem shortcutItem = menu.add(Menu.NONE, R.id.menu_make_shortcut, Menu.CATEGORY_ALTERNATIVE | 7, "Make shortcut");
+                final MenuItem shortcutItem = moreActions.add(Menu.NONE, R.id.menu_make_shortcut, 2, "Make shortcut");
                 shortcutItem.setOnMenuItemClickListener(this);
             }
         }
@@ -614,6 +614,11 @@ public class MainActivity extends BaseActivity implements
     @Override
     public boolean onMenuItemClick(MenuItem item) {
         FileMenuInfo info = (FileMenuInfo) item.getMenuInfo();
+        if (info == null) {
+            // sub-menus lost track of parent ContextMenuInfo, so we have to get it directly
+            // (which kind of loses the point of going the whole "proper" way to use it...)
+            info = (FileMenuInfo) directoryList.getContextMenuInfo();
+        }
 
         switch (item.getItemId()) {
             case R.id.menu_item_delete:
@@ -727,31 +732,46 @@ public class MainActivity extends BaseActivity implements
     }
 
     public boolean onActionModeItemClick(MenuItem item) {
+        boolean cut = false;
+
         switch (item.getItemId()) {
+            case R.id.menu_item_cut:
+                cut = true;
             case R.id.menu_item_copy:
                 try {
                     DirAdapter adapter = state.adapter;
 
-                    Entry[] selection = new Entry[adapter.getSelectedCount()];
+                    ClipData.Item[] selection = new ClipData.Item[adapter.getSelectedCount()];
 
-                    CharSequence resolved = state.os.readlinkat(DirFd.NIL, fdPath(state.adapter.getFd()));
+                    int dirFd = state.adapter.getFd();
+
+                    final Intent intent = new Intent(cut ? ACTION_MOVE : ACTION_COPY);
 
                     adapter.forEachSelected(new SelectionPredicate<Entry, IOException>() {
                         int i = 0;
 
                         @Override
                         public boolean apply(Entry item) throws IOException {
+                            CharSequence resolved = state.os.readlinkat(dirFd, item.name);
                             Uri uri = PublicProvider.publicUri(getApplication(), resolved);
-                            selection[i++] = item;
+                            selection[i++] = new ClipData.Item(null, intent, uri);
                             return true;
                         }
                     });
 
-                    FileTasks ft = FileTasks.getInstance(this);
+                    final ClipDescription description = new ClipDescription("" + selection.length + " files", MIMETYPES_TEXT_URILIST);
 
-                    ft.rmdir(state.os, selection, adapter.getFd());
+                    ClipData cd = new ClipData(description, selection[0]);
 
-                    toast("Multiple items have been copied to clipboard");
+                    for (int i = 1; i < selection.length; ++i) {
+                        cd.addItem(selection[i]);
+                    }
+
+                    cbm.setPrimaryClip(cd);
+
+                    toast("" + selection.length + " items have been copied to clipboard");
+
+                    invalidateOptionsMenu();
                 } catch (Throwable e) {
                     toast("Unable to copy to clipboard. " + e.getMessage());
                 }
@@ -889,7 +909,11 @@ public class MainActivity extends BaseActivity implements
         try {
             final CharSequence path = state.os.readlinkat(state.adapter.getFd(), shortcutTarget);
 
-            Utils.createShortcut(this, path, shortcutName);
+            PendingIntent pi = createPendingResult(R.id.req_shortcut, new Intent(), PendingIntent.FLAG_UPDATE_CURRENT);
+
+            if (!Utils.createShortcut(this, path, shortcutName, pi.getIntentSender())) {
+                toast("Failed to create the shortcut");
+            }
         } catch (IOException e) {
             toast("Unable to resolve full path. "  + e.getMessage());
         }
@@ -1048,6 +1072,10 @@ public class MainActivity extends BaseActivity implements
 
                 ft.handleCancellationIntent(data);
                 break;
+            case R.id.req_shortcut:
+                // Show the confirmation
+                toast("Shortcut is added to home screen");
+                break;
             default:
                 super.onActivityResult(requestCode, resultCode, data);
         }
@@ -1057,10 +1085,31 @@ public class MainActivity extends BaseActivity implements
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
 
-        if (intent != null && ACTION_CANCEL.equals(intent.getAction())) {
-            FileTasks ft = FileTasks.getInstance(this);
+        if (intent != null) {
+            String action = intent.getAction();
+            if (action == null) {
+                return;
+            }
 
-            ft.handleCancellationIntent(intent);
+            switch (action) {
+                case ACTION_CANCEL:
+                    FileTasks ft = FileTasks.getInstance(this);
+                    ft.handleCancellationIntent(intent);
+                    return;
+                default:
+                    // process shortcut intent if present
+                    if (!intent.hasExtra(EXTRA_FSO)) {
+                        return;
+                    }
+
+                    final NativeString dirName = getPathFromIntent(intent);
+
+                    if (dirName != null && dirName.byteLength() != 0) {
+                        opendir(DirFd.NIL, dirName);
+                    } else {
+                        toast("Failed to parse shortcut!");
+                    }
+            }
         }
     }
 
@@ -1104,14 +1153,8 @@ public class MainActivity extends BaseActivity implements
             if (!quoted) builder.append('"');
             return builder.toString();
         } else {
-            builder = new StringBuilder(message.length() + 2);
-            if (!quoted) builder.append('"');
-            builder.append(message);
-            builder.setCharAt(0, Character.toLowerCase(builder.charAt(0)));
-            if (!quoted) builder.append('"');
+            return message.toString();
         }
-
-        return builder.toString();
     }
 
     @Override
@@ -1144,6 +1187,10 @@ public class MainActivity extends BaseActivity implements
             intent = item.getIntent();
 
             if (intent != null) {
+                Bundle xtras = intent.getExtras();
+
+                xtras.setClassLoader(getClassLoader());
+
                 if (ACTION_MOVE.equals(intent.getAction())) {
                     move = true;
                 }
@@ -1347,7 +1394,7 @@ public class MainActivity extends BaseActivity implements
     private boolean canHandleClip() {
         final ClipData clip = clipData;
 
-        if (clip == null || clip.getItemCount() != 1) {
+        if (clip == null || clip.getItemCount() <= 0) {
             return false;
         }
 
@@ -1356,6 +1403,14 @@ public class MainActivity extends BaseActivity implements
         final Uri uri = item.getUri();
         if (uri == null) {
             return false;
+        }
+
+        for (int i = 0; i < clipData.getItemCount(); ++i) {
+            ClipData.Item it = clipData.getItemAt(i);
+
+            Intent intent = it.getIntent();
+
+            checkExtrasData(intent);
         }
 
         final String scheme = uri.getScheme();
@@ -1367,6 +1422,19 @@ public class MainActivity extends BaseActivity implements
         }
 
         return false;
+    }
+
+    private void checkExtrasData(Intent intent) {
+        intent.setExtrasClassLoader(getClassLoader());
+
+        Bundle extras = intent.getExtras();
+        if (extras != null) {
+            try {
+                extras.keySet();
+            } catch (Throwable t) {
+                intent.replaceExtras(new Bundle());
+            }
+        }
     }
 
     private final class DirObserver extends RecyclerView.AdapterDataObserver implements DirLayoutManager.OnLayoutCallback {
@@ -1439,6 +1507,7 @@ public class MainActivity extends BaseActivity implements
         @Override
         public boolean onCreateActionMode(ActionMode mode, Menu menu) {
             menu.add(Menu.NONE, R.id.menu_item_copy, 500, "Copy");
+            menu.add(Menu.NONE, R.id.menu_item_cut, 550, "Cut");
             menu.add(Menu.NONE, R.id.menu_item_delete, 600, "Delete");
 
             //if (Build.VERSION.SDK_INT >= 23) {

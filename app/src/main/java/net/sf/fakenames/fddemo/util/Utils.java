@@ -1,18 +1,25 @@
 package net.sf.fakenames.fddemo.util;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentSender;
+import android.content.pm.ShortcutManager;
 import android.support.annotation.NonNull;
+import android.support.v4.content.pm.ShortcutInfoCompat;
+import android.support.v4.content.pm.ShortcutManagerCompat;
+import android.support.v4.graphics.drawable.IconCompat;
 import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
 import com.carrotsearch.hppc.CharArrayList;
 
+import net.sf.fakenames.fddemo.MainActivity;
 import net.sf.fakenames.fddemo.R;
-import net.sf.fakenames.fddemo.ShortcutActivity;
 import net.sf.xfd.LogUtil;
 import net.sf.xfd.NativeString;
+import net.sf.xfd.provider.NameCodec;
 import net.sf.xfd.provider.ProviderBase;
 
 import java.io.FileInputStream;
@@ -58,30 +65,29 @@ public final class Utils {
         return false;
     }
 
-    public static void createShortcut(Context ctx, CharSequence path, String shortcutName) {
+    public static boolean createShortcut(Context ctx, CharSequence path, String shortcutName, IntentSender callback) {
         try {
+            String encoded = NameCodec.toEncodedForm(path);
+
             // Create the intent that will handle the shortcut
-            final Intent shortcutIntent = new Intent(ctx, ShortcutActivity.class);
+            final Intent shortcutIntent = new Intent(ctx, MainActivity.class);
+            shortcutIntent.setAction(Intent.ACTION_MAIN);
             shortcutIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             shortcutIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            shortcutIntent.putExtra(ShortcutActivity.EXTRA_FSO, path);
+            shortcutIntent.putExtra(MainActivity.EXTRA_FSO, encoded);
 
-            // The intent to send to broadcast for register the shortcut intent
-            final Intent intent = new Intent();
-            intent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent);
-            intent.putExtra(Intent.EXTRA_SHORTCUT_NAME, shortcutName);
-            intent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE,
-                    Intent.ShortcutIconResource.fromContext(ctx, R.drawable.ic_fso_folder));
-            intent.setAction("com.android.launcher.action.INSTALL_SHORTCUT"); //$NON-NLS-1$
-            ctx.sendBroadcast(intent);
+            ShortcutInfoCompat sic = new ShortcutInfoCompat.Builder(ctx, path.toString())
+                    .setShortLabel(shortcutName)
+                    .setIntent(shortcutIntent)
+                    .setActivity(new ComponentName(ctx, MainActivity.class))
+                    .setIcon(IconCompat.createWithResource(ctx, R.drawable.ic_fso_folder))
+                    .build();
 
-            // Show the confirmation
-            toast(ctx, "Shortcut creation succeeded");
-
+            return ShortcutManagerCompat.requestPinShortcut(ctx, sic, callback);
         } catch (Throwable e) {
             LogUtil.logCautiously(TAG, "Failed to create the shortcut", e); //$NON-NLS-1$
 
-            toast(ctx, "Failed to create the shortcut");
+            return false;
         }
     }
 

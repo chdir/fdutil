@@ -38,6 +38,8 @@ import java.util.Arrays;
  * </li>
  */
 public final class NativeString implements GetChars, Parcelable, Cloneable {
+    private static final ThreadLocal<FileNameDecoder> decoder = new Decoder();
+
     private static final LongHashFunction hasher = LongHashFunction.xx();
 
     final byte[] bytes;
@@ -182,6 +184,10 @@ public final class NativeString implements GetChars, Parcelable, Cloneable {
         return length;
     }
 
+    public byte[] copyBytes() {
+        return Arrays.copyOf(bytes, length);
+    }
+
     public NativeString slice(int start, int end) {
         byte[] array = Arrays.copyOfRange(bytes, start, end);
 
@@ -247,4 +253,11 @@ public final class NativeString implements GetChars, Parcelable, Cloneable {
             return ByteOrder.BIG_ENDIAN;
         }
     }
+
+    private static final class Decoder extends ThreadLocal<FileNameDecoder> {
+        @Override
+        protected FileNameDecoder initialValue() {
+            return new FileNameDecoder(0, '\\');
+        }
+    };
 }

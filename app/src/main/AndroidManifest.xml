@@ -28,18 +28,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".ShortcutActivity"
-            android:taskAffinity=":main"
-            android:uiOptions="none"
-            android:noHistory="true"
-            android:excludeFromRecents="true"
-            android:stateNotNeeded="true"
-            android:resumeWhilePausing="true"
-            android:theme="@android:style/Theme.NoDisplay"
-            android:exported="true"
-            tools:ignore="UnusedAttribute" />
-
         <activity android:name=".SAFActivity"
             android:label="File Picker"
             android:taskAffinity=":picker"

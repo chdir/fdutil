@@ -23,7 +23,7 @@ public final class DirRecyclerView extends RecyclerView {
     private ContextMenu.ContextMenuInfo lastMenuInfo;
 
     @Override
-    protected ContextMenu.ContextMenuInfo getContextMenuInfo() {
+    public ContextMenu.ContextMenuInfo getContextMenuInfo() {
         return lastMenuInfo;
     }
 
