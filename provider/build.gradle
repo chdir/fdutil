@@ -1,15 +1,18 @@
 apply plugin: 'com.android.library'
-apply plugin: 'me.tatarka.retrolambda'
 
 final int libmagicVersionCode = 125
 
 android {
+    //noinspection GradleCompatible
     compileSdkVersion 24
-    buildToolsVersion '26.0.2'
+    buildToolsVersion '29.0.2'
 
     defaultConfig {
         minSdkVersion 19
+
+        //noinspection OldTargetApi
         targetSdkVersion 25
+
         versionCode 2
         versionName '1.6'
 
@@ -67,9 +70,9 @@ if (project.hasProperty('deploymentConfig')) {
 
 dependencies {
     //noinspection GradleCompatible
-    compile 'com.android.support:support-compat:25.1.0'
+    implementation 'com.android.support:support-compat:25.1.0'
 
-    compile project(':syscallserver')
+    api project(':syscallserver')
 
     testCompile 'junit:junit:4.12'
     testCompile 'org.robolectric:robolectric:3.2.2'
