@@ -11,7 +11,10 @@ import android.os.storage.StorageManager;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 
+import android.util.Log;
+import com.carrotsearch.hppc.LongObjectHashMap;
 import net.sf.xfd.MountInfo;
+import net.sf.xfd.MountInfo.Mount;
 import net.sf.xfd.OS;
 import net.sf.xfd.SelectorThread;
 
@@ -27,7 +30,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.Arrays;
+import java.util.*;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 
@@ -115,71 +119,95 @@ public class MountsTests {
     volatile boolean gotIt;
 
     @Test
-    public void mountSomeObb() throws IOException {
+    public void mountSomeObb() throws IOException, InterruptedException {
         gotIt = false;
 
         MountInfo mi = os.getMounts();
 
         final Lock lock = mi.getLock();
 
-        final Condition ready = lock.newCondition();
-
-        int oldSize = mi.mountMap.size();
+        LongObjectHashMap<Mount> oldMap;
+        lock.lock();
+        try {
+            oldMap = new LongObjectHashMap<>(mi.mountMap);
+        } finally {
+            lock.unlock();
+        }
 
         Context myCtx = instrumentation.getContext();
 
         StorageManager sm = (StorageManager) myCtx.getSystemService(Context.STORAGE_SERVICE);
+        assert sm != null;
+
+        CountDownLatch latch = new CountDownLatch(1);
+        CountDownLatch unmountLatch = new CountDownLatch(2);
 
         final OnObbStateChangeListener l = new OnObbStateChangeListener() {
             @Override
             public void onObbStateChange(String path, int state) {
                 if (state == MOUNTED) {
-                    lock.lock();
-                    try {
-                        mi.reparse();
-
-                        gotIt = true;
-
-                        ready.signalAll();
-                    } finally {
-                        lock.unlock();
-                    }
+                    latch.countDown();
                 } else if (state != UNMOUNTED) {
                     throw new AssertionError("Unexpected state: " + state);
                 }
+
+                unmountLatch.countDown();
             }
         };
 
-        int newSize = oldSize;
+        LongObjectHashMap<Mount> newMap;
 
         final String obbPath = obbFile.getAbsolutePath();
 
-        lock.lock();
+        sm.mountObb(obbPath, null, l);
         try {
-            sm.mountObb(obbPath, null, l);
-            try {
-                while (!gotIt) {
-                    ready.awaitUninterruptibly();
-                }
+            latch.await();
 
-                newSize = mi.mountMap.size();
+            lock.lock();
+            try {
+                mi.reparse();
+
+                newMap = new LongObjectHashMap<>(mi.mountMap);
             } finally {
-                sm.unmountObb(obbPath, true, l);
+                lock.unlock();
             }
+
         } finally {
-            lock.unlock();
+            sm.unmountObb(obbPath, true, l);
         }
 
-        assertThat(newSize).isGreaterThan(oldSize);
+        unmountLatch.await();
+
+        ArrayList<Mount> oldList = new ArrayList<>(oldMap.size());
+        ArrayList<Mount> newList = new ArrayList<>(newMap.size());
+
+        Collections.addAll(oldList, oldMap.values().toArray(Mount.class));
+        Collections.addAll(newList, newMap.values().toArray(Mount.class));
+
+        Collections.sort(oldList);
+        Collections.sort(newList);
+
+        Log.i("mountSomeObb", "\n" + oldList);
+        Log.i("mountSomeObb", "\n" + newList);
+
+        assertThat(newMap.size()).isGreaterThan(oldMap.size());
     }
 
     @Test
-    public void mountSomeObbWithSelector() throws IOException {
+    public void mountSomeObbWithSelector() throws IOException, InterruptedException {
         gotIt = false;
 
         MountInfo mi = os.getMounts();
 
         final Lock lock = mi.getLock();
+
+        LongObjectHashMap<Mount> oldMap;
+        lock.lock();
+        try {
+            oldMap = new LongObjectHashMap<>(mi.mountMap);
+        } finally {
+            lock.unlock();
+        }
 
         final Condition ready = lock.newCondition();
 
@@ -188,6 +216,9 @@ public class MountsTests {
         Context myCtx = instrumentation.getContext();
 
         StorageManager sm = (StorageManager) myCtx.getSystemService(Context.STORAGE_SERVICE);
+        assert sm != null;
+
+        CountDownLatch unmountLatch = new CountDownLatch(2);
 
         final OnObbStateChangeListener l = new OnObbStateChangeListener() {
             @Override
@@ -195,6 +226,8 @@ public class MountsTests {
                 if (state != MOUNTED && state != UNMOUNTED) {
                     throw new AssertionError("Unexpected state: " + state);
                 }
+
+                unmountLatch.countDown();
             }
         };
 
@@ -230,20 +263,24 @@ public class MountsTests {
 
             final String obbPath = obbFile.getAbsolutePath();
 
-            lock.lock();
+            LongObjectHashMap<Mount> newMap;
+
+            sm.mountObb(obbPath, null, l);
             try {
-                sm.mountObb(obbPath, null, l);
+                lock.lock();
                 try {
                     while (!gotIt) {
                         ready.awaitUninterruptibly();
                     }
 
+                    newMap = new LongObjectHashMap<>(mi.mountMap);
+
                     newSize = mi.mountMap.size();
                 } finally {
-                    sm.unmountObb(obbPath, true, l);
+                    lock.unlock();
                 }
             } finally {
-                lock.unlock();
+                sm.unmountObb(obbPath, true, l);
             }
 
             instrumentation.runOnMainSync(new Runnable() {
@@ -256,6 +293,21 @@ public class MountsTests {
                     }
                 }
             });
+
+            unmountLatch.await();
+
+            ArrayList<Mount> oldList = new ArrayList<>(oldMap.size());
+            ArrayList<Mount> newList = new ArrayList<>(newMap.size());
+
+            Collections.addAll(oldList, oldMap.values().toArray(Mount.class));
+            Collections.addAll(newList, newMap.values().toArray(Mount.class));
+
+            Collections.sort(oldList);
+            Collections.sort(newList);
+
+            Log.i("mountSomeObb", "\n" + oldList);
+            Log.i("mountSomeObb", "\n" + newList);
+
 
             assertThat(newSize).isGreaterThan(oldSize);
         }
