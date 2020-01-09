@@ -46,10 +46,14 @@ public class SelectorThread extends Thread implements Closeable {
 
     private final Condition epollCleanupComplete = selectorLock.newCondition();
 
-    public SelectorThread() throws IOException {
-        super("Selector thread");
+    public SelectorThread(String name) throws IOException {
+        super(name);
 
         selector = Selector.open();
+    }
+
+    public SelectorThread() throws IOException {
+        this("xfd selector");
     }
 
     private volatile boolean epollCleanupPending;

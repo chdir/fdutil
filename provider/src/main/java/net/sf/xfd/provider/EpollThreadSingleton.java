@@ -27,7 +27,7 @@ public final class EpollThreadSingleton {
         if (instance == null) {
             synchronized (EpollThreadSingleton.class) {
                 if (instance == null) {
-                    instance = new SelectorThread();
+                    instance = new SelectorThread("xfd default");
                     instance.start();
                 }
             }
