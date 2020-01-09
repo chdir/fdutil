@@ -7,3 +7,6 @@
 [submodule "goro"]
 	path = goro
 	url = https://github.com/Alexander--/goro.git
+[submodule "syscallserver/src/main/cpp/fuse"]
+	path = syscallserver/src/main/cpp/fuse
+	url = git@github.com:chdir/libfuse.git
